@@ -401,7 +401,7 @@ describe('review pipeline', () => {
 
     // Mixed models & public MCP scope invariant verified
     expect(stageCalls.find((c) => c.stage === 'triage')?.model).toBe(
-      'anthropic:claude-haiku-4-5',
+      'anthropic:claude-haiku-5-5',
     );
     expect(stageCalls.find((c) => c.stage === 'specialist:security')?.model).toBe(
       'google:gemini-2.5-pro',

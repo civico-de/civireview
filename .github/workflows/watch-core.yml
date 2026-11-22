@@ -12,7 +12,7 @@ on:
         type: boolean
         default: true
       preset:
-        description: Model preset override (defaults to repo var CIVIREVIEW_PRESET or sonnet)
+        description: Model preset override (defaults to repo var CIVIREVIEW_PRESET or sonnet-opus)
         required: false
         type: string
         default: ''
@@ -137,7 +137,7 @@ jobs:
           WATCH_REPOS: ${{ vars.CIVIREVIEW_WATCH_REPOS || 'civicrm/civicrm-core' }}
           ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
           ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
-          PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet' }}
+          PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet-opus' }}
           AB_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.ab_enabled || 'true' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}

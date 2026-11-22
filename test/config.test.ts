@@ -46,7 +46,7 @@ describe('config schema and loader', () => {
 
   test('resolves all named presets cleanly', () => {
     expect(resolveModels('sonnet-opus').verifier).toBe(
-      'anthropic:claude-opus-4-6',
+      'anthropic:claude-opus-5-5',
     );
     expect(resolveModels('cross-model').verifier).toBe('openai:gpt-5.2');
     expect(resolveModels('subscription').triage).toBe('claude-cli:haiku');
@@ -85,9 +85,9 @@ review:
 
     expect(cfg.trigger).toBe('@review-bot');
     expect(cfg.preset).toBe('cross-model');
-    expect(cfg.models.triage).toBe('anthropic:claude-haiku-4-5');
+    expect(cfg.models.triage).toBe('anthropic:claude-haiku-5-5');
     expect(cfg.models.specialists.correctness).toBe(
-      'anthropic:claude-sonnet-4-6',
+      'anthropic:claude-sonnet-5-5',
     );
     expect(cfg.models.specialists.security).toBe('openai:gpt-5.2');
     expect(cfg.models.specialists.ui).toBe('google:gemini-2.5-pro');

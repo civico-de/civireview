@@ -15,14 +15,14 @@ preset: sonnet
 # Supported providers: anthropic, openai, google, openrouter, openai-compat,
 #                      claude-cli, codex-cli, opencode-cli
 models:
-  # triage: anthropic:claude-haiku-4-5
+  # triage: anthropic:claude-haiku-5-5
   specialists:
-    # correctness: anthropic:claude-sonnet-4-6
+    # correctness: anthropic:claude-sonnet-5-5
     # security: openai:gpt-5.2
-    # tests: anthropic:claude-sonnet-4-6
+    # tests: anthropic:claude-sonnet-5-5
     # ui: google:gemini-2.5-pro
-  # verifier: anthropic:claude-opus-4-6
-  # threadReply: anthropic:claude-sonnet-4-6
+  # verifier: anthropic:claude-opus-5-5
+  # threadReply: anthropic:claude-sonnet-5-5
 
 # Layer 1 CiviKitchen A/B verification options (Standalone only)
 ab:

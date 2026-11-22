@@ -55,7 +55,7 @@ Comment on any open, closed, or merged PR (or reply inside an inline review thre
 - `@civireview --include browser,ui` / `--exclude tests,matrix` — run only selected checks/lenses or skip specific ones
 - `@civireview --page civicrm/admin/extensions` — probe explicit Standalone route(s) in browser A/B
 - `@civireview --no-browser` / `--no-ab` / `--demo` — toggle browser A/B, CiviKitchen A/B, or `ck demo`
-- `@civireview --model anthropic:claude-sonnet-4-6 --verifier openai:gpt-5.2`
+- `@civireview --model anthropic:claude-sonnet-5-5 --verifier openai:gpt-5.2`
 
 ### 2. Local CLI (API, Subscription, or Local GPU)
 
@@ -113,7 +113,7 @@ This repository ships a ready-to-enable scheduled watcher workflow ([`.github/wo
 1. **Secrets**: `CIVIREVIEW_GITHUB_TOKEN` (classic PAT on the `@civireview` account with **`public_repo`** + **`notifications`** scopes for default `notifications` mode, or `public_repo` with `CIVIREVIEW_WATCH_MODE=search`) and `ANTHROPIC_API_KEY` (plus `OPENAI_API_KEY` if using `cross-model`).
 2. **Repository Variables**:
    - `CIVIREVIEW_WATCH_ENABLED` = `true` (kill-switch to turn scheduled polling on/off)
-   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`main`).
+   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet-opus`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`main`).
 
 Processed comment IDs and rolling hourly/daily budget records are persisted in `.civireview-state/seen.json` (and cached across GitHub Actions runs).
 
@@ -149,9 +149,9 @@ Every stage accepts `<provider>:<modelId>` (`anthropic`, `openai`, `google`, `op
 
 | Preset | Triage | Specialists | Verifier |
 | --- | --- | --- | --- |
-| `sonnet` | `anthropic:claude-haiku-4-5` | `anthropic:claude-sonnet-4-6` | `anthropic:claude-sonnet-4-6` |
-| `sonnet-opus` | `anthropic:claude-haiku-4-5` | `anthropic:claude-sonnet-4-6` | `anthropic:claude-opus-4-6` |
-| `cross-model` | `anthropic:claude-haiku-4-5` | `anthropic:claude-sonnet-4-6` | `openai:gpt-5.2` |
+| `sonnet` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-sonnet-5-5` |
+| `sonnet-opus` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-opus-5-5` |
+| `cross-model` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `openai:gpt-5.2` |
 | `subscription` | `claude-cli:haiku` | `claude-cli:sonnet` | `claude-cli:opus` |
 | `local-gpu` | `openai-compat:local` | `opencode-cli:local` | `opencode-cli:local` |
 

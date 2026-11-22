@@ -9,6 +9,10 @@ export interface ModelPricing {
   cacheReadPerMillion: number;
   /** USD per 1M cache-write input tokens (defaults to inputPerMillion if unset). */
   cacheWritePerMillion: number;
+  /** Optional long-prompt tier threshold (total prompt tokens including cache). */
+  longPromptThresholdTokens?: number;
+  /** Multiplier applied across all token categories when prompt exceeds threshold. */
+  longPromptMultiplier?: number;
 }
 
 interface PricingRule {
@@ -18,12 +22,51 @@ interface PricingRule {
 
 /**
  * Published API token pricing (USD per 1M tokens).
- * Ordered most-specific first so e.g. `gpt-5-mini` matches before `gpt-5`.
+ * Ordered most-specific first so e.g. `claude-opus-5-5` matches before older 4.x rules.
  */
 const MODEL_PRICING_RULES: readonly PricingRule[] = [
-  // Anthropic Claude (API + claude-cli aliases + OpenRouter anthropic/*)
+  // Anthropic Claude 5.x (API + claude-cli aliases + OpenRouter anthropic/*)
   {
-    match: /(?:^|[/:_-])(?:claude-)?opus-4-[56]|^opus$/i,
+    match: /(?:^|[/:_-])(?:claude-)?fable-5/i,
+    pricing: {
+      inputPerMillion: 8.0,
+      outputPerMillion: 40.0,
+      cacheReadPerMillion: 0.2,
+      cacheWritePerMillion: 10.0,
+    },
+  },
+  {
+    match: /(?:^|[/:_-])(?:claude-)?opus-5|^opus$/i,
+    pricing: {
+      inputPerMillion: 4.0,
+      outputPerMillion: 20.0,
+      cacheReadPerMillion: 0.2,
+      cacheWritePerMillion: 5.0,
+    },
+  },
+  {
+    match: /(?:^|[/:_-])(?:claude-)?sonnet-5|^sonnet$/i,
+    pricing: {
+      inputPerMillion: 2.0,
+      outputPerMillion: 10.0,
+      cacheReadPerMillion: 0.1,
+      cacheWritePerMillion: 2.5,
+    },
+  },
+  {
+    match: /(?:^|[/:_-])(?:claude-)?haiku-5|^haiku$/i,
+    pricing: {
+      inputPerMillion: 0.1,
+      outputPerMillion: 0.5,
+      cacheReadPerMillion: 0.01,
+      cacheWritePerMillion: 0.125,
+      longPromptThresholdTokens: 100_000,
+      longPromptMultiplier: 5,
+    },
+  },
+  // Anthropic Claude 4.x / 3.5 (legacy & explicit overrides)
+  {
+    match: /(?:^|[/:_-])(?:claude-)?opus-4-[56]/i,
     pricing: {
       inputPerMillion: 5.0,
       outputPerMillion: 25.0,
@@ -41,7 +84,7 @@ const MODEL_PRICING_RULES: readonly PricingRule[] = [
     },
   },
   {
-    match: /(?:^|[/:_-])(?:claude-)?sonnet-4|^sonnet$/i,
+    match: /(?:^|[/:_-])(?:claude-)?sonnet-4/i,
     pricing: {
       inputPerMillion: 3.0,
       outputPerMillion: 15.0,
@@ -50,7 +93,7 @@ const MODEL_PRICING_RULES: readonly PricingRule[] = [
     },
   },
   {
-    match: /(?:^|[/:_-])(?:claude-)?haiku-4|^haiku$/i,
+    match: /(?:^|[/:_-])(?:claude-)?haiku-4/i,
     pricing: {
       inputPerMillion: 1.0,
       outputPerMillion: 5.0,
@@ -189,10 +232,10 @@ export function lookupModelPricing(modelSpec: string): ModelPricing | undefined 
   // Provider-level defaults for `default` CLI aliases
   if (provider === 'claude-cli' && modelId === 'default') {
     return {
-      inputPerMillion: 3.0,
-      outputPerMillion: 15.0,
-      cacheReadPerMillion: 0.3,
-      cacheWritePerMillion: 3.75,
+      inputPerMillion: 2.0,
+      outputPerMillion: 10.0,
+      cacheReadPerMillion: 0.1,
+      cacheWritePerMillion: 2.5,
     };
   }
   if (provider === 'codex-cli' && modelId === 'default') {
@@ -232,11 +275,20 @@ export function estimateStageCostUsd(
   const uncachedInput = usage.inputTokens;
   const output = usage.outputTokens;
 
+  const totalPromptTokens = uncachedInput + cacheRead + cacheWrite;
+  const tierMultiplier =
+    pricing.longPromptThresholdTokens !== undefined &&
+    pricing.longPromptMultiplier !== undefined &&
+    totalPromptTokens > pricing.longPromptThresholdTokens
+      ? pricing.longPromptMultiplier
+      : 1;
+
   const usd =
-    (uncachedInput * pricing.inputPerMillion +
+    ((uncachedInput * pricing.inputPerMillion +
       cacheWrite * pricing.cacheWritePerMillion +
       cacheRead * pricing.cacheReadPerMillion +
-      output * pricing.outputPerMillion) /
+      output * pricing.outputPerMillion) *
+      tierMultiplier) /
     1_000_000;
 
   return roundUsd(usd);
