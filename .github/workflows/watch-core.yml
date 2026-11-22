@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ''
+      effort:
+        description: Reasoning effort override (auto [default], low, medium, high, xhigh, max)
+        required: false
+        type: string
+        default: ''
       ab_enabled:
         description: Enable CiviKitchen Standalone A/B Docker verification
         required: false
@@ -138,6 +143,7 @@ jobs:
           ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
           ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
           PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet-opus' }}
+          EFFORT_VAL: ${{ inputs.effort || vars.CIVIREVIEW_EFFORT || 'auto' }}
           AB_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.ab_enabled || 'true' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
@@ -154,6 +160,7 @@ jobs:
             --allow-orgs "$ALLOW_ORGS"
             --trigger "$TRIGGER_STR"
             --preset "$PRESET_VAL"
+            --effort "$EFFORT_VAL"
             --max-per-hour "$MAX_PER_HOUR"
             --max-daily-usd "$MAX_DAILY_USD"
             --max-age-minutes "$MAX_AGE_MINUTES"

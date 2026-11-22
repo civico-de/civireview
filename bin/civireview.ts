@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { loadConfig } from '../src/config/loader.ts';
 import {
   AuthorAssociationSchema,
+  EffortModeSchema,
   ModelSpecSchema,
   PresetNameSchema,
   WatchModeSchema,
@@ -51,6 +52,7 @@ Subcommands:
 Common Options:
   --repo <owner/name>       GitHub repository slug
   --preset <name>           Model preset (sonnet, sonnet-opus, cross-model, subscription, local-gpu)
+  --effort <mode>           Reasoning effort (auto [default], low, medium, high, xhigh, max)
   --model <provider:model>  Override all specialist models
   --triage <provider:m>     Override Stage 0 triage model
   --verifier <provider:m>   Override verifier model
@@ -186,6 +188,7 @@ async function resolveGitLocalRefs(
 
 function buildConfigOverrides(opts: {
   preset?: string;
+  effort?: string;
   model?: string;
   triage?: string;
   verifier?: string;
@@ -214,7 +217,7 @@ function buildConfigOverrides(opts: {
     };
     // When overriding specialists to a local CLI provider without specifying --preset
     // or --triage (and with no Anthropic API key configured), avoid failing Stage 0 on
-    // the default `sonnet` preset's API-backed `anthropic:claude-haiku-4-5`.
+    // the default `sonnet` preset's API-backed `anthropic:claude-haiku-5-5`.
     if (
       opts.preset === undefined &&
       opts.triage === undefined &&
@@ -239,6 +242,9 @@ function buildConfigOverrides(opts: {
   if (opts.liveProve) checks.liveProve = true;
 
   const review: Record<string, unknown> = {};
+  if (opts.effort !== undefined) {
+    review.effort = EffortModeSchema.parse(opts.effort.toLowerCase());
+  }
   if (opts.include && opts.include.length > 0) review.include = opts.include;
   if (opts.exclude && opts.exclude.length > 0) review.exclude = opts.exclude;
 
@@ -304,6 +310,7 @@ async function main(): Promise<void> {
       repo: { type: 'string' },
       pr: { type: 'string' },
       preset: { type: 'string' },
+      effort: { type: 'string' },
       model: { type: 'string' },
       triage: { type: 'string' },
       verifier: { type: 'string' },
@@ -435,6 +442,7 @@ async function main(): Promise<void> {
       cwd,
       buildConfigOverrides({
         preset: values.preset,
+        effort: values.effort,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -490,6 +498,7 @@ async function main(): Promise<void> {
       cwd,
       buildConfigOverrides({
         preset: values.preset,
+        effort: values.effort,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -647,6 +656,7 @@ async function main(): Promise<void> {
       cwd,
       buildConfigOverrides({
         preset: values.preset,
+        effort: values.effort,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -756,6 +766,7 @@ async function main(): Promise<void> {
       cwd,
       buildConfigOverrides({
         preset: values.preset,
+        effort: values.effort,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -826,6 +837,7 @@ async function main(): Promise<void> {
       cwd,
       buildConfigOverrides({
         preset: values.preset,
+        effort: values.effort,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,

@@ -139,10 +139,15 @@ export class CodexCliRunner implements StageRunner {
       }
     }
 
+    const codexEffort =
+      req.effort === 'max' ? 'xhigh' : req.effort;
     const args = [
       codexBin,
       'exec',
       ...(parsed.modelId !== 'default' ? ['--model', parsed.modelId] : []),
+      ...(codexEffort
+        ? ['-c', `model_reasoning_effort=${JSON.stringify(codexEffort)}`]
+        : []),
       '--sandbox',
       'read-only',
       '--output-schema',

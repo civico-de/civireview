@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   isCheckEnabled,
   isLensEnabled,
+  type EffortLevel,
   type ModelSpec,
   type ResolvedCiviReviewConfig,
 } from '../config/schema.ts';
@@ -1035,6 +1036,102 @@ export function buildShortSummary(params: {
 }
 
 /**
+ * Resolves the reasoning effort level for a pipeline stage.
+ *
+ * Precedence:
+ * 1. Explicit per-stage override (`config.review.stageEffort.<stage>`)
+ * 2. Explicit global effort override (`config.review.effort !== 'auto'`)
+ * 3. Dynamic `auto` policy tuned for CiviCRM PR reviews:
+ *    - `triage`: `low` (pure routing/classification/summary)
+ *    - `threadReply`: `medium` (concise inline Q&A)
+ *    - `specialist`: `high` on security-sensitive PRs, large diffs (>250 lines / >6 non-test files),
+ *      security lens with live surface risk flags, or failing empirical A/B checks; otherwise `medium`
+ *    - `verifier`: `high` when verifying high/critical candidates, >=4 candidates, security-sensitive PRs,
+ *      or failing empirical checks; otherwise `medium`
+ */
+export function resolveStageEffort(params: {
+  stage: 'triage' | 'specialist' | 'verifier' | 'threadReply';
+  config: Pick<ResolvedCiviReviewConfig, 'review'>;
+  lens?: 'correctness' | 'security' | 'tests' | 'ui';
+  bundle?: EvidenceBundle;
+  triage?: TriageOutput;
+  candidates?: CandidateFinding[];
+  verificationMatrix?: VerificationMatrixEntry[];
+}): EffortLevel {
+  const { stage, config, lens, bundle, triage, candidates, verificationMatrix } =
+    params;
+
+  const perStage = config.review.stageEffort;
+  if (stage === 'triage' && perStage?.triage) return perStage.triage;
+  if (stage === 'specialist' && perStage?.specialists) return perStage.specialists;
+  if (stage === 'verifier' && perStage?.verifier) return perStage.verifier;
+  if (stage === 'threadReply' && perStage?.threadReply) return perStage.threadReply;
+
+  if (config.review.effort !== 'auto') {
+    return config.review.effort;
+  }
+
+  if (stage === 'triage') {
+    return 'low';
+  }
+  if (stage === 'threadReply') {
+    return 'medium';
+  }
+
+  const hasEmpiricalFail = Boolean(
+    verificationMatrix?.some((m) => m.status === 'FAIL'),
+  );
+  const isSecurityPr = triage?.prKind === 'security-sensitive';
+  const isHighRiskPr = isSecurityPr || triage?.riskLevel === 'high';
+
+  if (stage === 'specialist') {
+    const diffFiles = bundle?.diffFiles ?? [];
+    const totalChangedLines = diffFiles.reduce(
+      (sum, f) => sum + f.additions + f.deletions,
+      0,
+    );
+    const nonTestFiles = diffFiles.filter(
+      (f) => !f.flags.isTest && !f.flags.isDocsOnly,
+    ).length;
+    const hasSurfaceRisk = Boolean(
+      (bundle?.abReport.surfaceDiff.liveSurfaceDiff?.risk_flags.length ?? 0) > 0 ||
+        bundle?.abReport.surfaceDiff.changes.some(
+          (c) =>
+            c.kind === 'permission-check' ||
+            c.kind === 'schema' ||
+            c.kind === 'upgrade',
+        ),
+    );
+
+    if (
+      isHighRiskPr ||
+      hasEmpiricalFail ||
+      totalChangedLines > 250 ||
+      nonTestFiles > 6 ||
+      (lens === 'security' && hasSurfaceRisk)
+    ) {
+      return 'high';
+    }
+    return 'medium';
+  }
+
+  // Stage 2: Verifier
+  const candidateList = candidates ?? [];
+  const hasHighOrCritical = candidateList.some(
+    (c) => c.severity === 'critical' || c.severity === 'high',
+  );
+  if (
+    isHighRiskPr ||
+    hasEmpiricalFail ||
+    hasHighOrCritical ||
+    candidateList.length >= 4
+  ) {
+    return 'high';
+  }
+  return 'medium';
+}
+
+/**
  * Executes the full multi-stage Layer 2 review pipeline:
  * Stage 0 (Triage) -> Stage 1 (Parallel Specialist Lenses) ->
  * Stage 2 (Sceptical Adversarial Verifier) -> Stage 3 (Gate, Dedup, Rank).
@@ -1091,7 +1188,15 @@ async function executeReviewPipeline(
   const { verificationMatrix, notVerified } = buildVerificationMatrix(bundle);
 
   // Stage 0: Triage
-  logger?.info?.(`Stage 0 (Triage) using ${config.models.triage}`);
+  const triageEffort = resolveStageEffort({
+    stage: 'triage',
+    config,
+    bundle,
+    verificationMatrix,
+  });
+  logger?.info?.(
+    `Stage 0 (Triage) using ${config.models.triage} [effort=${triageEffort}]`,
+  );
   const triagePrompt = buildTriagePrompt(bundle);
   const triageResult = await runStage(
     {
@@ -1104,6 +1209,7 @@ async function executeReviewPipeline(
       schema: TriageOutputSchema,
       schemaName: 'TriageOutput',
       mcpScope,
+      effort: triageEffort,
       maxSteps: config.review.maxSteps,
     },
     registry,
@@ -1188,9 +1294,22 @@ async function executeReviewPipeline(
     : '';
 
   // Stage 1: Parallel Specialist Lenses
-  logger?.info?.(`Stage 1 (Specialists): ${activeLenses.join(', ')}`);
+  const lensEfforts = activeLenses.map((lens) => ({
+    lens,
+    effort: resolveStageEffort({
+      stage: 'specialist',
+      config,
+      lens,
+      bundle,
+      triage,
+      verificationMatrix,
+    }),
+  }));
+  logger?.info?.(
+    `Stage 1 (Specialists): ${lensEfforts.map((l) => `${l.lens}[effort=${l.effort}]`).join(', ')}`,
+  );
   const specialistResults = await Promise.all(
-    activeLenses.map(async (lens) => {
+    lensEfforts.map(async ({ lens, effort }) => {
       const model = config.models.specialists[lens];
       const prompt = buildSpecialistPrompt(lens, bundle, triage);
       const isUi = lens === 'ui';
@@ -1205,6 +1324,7 @@ async function executeReviewPipeline(
           schema: SpecialistOutputSchema,
           schemaName: `SpecialistOutput_${lens}`,
           mcpScope,
+          effort,
           ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
           ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
           maxSteps: config.review.maxSteps,
@@ -1235,8 +1355,16 @@ async function executeReviewPipeline(
   // Stage 2: Sceptical Adversarial Verifier
   let rawVerified: VerifiedFinding[] = [];
   if (candidates.length > 0) {
+    const verifierEffort = resolveStageEffort({
+      stage: 'verifier',
+      config,
+      bundle,
+      triage,
+      candidates,
+      verificationMatrix,
+    });
     logger?.info?.(
-      `Stage 2 (Verifier) auditing ${candidates.length} candidate(s) using ${config.models.verifier}`,
+      `Stage 2 (Verifier) auditing ${candidates.length} candidate(s) using ${config.models.verifier} [effort=${verifierEffort}]`,
     );
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards);
     const liveProveEnabled =
@@ -1269,6 +1397,7 @@ async function executeReviewPipeline(
         schema: VerifierOutputSchema,
         schemaName: 'VerifierOutput',
         mcpScope,
+        effort: verifierEffort,
         ...(browserImages.length > 0 ? { images: browserImages } : {}),
         ...(extraTools ? { extraTools } : {}),
         ...(extraMcpServers ? { extraMcpServers } : {}),
@@ -1373,6 +1502,12 @@ export async function runThreadReply(
   const sharedPrefix = buildSharedEvidencePrefix(bundle, filteredPatch);
   const prompt = buildThreadReplyPrompt(threadContext);
 
+  const replyEffort = resolveStageEffort({
+    stage: 'threadReply',
+    config,
+    bundle,
+  });
+
   const res = await runStage(
     {
       stage: 'thread-reply',
@@ -1384,6 +1519,7 @@ export async function runThreadReply(
       schema: ThreadReplyOutputSchema,
       schemaName: 'ThreadReplyOutput',
       mcpScope,
+      effort: replyEffort,
       maxSteps: config.review.maxSteps,
     },
     registry,

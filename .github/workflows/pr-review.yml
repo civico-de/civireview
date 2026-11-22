@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: 'sonnet'
+      effort:
+        description: Reasoning effort mode (auto [default], low, medium, high, xhigh, max)
+        required: false
+        type: string
+        default: 'auto'
       model:
         description: Optional specialist model override (<provider>:<model>)
         required: false
@@ -127,6 +132,7 @@ jobs:
       is_review_reply: ${{ steps.gate.outputs.is_review_reply }}
       reply_question: ${{ steps.gate.outputs.reply_question }}
       preset: ${{ steps.gate.outputs.preset }}
+      effort: ${{ steps.gate.outputs.effort }}
       model: ${{ steps.gate.outputs.model }}
       verifier: ${{ steps.gate.outputs.verifier }}
       ab: ${{ steps.gate.outputs.ab }}
@@ -177,6 +183,7 @@ jobs:
           PARSED_JSON: ${{ steps.cmd.outputs.parsed_json }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           INPUT_PRESET: ${{ inputs.preset }}
+          INPUT_EFFORT: ${{ inputs.effort }}
           INPUT_MODEL: ${{ inputs.model }}
           INPUT_VERIFIER: ${{ inputs.verifier }}
           INPUT_AB_ENABLED: ${{ inputs.ab_enabled }}
@@ -328,6 +335,7 @@ jobs:
             core.setOutput('is_review_reply', String(isReviewReply));
             core.setOutput('reply_question', isReviewReply ? String(parsed.question || '') : '');
             core.setOutput('preset', flags.preset || process.env.INPUT_PRESET || 'sonnet');
+            core.setOutput('effort', flags.effort || process.env.INPUT_EFFORT || 'auto');
             core.setOutput('model', flags.model || process.env.INPUT_MODEL || '');
             core.setOutput('verifier', flags.verifier || process.env.INPUT_VERIFIER || '');
             core.setOutput('ab', flags.ab !== undefined ? String(flags.ab) : String(process.env.INPUT_AB_ENABLED !== 'false'));
@@ -520,6 +528,7 @@ jobs:
           IS_REVIEW_REPLY: ${{ needs.authorize.outputs.is_review_reply }}
           REPLY_QUESTION: ${{ needs.authorize.outputs.reply_question }}
           PRESET_VAL: ${{ needs.authorize.outputs.preset }}
+          EFFORT_VAL: ${{ needs.authorize.outputs.effort }}
           MODEL_VAL: ${{ needs.authorize.outputs.model }}
           VERIFIER_VAL: ${{ needs.authorize.outputs.verifier }}
           INCLUDE_VAL: ${{ needs.authorize.outputs.include }}
@@ -535,6 +544,7 @@ jobs:
               --evidence "$PWD/civireview-evidence"
               --question "$REPLY_QUESTION"
               --preset "$PRESET_VAL"
+              --effort "$EFFORT_VAL"
               --dry-run
               --out "$PWD/review-out/reply.json"
             )
@@ -547,6 +557,7 @@ jobs:
               --evidence "$PWD/civireview-evidence"
               --out "$PWD/review-out/review.json"
               --preset "$PRESET_VAL"
+              --effort "$EFFORT_VAL"
             )
             if [ -n "$MODEL_VAL" ]; then ARGS+=(--model "$MODEL_VAL"); fi
             if [ -n "$VERIFIER_VAL" ]; then ARGS+=(--verifier "$VERIFIER_VAL"); fi

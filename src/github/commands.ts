@@ -1,7 +1,9 @@
 import {
   CHECK_KEYS,
+  EffortModeSchema,
   ModelSpecSchema,
   PresetNameSchema,
+  type EffortMode,
   type ModelSpec,
   type PresetName,
 } from '../config/schema.ts';
@@ -25,6 +27,7 @@ export interface ParsedMentionFlags {
   exclude?: string[];
   pages?: string[];
   preset?: PresetName;
+  effort?: EffortMode;
   model?: ModelSpec;
   verifier?: ModelSpec;
 }
@@ -256,6 +259,18 @@ export function parseMentionCommand(
         );
       }
       flags.preset = parsed.data;
+      i = nextIndex;
+      continue;
+    }
+    if (token === '--effort' || token.startsWith('--effort=')) {
+      const { value, nextIndex } = readFlagValue(token, i, '--effort');
+      const parsed = EffortModeSchema.safeParse(value.toLowerCase());
+      if (!parsed.success) {
+        throw new Error(
+          `Invalid effort "${value}". Expected one of: ${EffortModeSchema.options.join(', ')}`,
+        );
+      }
+      flags.effort = parsed.data;
       i = nextIndex;
       continue;
     }

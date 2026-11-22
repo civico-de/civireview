@@ -66,12 +66,20 @@ mcp:
   # teamUrl: https://your-team-mcp.example.com/mcp
   tokenEnv: CIVICRM_MCP_TOKEN
 
-# Review gate, include/exclude controls, & GitHub publishing behavior
+# Review gate, effort control, include/exclude controls, & GitHub publishing behavior
 review:
   confidenceThreshold: 80
   maxInlineComments: 10
   maxDiffBytes: 250000
   maxSteps: 15
+  # Reasoning effort: auto (dynamic per stage & PR risk) | low | medium | high | xhigh | max
+  effort: auto
+  # Optional per-stage effort overrides:
+  # stageEffort:
+  #   triage: low
+  #   specialists: medium
+  #   verifier: high
+  #   threadReply: medium
   autoPost: true
   reviewEvent: COMMENT # COMMENT | REQUEST_CHANGES | APPROVE
   # Optional allowlist/denylist of check keys (ab-tests, surface, static-delta,

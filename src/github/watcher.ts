@@ -354,6 +354,7 @@ export function isInlineThreadReplyMention(mention: WatcherMention): boolean {
   const hasReviewRerunFlag = Boolean(
     f.full ||
       f.preset ||
+      f.effort ||
       f.model ||
       f.verifier ||
       f.ab !== undefined ||
@@ -839,6 +840,7 @@ function applyMentionFlagsToConfig(
     },
     review: {
       ...baseConfig.review,
+      ...(flags.effort ? { effort: flags.effort } : {}),
       ...(flags.include && flags.include.length > 0
         ? { include: flags.include }
         : {}),

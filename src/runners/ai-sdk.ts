@@ -198,12 +198,20 @@ export class AiSdkRunner implements StageRunner {
         req.images,
       );
 
+      let providerOptions: Record<string, Record<string, string>> | undefined;
+      if (req.effort && parsed.provider === 'anthropic') {
+        providerOptions = { anthropic: { effort: req.effort } };
+      } else if (req.effort && parsed.provider === 'openai') {
+        providerOptions = { openai: { reasoningEffort: req.effort } };
+      }
+
       const commonCallOptions = {
         model,
         instructions,
         tools,
         stopWhen: stepCountIs(req.maxSteps ?? 15),
         maxOutputTokens: req.maxOutputTokens,
+        ...(providerOptions ? { providerOptions } : {}),
         timeout: req.timeoutMs,
         output: Output.object<T>({
           schema: req.schema,

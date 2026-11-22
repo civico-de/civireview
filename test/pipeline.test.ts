@@ -6,6 +6,7 @@ import { loadConfig } from '../src/config/loader.ts';
 import {
   buildVerificationMatrix,
   computeConfidenceScore,
+  resolveStageEffort,
   runReviewPipeline,
   runThreadReply,
 } from '../src/engine/pipeline.ts';
@@ -1107,5 +1108,120 @@ describe('review pipeline', () => {
       prKind: 'security-sensitive',
     });
     expect(s1.score).toBe(1);
+  });
+
+  test('resolveStageEffort dynamically scales effort per stage and PR risk and respects overrides', () => {
+    const baseCfg = loadConfig(process.cwd());
+    const smallBundle = makeBundle();
+    const cleanMatrix = [
+      { check: 'CI / Jenkins', status: 'PASS' as const, detail: 'green' },
+    ];
+    const smallTriage = {
+      prKind: 'core-bugfix' as const,
+      riskLevel: 'low' as const,
+      shortSummary: 'Fixes edge case.',
+      summaryBullets: ['Fixes edge case.'],
+      activeLenses: ['correctness' as const],
+      recommendedAbTests: [],
+    };
+    const medCandidate = {
+      id: 'c1',
+      lens: 'correctness' as const,
+      severity: 'medium' as const,
+      confidence: 85,
+      title: 'Edge case',
+      path: 'CRM/Foo.php',
+      startLine: 10,
+      endLine: 12,
+      side: 'RIGHT' as const,
+      issue: 'Issue',
+      failureScenario: 'Scenario',
+      evidence: 'Evidence',
+      suggestedFix: 'Fix',
+      mcpCitations: [],
+    };
+
+    // Default `auto`: triage=low, threadReply=medium, small PR specialist=medium, medium-only verifier=medium
+    expect(
+      resolveStageEffort({ stage: 'triage', config: baseCfg, bundle: smallBundle }),
+    ).toBe('low');
+    expect(
+      resolveStageEffort({ stage: 'threadReply', config: baseCfg, bundle: smallBundle }),
+    ).toBe('medium');
+    expect(
+      resolveStageEffort({
+        stage: 'specialist',
+        lens: 'correctness',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        verificationMatrix: cleanMatrix,
+      }),
+    ).toBe('medium');
+    expect(
+      resolveStageEffort({
+        stage: 'verifier',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        candidates: [medCandidate],
+        verificationMatrix: cleanMatrix,
+      }),
+    ).toBe('medium');
+
+    // Escalates specialist & verifier to `high` on high/critical findings, security-sensitive PRs, or failing A/B
+    expect(
+      resolveStageEffort({
+        stage: 'verifier',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        candidates: [{ ...medCandidate, severity: 'high' }],
+        verificationMatrix: cleanMatrix,
+      }),
+    ).toBe('high');
+    expect(
+      resolveStageEffort({
+        stage: 'specialist',
+        lens: 'security',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: { ...smallTriage, prKind: 'security-sensitive' },
+        verificationMatrix: cleanMatrix,
+      }),
+    ).toBe('high');
+    expect(
+      resolveStageEffort({
+        stage: 'specialist',
+        lens: 'correctness',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        verificationMatrix: [
+          { check: 'Base-Test Regression', status: 'FAIL' as const, detail: '1 failed' },
+        ],
+      }),
+    ).toBe('high');
+
+    // Global override and per-stage override precedence
+    const globalCfg = loadConfig(process.cwd(), {
+      review: { effort: 'xhigh' },
+    });
+    expect(
+      resolveStageEffort({ stage: 'verifier', config: globalCfg }),
+    ).toBe('xhigh');
+
+    const perStageCfg = loadConfig(process.cwd(), {
+      review: {
+        effort: 'low',
+        stageEffort: { verifier: 'max' },
+      },
+    });
+    expect(
+      resolveStageEffort({ stage: 'triage', config: perStageCfg }),
+    ).toBe('low');
+    expect(
+      resolveStageEffort({ stage: 'verifier', config: perStageCfg }),
+    ).toBe('max');
   });
 });

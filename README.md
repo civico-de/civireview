@@ -52,6 +52,7 @@ Comment on any open, closed, or merged PR (or reply inside an inline review thre
 - `@civireview` — incremental review since the last `<!-- civireview:v1 ... -->` marker
 - `@civireview --full` — ignore incremental marker and review the entire PR diff
 - `@civireview --preset cross-model` — use mixed providers (e.g. Anthropic specialists + OpenAI verifier)
+- `@civireview --effort high` — override dynamic `auto` reasoning effort (`auto`, `low`, `medium`, `high`, `xhigh`, `max`)
 - `@civireview --include browser,ui` / `--exclude tests,matrix` — run only selected checks/lenses or skip specific ones
 - `@civireview --page civicrm/admin/extensions` — probe explicit Standalone route(s) in browser A/B
 - `@civireview --no-browser` / `--no-ab` / `--demo` — toggle browser A/B, CiviKitchen A/B, or `ck demo`
@@ -113,7 +114,7 @@ This repository ships a ready-to-enable scheduled watcher workflow ([`.github/wo
 1. **Secrets**: `CIVIREVIEW_GITHUB_TOKEN` (classic PAT on the `@civireview` account with **`public_repo`** + **`notifications`** scopes for default `notifications` mode, or `public_repo` with `CIVIREVIEW_WATCH_MODE=search`) and `ANTHROPIC_API_KEY` (plus `OPENAI_API_KEY` if using `cross-model`).
 2. **Repository Variables**:
    - `CIVIREVIEW_WATCH_ENABLED` = `true` (kill-switch to turn scheduled polling on/off)
-   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet-opus`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`main`).
+   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet-opus`), `CIVIREVIEW_EFFORT` (`auto`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`main`).
 
 Processed comment IDs and rolling hourly/daily budget records are persisted in `.civireview-state/seen.json` (and cached across GitHub Actions runs).
 
@@ -154,6 +155,17 @@ Every stage accepts `<provider>:<modelId>` (`anthropic`, `openai`, `google`, `op
 | `cross-model` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `openai:gpt-5.2` |
 | `subscription` | `claude-cli:haiku` | `claude-cli:sonnet` | `claude-cli:opus` |
 | `local-gpu` | `openai-compat:local` | `opencode-cli:local` | `opencode-cli:local` |
+
+### Dynamic Reasoning Effort (`effort: auto`)
+
+By default (`--effort auto`), `civireview` tunes Anthropic `effort` / OpenAI `reasoningEffort` / Claude CLI `--effort` per stage and PR complexity:
+
+- **Stage 0 (Triage):** `low` (fast routing + walkthrough)
+- **Stage 1 (Specialists):** `medium` on small/routine PRs; `high` on large diffs (>250 lines or >6 non-test files), `security-sensitive` PRs, security surface risks, or failing empirical A/B checks
+- **Stage 2 (Verifier):** skipped when Stage 1 produces 0 candidates; `medium` for low/medium candidates; `high` whenever verifying `high`/`critical` candidates, ≥4 candidates, `security-sensitive` PRs, or failing empirical checks
+- **Inline replies:** `medium`
+
+Override globally with `--effort <low|medium|high|xhigh|max>` or per stage via `review.stageEffort` in `civireview.yaml`.
 
 ---
 

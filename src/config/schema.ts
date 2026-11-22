@@ -212,6 +212,24 @@ export const ReviewEventSchema = z.enum([
 ]);
 export type ReviewEvent = z.infer<typeof ReviewEventSchema>;
 
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const EffortLevelSchema = z.enum(EFFORT_LEVELS);
+export type EffortLevel = z.infer<typeof EffortLevelSchema>;
+
+export const EFFORT_MODES = ['auto', ...EFFORT_LEVELS] as const;
+export const EffortModeSchema = z.enum(EFFORT_MODES);
+export type EffortMode = z.infer<typeof EffortModeSchema>;
+
+export const StageEffortOverridesSchema = z
+  .object({
+    triage: EffortLevelSchema.optional(),
+    specialists: EffortLevelSchema.optional(),
+    verifier: EffortLevelSchema.optional(),
+    threadReply: EffortLevelSchema.optional(),
+  })
+  .strict();
+export type StageEffortOverrides = z.infer<typeof StageEffortOverridesSchema>;
+
 export const ReviewSettingsSchema = z
   .object({
     confidenceThreshold: z.number().min(0).max(100).default(80),
@@ -219,6 +237,8 @@ export const ReviewSettingsSchema = z
     maxDiffBytes: z.number().int().positive().default(250_000),
     maxSteps: z.number().int().positive().default(15),
     maxBudgetUsd: z.number().positive().optional(),
+    effort: EffortModeSchema.default('auto'),
+    stageEffort: StageEffortOverridesSchema.optional(),
     autoPost: z.boolean().default(true),
     reviewEvent: ReviewEventSchema.default('COMMENT'),
     include: z.array(z.string()).default([]),

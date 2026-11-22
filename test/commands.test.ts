@@ -77,4 +77,15 @@ describe('parseMentionCommand', () => {
     });
     expect(parsed.question).toBe('Check layout');
   });
+
+  test('parses --effort flag and rejects invalid effort values', () => {
+    const parsed = parseMentionCommand('@civireview --effort=high --full');
+    expect(parsed.triggered).toBe(true);
+    expect(parsed.flags.effort).toBe('high');
+    expect(parsed.flags.full).toBe(true);
+
+    expect(() =>
+      parseMentionCommand('@civireview --effort turbo'),
+    ).toThrow(/Invalid effort/);
+  });
 });

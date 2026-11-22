@@ -2,6 +2,7 @@ import type { ToolSet } from 'ai';
 import { z } from 'zod';
 import {
   ModelSpecSchema,
+  type EffortLevel,
   type ModelProvider,
   type ModelSpec,
 } from '../config/schema.ts';
@@ -67,6 +68,7 @@ export interface StageRequest<T> {
   extraMcpServers?: ExtraMcpServerConfig[];
   maxSteps?: number;
   maxOutputTokens?: number;
+  effort?: EffortLevel;
   timeoutMs?: number;
 }
 

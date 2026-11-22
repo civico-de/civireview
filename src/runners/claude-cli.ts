@@ -85,6 +85,7 @@ export class ClaudeCliRunner implements StageRunner {
       '--setting-sources',
       '',
       ...(parsed.modelId !== 'default' ? ['--model', parsed.modelId] : []),
+      ...(req.effort ? ['--effort', req.effort] : []),
       '--output-format',
       'json',
       '--json-schema',
