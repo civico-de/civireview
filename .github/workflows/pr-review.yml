@@ -1,0 +1,631 @@
+name: CiviReview PR Review (4-Job Privilege-Isolated)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: Optional PR number override (defaults to triggering issue/PR event number)
+        required: false
+        type: string
+        default: ''
+      preset:
+        description: Default model preset (sonnet, sonnet-opus, cross-model, subscription, local-gpu)
+        required: false
+        type: string
+        default: 'sonnet'
+      model:
+        description: Optional specialist model override (<provider>:<model>)
+        required: false
+        type: string
+        default: ''
+      verifier:
+        description: Optional verifier model override (<provider>:<model>)
+        required: false
+        type: string
+        default: ''
+      trigger:
+        description: Mention trigger string
+        required: false
+        type: string
+        default: '@civireview'
+      allowed_users:
+        description: Comma-separated GitHub logins allowed to trigger in addition to repo writers
+        required: false
+        type: string
+        default: ''
+      allowed_orgs:
+        description: Comma-separated GitHub orgs whose members can trigger (e.g. civicrm)
+        required: false
+        type: string
+        default: ''
+      ab_enabled:
+        description: Enable CiviKitchen A/B verification
+        required: false
+        type: boolean
+        default: true
+      demo:
+        description: Enable interactive ck demo run
+        required: false
+        type: boolean
+        default: false
+      include:
+        description: Comma-separated checks/lenses to include (overrides defaults when non-empty)
+        required: false
+        type: string
+        default: ''
+      exclude:
+        description: Comma-separated checks/lenses to exclude
+        required: false
+        type: string
+        default: ''
+      pages:
+        description: Comma-separated Standalone civicrm/... routes to probe in browser A/B
+        required: false
+        type: string
+        default: ''
+      runs_on:
+        description: Runner label for private repositories only (public repos ALWAYS use ubuntu-latest)
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      mcp_team_url:
+        description: Team civicrm-knowledge MCP URL for private repositories ONLY (ignored on public repos)
+        required: false
+        type: string
+        default: ''
+      civireview_repository:
+        description: Repository containing civireview CLI (e.g. civico-de/civireview)
+        required: false
+        type: string
+        default: ''
+      civireview_ref:
+        description: Git ref of civireview_repository to check out
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENROUTER_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
+      GOOGLE_GENERATIVE_AI_API_KEY:
+        required: false
+      CIVICRM_KNOWLEDGE_MCP_TOKEN:
+        required: false
+
+# Least-privilege root: every job explicitly declares only the permissions it needs.
+permissions: {}
+
+concurrency:
+  group: civireview-${{ github.repository }}-${{ inputs.pr_number || github.event.issue.number || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Job 1: authorize
+  # - Verifies PR context (open, closed, or merged), commenter permissions / allowlist, and @civireview flags
+  # - NEVER interpolates untrusted comment bodies into shell scripts (uses env:)
+  # - Pins immutable base_sha and head_sha for downstream jobs (anti-TOCTOU)
+  # - Strictly refuses self-hosted runners on public repositories
+  # ============================================================================
+  authorize:
+    name: Authorize & Pin SHAs
+    runs-on: ${{ github.event.repository.private == true && inputs.runs_on || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    outputs:
+      authorized: ${{ steps.gate.outputs.authorized }}
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      base_sha: ${{ steps.gate.outputs.base_sha }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      is_private: ${{ steps.gate.outputs.is_private }}
+      comment_id: ${{ steps.gate.outputs.comment_id }}
+      is_review_reply: ${{ steps.gate.outputs.is_review_reply }}
+      reply_question: ${{ steps.gate.outputs.reply_question }}
+      preset: ${{ steps.gate.outputs.preset }}
+      model: ${{ steps.gate.outputs.model }}
+      verifier: ${{ steps.gate.outputs.verifier }}
+      ab: ${{ steps.gate.outputs.ab }}
+      demo: ${{ steps.gate.outputs.demo }}
+      full: ${{ steps.gate.outputs.full }}
+      browser: ${{ steps.gate.outputs.browser }}
+      include: ${{ steps.gate.outputs.include }}
+      exclude: ${{ steps.gate.outputs.exclude }}
+      pages: ${{ steps.gate.outputs.pages }}
+    steps:
+      - name: Check out civireview CLI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.civireview_repository || github.repository }}
+          ref: ${{ inputs.civireview_repository != '' && inputs.civireview_ref || github.event.repository.default_branch }}
+          path: .civireview-tool
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install civireview dependencies
+        working-directory: .civireview-tool
+        run: bun install --frozen-lockfile
+
+      - name: Parse @civireview command safely via env
+        id: cmd
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body || '' }}
+          TRIGGER_STR: ${{ inputs.trigger }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+            PARSED=$(bun run .civireview-tool/bin/civireview.ts parse-command --body-env COMMENT_BODY --trigger "$TRIGGER_STR")
+            echo "parsed_json<<__CIVIREVIEW_EOF__" >> "$GITHUB_OUTPUT"
+            echo "$PARSED" >> "$GITHUB_OUTPUT"
+            echo "__CIVIREVIEW_EOF__" >> "$GITHUB_OUTPUT"
+          else
+            echo 'parsed_json={"triggered":true,"flags":{},"question":""}' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authorize actor, resolve & pin PR SHAs, add 👀 reaction
+        id: gate
+        uses: actions/github-script@v7
+        env:
+          PARSED_JSON: ${{ steps.cmd.outputs.parsed_json }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_PRESET: ${{ inputs.preset }}
+          INPUT_MODEL: ${{ inputs.model }}
+          INPUT_VERIFIER: ${{ inputs.verifier }}
+          INPUT_AB_ENABLED: ${{ inputs.ab_enabled }}
+          INPUT_DEMO: ${{ inputs.demo }}
+          INPUT_INCLUDE: ${{ inputs.include }}
+          INPUT_EXCLUDE: ${{ inputs.exclude }}
+          INPUT_PAGES: ${{ inputs.pages }}
+          INPUT_RUNS_ON: ${{ inputs.runs_on }}
+          ALLOWED_USERS: ${{ inputs.allowed_users }}
+          ALLOWED_ORGS: ${{ inputs.allowed_orgs }}
+        with:
+          script: |
+            const isPrivate = Boolean(context.payload.repository?.private);
+            const runnerName = process.env.RUNNER_NAME || '';
+            if (!isPrivate && process.env.RUNNER_ENVIRONMENT === 'self-hosted') {
+              core.setFailed(`Refusing self-hosted runner (${runnerName}) on a public repository.`);
+              return;
+            }
+            if (!isPrivate && process.env.INPUT_RUNS_ON && process.env.INPUT_RUNS_ON !== 'ubuntu-latest') {
+              core.setFailed(`Refusing custom runner "${process.env.INPUT_RUNS_ON}" on a public repository.`);
+              return;
+            }
+
+            const eventName = context.eventName;
+            if (eventName === 'issue_comment' && !context.payload.issue?.pull_request) {
+              core.info('Comment is on an issue, not a PR. Skipping.');
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const parsed = JSON.parse(process.env.PARSED_JSON || '{"triggered":false,"flags":{},"question":""}');
+            if (!parsed.triggered) {
+              core.info('Trigger not invoked. Skipping.');
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const prNumber = Number(
+              process.env.INPUT_PR_NUMBER ||
+              context.payload.issue?.number ||
+              context.payload.pull_request?.number ||
+              0
+            );
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const actor = context.actor;
+            const allowList = (process.env.ALLOWED_USERS || '')
+              .split(',')
+              .map((s) => s.trim().toLowerCase())
+              .filter(Boolean);
+            const allowedOrgs = (process.env.ALLOWED_ORGS || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+
+            let hasWritePerm = allowList.includes(actor.toLowerCase());
+            if (!hasWritePerm && allowedOrgs.length > 0 && !actor.toLowerCase().endsWith('[bot]')) {
+              const assoc = String(context.payload.comment?.author_association || '').toUpperCase();
+              for (const org of allowedOrgs) {
+                if (
+                  context.repo.owner.toLowerCase() === org.toLowerCase() &&
+                  (assoc === 'MEMBER' || assoc === 'OWNER')
+                ) {
+                  hasWritePerm = true;
+                  break;
+                }
+                try {
+                  await github.rest.orgs.checkPublicMembershipForUser({
+                    org,
+                    username: actor,
+                  });
+                  hasWritePerm = true;
+                  break;
+                } catch {
+                  // Not a public member of this org
+                }
+              }
+            }
+            if (!hasWritePerm && (eventName === 'issue_comment' || eventName === 'pull_request_review_comment')) {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: actor,
+              });
+              hasWritePerm = ['admin', 'maintain', 'write'].includes(perm.permission);
+            } else if (eventName === 'pull_request' || eventName === 'workflow_dispatch' || eventName === 'workflow_call') {
+              hasWritePerm = true;
+            }
+
+            if (!hasWritePerm) {
+              core.warning(`Actor @${actor} lacks write/maintain/admin permission or allowlist entry.`);
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            // Supports open, closed, and merged PRs seamlessly
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const commentId = context.payload.comment?.id ? String(context.payload.comment.id) : '';
+            if (commentId) {
+              try {
+                if (eventName === 'pull_request_review_comment') {
+                  await github.rest.reactions.createForPullRequestReviewComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: Number(commentId),
+                    content: 'eyes',
+                  });
+                } else {
+                  await github.rest.reactions.createForIssueComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: Number(commentId),
+                    content: 'eyes',
+                  });
+                }
+              } catch (err) {
+                core.info(`Could not add eyes reaction: ${err.message}`);
+              }
+            }
+
+            const flags = parsed.flags || {};
+            const isReviewReply = eventName === 'pull_request_review_comment';
+            const mergedInclude = Array.isArray(flags.include) && flags.include.length > 0
+              ? flags.include.join(',')
+              : (process.env.INPUT_INCLUDE || '');
+            const mergedExclude = [
+              ...(process.env.INPUT_EXCLUDE || '').split(',').map((s) => s.trim()).filter(Boolean),
+              ...(Array.isArray(flags.exclude) ? flags.exclude : []),
+            ].join(',');
+            const mergedPages = [
+              ...(process.env.INPUT_PAGES || '').split(',').map((s) => s.trim()).filter(Boolean),
+              ...(Array.isArray(flags.pages) ? flags.pages : []),
+            ].join(',');
+
+            core.setOutput('authorized', 'true');
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('is_private', String(isPrivate));
+            core.setOutput('comment_id', commentId);
+            core.setOutput('is_review_reply', String(isReviewReply));
+            core.setOutput('reply_question', isReviewReply ? String(parsed.question || '') : '');
+            core.setOutput('preset', flags.preset || process.env.INPUT_PRESET || 'sonnet');
+            core.setOutput('model', flags.model || process.env.INPUT_MODEL || '');
+            core.setOutput('verifier', flags.verifier || process.env.INPUT_VERIFIER || '');
+            core.setOutput('ab', flags.ab !== undefined ? String(flags.ab) : String(process.env.INPUT_AB_ENABLED !== 'false'));
+            core.setOutput('demo', flags.demo !== undefined ? String(flags.demo) : String(process.env.INPUT_DEMO === 'true'));
+            core.setOutput('full', String(Boolean(flags.full)));
+            core.setOutput('browser', flags.browser !== undefined ? String(flags.browser) : 'true');
+            core.setOutput('include', mergedInclude);
+            core.setOutput('exclude', mergedExclude);
+            core.setOutput('pages', mergedPages);
+
+  # ============================================================================
+  # Job 2: evidence (Layer 1 ONLY)
+  # - ZERO LLM API keys, ZERO write permissions
+  # - Checks out pinned PR head_sha (open, closed, or merged) and runs deterministic A/B + Browser + CI collection
+  # - Strictly refuses self-hosted runners on public repositories
+  # ============================================================================
+  evidence:
+    name: Collect Deterministic Evidence
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ${{ needs.authorize.outputs.is_private == 'true' && inputs.runs_on || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Enforce runner isolation on public repositories
+        env:
+          IS_PRIVATE: ${{ needs.authorize.outputs.is_private }}
+        run: |
+          if [ "$IS_PRIVATE" != "true" ] && [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ]; then
+            echo "Refusing self-hosted runner on a public repository." >&2
+            exit 1
+          fi
+
+      - name: Check out base repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: target-repo
+          persist-credentials: false
+
+      - name: Fetch and pin exact PR head & base SHAs (fork-safe, closed/merged-safe, anti-TOCTOU)
+        working-directory: target-repo
+        env:
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+          FETCHED_HEAD="$(git rev-parse FETCH_HEAD)"
+          if [ "$FETCHED_HEAD" != "$HEAD_SHA" ]; then
+            echo "PR head moved since authorization (expected $HEAD_SHA, fetched $FETCHED_HEAD); aborting." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "$BASE_SHA" || true
+          git checkout --detach "$HEAD_SHA"
+
+      - name: Check out civireview CLI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.civireview_repository || github.repository }}
+          ref: ${{ inputs.civireview_repository != '' && inputs.civireview_ref || github.event.repository.default_branch }}
+          path: civireview-tool
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install civireview dependencies
+        working-directory: civireview-tool
+        run: bun install --frozen-lockfile
+
+      - name: Collect Layer 1 evidence bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO_SLUG: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          AB_FLAG: ${{ needs.authorize.outputs.ab }}
+          DEMO_FLAG: ${{ needs.authorize.outputs.demo }}
+          FULL_FLAG: ${{ needs.authorize.outputs.full }}
+          BROWSER_FLAG: ${{ needs.authorize.outputs.browser }}
+          INCLUDE_VAL: ${{ needs.authorize.outputs.include }}
+          EXCLUDE_VAL: ${{ needs.authorize.outputs.exclude }}
+          PAGES_VAL: ${{ needs.authorize.outputs.pages }}
+        run: |
+          ARGS=(
+            evidence
+            --cwd "$PWD/target-repo"
+            --repo "$REPO_SLUG"
+            --pr "$PR_NUMBER"
+            --base-sha "$BASE_SHA"
+            --head-sha "$HEAD_SHA"
+            --out "$PWD/civireview-evidence"
+          )
+          if [ "$AB_FLAG" = "true" ]; then ARGS+=(--ab); else ARGS+=(--no-ab); fi
+          if [ "$BROWSER_FLAG" = "true" ]; then ARGS+=(--browser); else ARGS+=(--no-browser); fi
+          if [ "$DEMO_FLAG" = "true" ]; then ARGS+=(--demo); fi
+          if [ "$FULL_FLAG" = "true" ]; then ARGS+=(--full); fi
+          if [ -n "$INCLUDE_VAL" ]; then ARGS+=(--include "$INCLUDE_VAL"); fi
+          if [ -n "$EXCLUDE_VAL" ]; then ARGS+=(--exclude "$EXCLUDE_VAL"); fi
+          if [ -n "$PAGES_VAL" ]; then
+            IFS=',' read -ra PAGE_ITEMS <<< "$PAGES_VAL"
+            for page in "${PAGE_ITEMS[@]}"; do
+              if [ -n "$page" ]; then ARGS+=(--page "$page"); fi
+            done
+          fi
+          bun run "$PWD/civireview-tool/bin/civireview.ts" "${ARGS[@]}"
+
+      - name: Upload evidence bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-bundle
+          path: civireview-evidence/
+          retention-days: 3
+
+  # ============================================================================
+  # Job 3: review (Layer 2 ONLY)
+  # - Read-only PR checkout for static inspection ONLY (ZERO PR code execution), NO PR write permissions
+  # - Holds LLM secrets and scoped MCP URL/token (public MCP only on public repos!)
+  # ============================================================================
+  review:
+    name: Multi-Model AI Review
+    needs: [authorize, evidence]
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out target repository (read-only context, no code executed)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: target-repo
+          persist-credentials: false
+
+      - name: Pin read-only target checkout to authorized head SHA
+        working-directory: target-repo
+        env:
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+            echo "PR head moved since authorization; aborting." >&2
+            exit 1
+          fi
+          git checkout --detach "$HEAD_SHA"
+
+      - name: Check out civireview CLI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.civireview_repository || github.repository }}
+          ref: ${{ inputs.civireview_repository != '' && inputs.civireview_ref || github.event.repository.default_branch }}
+          path: civireview-tool
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install civireview dependencies
+        working-directory: civireview-tool
+        run: bun install --frozen-lockfile
+
+      - name: Download evidence bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: evidence-bundle
+          path: civireview-evidence
+
+      - name: Run Layer 2 review pipeline or inline thread reply
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          # SECURITY INVARIANT: Team MCP URL & token are strictly withheld on public repos.
+          CIVICRM_MCP_URL: ${{ needs.authorize.outputs.is_private == 'true' && inputs.mcp_team_url || '' }}
+          CIVICRM_KNOWLEDGE_MCP_TOKEN: ${{ needs.authorize.outputs.is_private == 'true' && secrets.CIVICRM_KNOWLEDGE_MCP_TOKEN || '' }}
+          CIVICRM_MCP_TOKEN: ${{ needs.authorize.outputs.is_private == 'true' && secrets.CIVICRM_KNOWLEDGE_MCP_TOKEN || '' }}
+          REPO_SLUG: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          IS_REVIEW_REPLY: ${{ needs.authorize.outputs.is_review_reply }}
+          REPLY_QUESTION: ${{ needs.authorize.outputs.reply_question }}
+          PRESET_VAL: ${{ needs.authorize.outputs.preset }}
+          MODEL_VAL: ${{ needs.authorize.outputs.model }}
+          VERIFIER_VAL: ${{ needs.authorize.outputs.verifier }}
+          INCLUDE_VAL: ${{ needs.authorize.outputs.include }}
+          EXCLUDE_VAL: ${{ needs.authorize.outputs.exclude }}
+        run: |
+          if [ "$IS_REVIEW_REPLY" = "true" ] && [ -n "$COMMENT_ID" ]; then
+            ARGS=(
+              reply
+              --cwd "$PWD/target-repo"
+              --repo "$REPO_SLUG"
+              --pr "$PR_NUMBER"
+              --comment-id "$COMMENT_ID"
+              --evidence "$PWD/civireview-evidence"
+              --question "$REPLY_QUESTION"
+              --preset "$PRESET_VAL"
+              --dry-run
+              --out "$PWD/review-out/reply.json"
+            )
+            if [ -n "$MODEL_VAL" ]; then ARGS+=(--model "$MODEL_VAL"); fi
+            if [ -n "$VERIFIER_VAL" ]; then ARGS+=(--verifier "$VERIFIER_VAL"); fi
+          else
+            ARGS=(
+              review
+              --cwd "$PWD/target-repo"
+              --evidence "$PWD/civireview-evidence"
+              --out "$PWD/review-out/review.json"
+              --preset "$PRESET_VAL"
+            )
+            if [ -n "$MODEL_VAL" ]; then ARGS+=(--model "$MODEL_VAL"); fi
+            if [ -n "$VERIFIER_VAL" ]; then ARGS+=(--verifier "$VERIFIER_VAL"); fi
+            if [ -n "$INCLUDE_VAL" ]; then ARGS+=(--include "$INCLUDE_VAL"); fi
+            if [ -n "$EXCLUDE_VAL" ]; then ARGS+=(--exclude "$EXCLUDE_VAL"); fi
+          fi
+          bun run "$PWD/civireview-tool/bin/civireview.ts" "${ARGS[@]}"
+
+      - name: Upload review or reply result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: civireview-result
+          path: review-out/
+          retention-days: 3
+
+  # ============================================================================
+  # Job 4: publish (Layer 3 ONLY)
+  # - ZERO LLM secrets, ZERO PR code execution
+  # - Validates review.json / reply.json schema and posts review or in-thread reply to GitHub
+  # ============================================================================
+  publish:
+    name: Publish GitHub PR Review
+    needs: [authorize, evidence, review]
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Check out civireview CLI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.civireview_repository || github.repository }}
+          ref: ${{ inputs.civireview_repository != '' && inputs.civireview_ref || github.event.repository.default_branch }}
+          path: civireview-tool
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install civireview dependencies
+        working-directory: civireview-tool
+        run: bun install --frozen-lockfile
+
+      - name: Download evidence bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: evidence-bundle
+          path: civireview-evidence
+
+      - name: Download review result
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: civireview-result
+          path: review-out
+
+      - name: Validate & publish review or in-thread reply
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          IS_REVIEW_REPLY: ${{ needs.authorize.outputs.is_review_reply }}
+          PRESET_VAL: ${{ needs.authorize.outputs.preset }}
+        run: |
+          if [ "$IS_REVIEW_REPLY" = "true" ] && [ -f "$PWD/review-out/reply.json" ]; then
+            ARGS=(
+              publish
+              --reply "$PWD/review-out/reply.json"
+              --evidence "$PWD/civireview-evidence"
+              --comment-id "$COMMENT_ID"
+            )
+          else
+            ARGS=(
+              publish
+              --review "$PWD/review-out/review.json"
+              --evidence "$PWD/civireview-evidence"
+              --preset "$PRESET_VAL"
+            )
+            if [ -n "$COMMENT_ID" ]; then ARGS+=(--comment-id "$COMMENT_ID"); fi
+          fi
+          bun run "$PWD/civireview-tool/bin/civireview.ts" "${ARGS[@]}"

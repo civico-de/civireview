@@ -1,0 +1,136 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import yaml from 'js-yaml';
+import type { RepoInfo } from './types.ts';
+
+function parseXmlTag(xml: string, tag: string): string | undefined {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, 'i'));
+  return match?.[1]?.trim();
+}
+
+function parseXmlAttr(xml: string, tag: string, attr: string): string | undefined {
+  const match = xml.match(
+    new RegExp(`<${tag}[^>]*\\s${attr}\\s*=\\s*["']([^"']+)["']`, 'i'),
+  );
+  return match?.[1]?.trim();
+}
+
+/**
+ * Selects the appropriate CiviKitchen Standalone Docker tag from a CiviCRM
+ * version string or branch name.
+ */
+export function selectCivikitchenImage(params: {
+  kind: RepoInfo['kind'];
+  baseBranch?: string;
+  civicrmVersion?: string;
+  civicrmFloor?: string;
+}): string {
+  const { kind, baseBranch, civicrmVersion, civicrmFloor } = params;
+  if (kind === 'civicrm-core') {
+    const branch = (baseBranch ?? '').trim();
+    if (branch === 'master' || branch === 'main') {
+      return 'standalone-master';
+    }
+    if (/^\d+\.\d+$/.test(branch)) {
+      return `standalone-${branch}`;
+    }
+    if (civicrmVersion) {
+      const minorMatch = civicrmVersion.match(/^(\d+\.\d+)/);
+      if (minorMatch?.[1]) {
+        return `standalone-${minorMatch[1]}`;
+      }
+    }
+    return 'standalone-master';
+  }
+
+  if (kind === 'civicrm-extension') {
+    if (civicrmFloor) {
+      const floorMatch = civicrmFloor.match(/^(\d+\.\d+)/);
+      if (floorMatch?.[1]) {
+        return `standalone-${floorMatch[1]}`;
+      }
+    }
+    return 'standalone';
+  }
+
+  return 'standalone';
+}
+
+/**
+ * Detects whether `repoRoot` is `civicrm-core`, a `civicrm-extension`, or `generic`,
+ * extracting version/extension metadata and recommending the CiviKitchen Standalone image.
+ */
+export function detectRepoInfo(
+  repoRoot: string,
+  baseBranch?: string,
+): RepoInfo {
+  const versionXmlPath = join(repoRoot, 'xml', 'version.xml');
+  const crmDirPath = join(repoRoot, 'CRM');
+  if (existsSync(versionXmlPath) && existsSync(crmDirPath)) {
+    const versionXml = readFileSync(versionXmlPath, 'utf8');
+    const civicrmVersion = parseXmlTag(versionXml, 'version_no');
+    return {
+      kind: 'civicrm-core',
+      root: repoRoot,
+      civicrmVersion,
+      recommendedImage: selectCivikitchenImage({
+        kind: 'civicrm-core',
+        baseBranch,
+        civicrmVersion,
+      }),
+    };
+  }
+
+  const infoXmlPath = join(repoRoot, 'info.xml');
+  const civikitchenYamlPath = join(repoRoot, 'civikitchen.yaml');
+  if (existsSync(infoXmlPath) || existsSync(civikitchenYamlPath)) {
+    let extensionKey: string | undefined;
+    let extensionName: string | undefined;
+    let civicrmFloor: string | undefined;
+
+    if (existsSync(infoXmlPath)) {
+      const infoXml = readFileSync(infoXmlPath, 'utf8');
+      extensionKey = parseXmlAttr(infoXml, 'extension', 'key');
+      extensionName = parseXmlTag(infoXml, 'file') ?? extensionKey;
+    }
+
+    if (existsSync(civikitchenYamlPath)) {
+      try {
+        const raw = yaml.load(readFileSync(civikitchenYamlPath, 'utf8'));
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          const obj = raw as Record<string, unknown>;
+          const policy = obj.policy;
+          if (policy && typeof policy === 'object' && !Array.isArray(policy)) {
+            const civi = (policy as Record<string, unknown>).civicrm;
+            if (typeof civi === 'string' && civi.trim()) {
+              civicrmFloor = civi.trim();
+            } else if (typeof civi === 'number') {
+              civicrmFloor = String(civi);
+            }
+          }
+        }
+      } catch {
+        // Malformed civikitchen.yaml should not crash repo detection
+      }
+    }
+
+    return {
+      kind: 'civicrm-extension',
+      root: repoRoot,
+      extensionKey,
+      extensionName,
+      civicrmFloor,
+      recommendedImage: selectCivikitchenImage({
+        kind: 'civicrm-extension',
+        baseBranch,
+        civicrmFloor,
+      }),
+    };
+  }
+
+  return {
+    kind: 'generic',
+    root: repoRoot,
+    recommendedImage: 'standalone',
+  };
+}

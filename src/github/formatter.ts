@@ -1,0 +1,381 @@
+import { mapFindingsToDiff, type MappedInlineFinding } from '../engine/line-mapper.ts';
+import {
+  buildShortSummary,
+  computeConfidenceScore,
+} from '../engine/pipeline.ts';
+import { formatUsd } from '../runners/pricing.ts';
+import type {
+  ConfidenceScore,
+  FinalReview,
+  FinalVerdict,
+  VerificationStatus,
+  VerifiedFinding,
+} from '../engine/schemas.ts';
+import type { EvidenceBundle } from '../evidence/types.ts';
+
+export interface GitHubReviewCommentInput {
+  path: string;
+  line: number;
+  start_line?: number;
+  side: 'RIGHT' | 'LEFT';
+  start_side?: 'RIGHT' | 'LEFT';
+  body: string;
+}
+
+export interface FormatReviewOptions {
+  preset?: string;
+  maxInlineComments?: number;
+  triggerCommentId?: number;
+}
+
+export interface FormattedReviewOutput {
+  summaryBody: string;
+  inlineComments: GitHubReviewCommentInput[];
+  overflowFindings: VerifiedFinding[];
+}
+
+function verdictBadge(verdict: FinalVerdict): string {
+  switch (verdict) {
+    case 'READY':
+      return '🟢 **Ready**';
+    case 'NEEDS_CHANGES':
+      return '🔴 **Needs Changes**';
+    case 'QUESTIONS_ONLY':
+      return '🟡 **Questions Only**';
+  }
+}
+
+function scoreBadge(score: ConfidenceScore): string {
+  const filled = '★'.repeat(score);
+  const empty = '☆'.repeat(5 - score);
+  return `**${score}/5** \`${filled}${empty}\``;
+}
+
+function matrixStatusBadge(status: VerificationStatus): string {
+  switch (status) {
+    case 'PASS':
+      return '✅ PASS';
+    case 'FAIL':
+      return '❌ FAIL';
+    case 'WARN':
+      return '⚠️ WARN';
+    case 'SKIPPED':
+      return '⏭️ SKIPPED';
+    case 'NOT_VERIFIED':
+      return '❔ NOT VERIFIED';
+  }
+}
+
+function escapeTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
+}
+
+export function formatInlineCommentBody(mapped: MappedInlineFinding): string {
+  const f = mapped.finding;
+  const badge = `[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]`;
+  const lines: string[] = [
+    `**${badge} ${f.title}**`,
+    `_Lens: \`${f.lens}\` · Confidence: ${f.confidence}%${mapped.snapped ? ' · Line snapped to hunk' : ''}_`,
+    '',
+    f.issue,
+    '',
+    `**Failure scenario:** ${f.failureScenario}`,
+    '',
+    `**Verification evidence:** ${f.verificationEvidence}`,
+  ];
+
+  if (f.liveProofCommand) {
+    lines.push(`**Proof command:** \`${f.liveProofCommand}\``);
+  }
+  if (f.liveProofOutput) {
+    lines.push('', '```text', f.liveProofOutput.slice(0, 800), '```');
+  }
+  if (f.suggestedFix.trim()) {
+    lines.push('', `**Suggested fix:** ${f.suggestedFix}`);
+  }
+  if (f.mcpCitations.length > 0) {
+    lines.push('', `**References:** ${f.mcpCitations.join(', ')}`);
+  }
+  if (mapped.suggestionBlock) {
+    lines.push('', mapped.suggestionBlock);
+  }
+
+  return lines.join('\n');
+}
+
+function formatSummaryFinding(f: VerifiedFinding): string {
+  const badge = `[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]`;
+  const loc =
+    f.startLine === f.endLine
+      ? `\`${f.path}:${f.endLine}\``
+      : `\`${f.path}:${f.startLine}-${f.endLine}\``;
+  const parts: string[] = [
+    `#### ${badge} ${f.title} (${loc}, ${f.side})`,
+    `- **Confidence:** ${f.confidence}% (\`${f.lens}\`)`,
+    `- **Issue:** ${f.issue}`,
+    `- **Failure scenario:** ${f.failureScenario}`,
+    `- **Verification evidence:** ${f.verificationEvidence}`,
+  ];
+  if (f.suggestedFix.trim()) {
+    parts.push(`- **Suggested fix:** ${f.suggestedFix}`);
+  }
+  if (f.mcpCitations.length > 0) {
+    parts.push(`- **References:** ${f.mcpCitations.join(', ')}`);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
+ * and batched inline review comments.
+ */
+export function formatReviewMarkdown(
+  review: FinalReview,
+  bundle: EvidenceBundle,
+  options: FormatReviewOptions = {},
+): FormattedReviewOutput {
+  const preset = options.preset ?? 'custom';
+  const maxInline = options.maxInlineComments ?? 10;
+
+  const { inlineFindings, summaryOnlyFindings } = mapFindingsToDiff(
+    review.findings,
+    bundle.diffFiles,
+  );
+
+  const keptInline = inlineFindings.slice(0, maxInline);
+  const overflowFromCap = inlineFindings.slice(maxInline).map((m) => m.finding);
+  const allSummaryFindings = [...summaryOnlyFindings, ...overflowFromCap];
+
+  const inlineComments: GitHubReviewCommentInput[] = keptInline.map((m) => ({
+    path: m.path,
+    line: m.line,
+    ...(m.startLine !== undefined
+      ? { start_line: m.startLine, start_side: m.side }
+      : {}),
+    side: m.side,
+    body: formatInlineCommentBody(m),
+  }));
+
+  const sections: string[] = [];
+
+  const computedScore =
+    review.score !== undefined
+      ? {
+          score: review.score,
+          rationale:
+            review.scoreRationale ??
+            computeConfidenceScore({
+              verdict: review.verdict,
+              findings: review.findings,
+              verificationMatrix: review.verificationMatrix,
+              prKind: review.prKind,
+            }).rationale,
+        }
+      : computeConfidenceScore({
+          verdict: review.verdict,
+          findings: review.findings,
+          verificationMatrix: review.verificationMatrix,
+          prKind: review.prKind,
+        });
+
+  const shortSummary =
+    review.shortSummary?.trim() ||
+    buildShortSummary({
+      prTitle: bundle.pr.title,
+      findings: review.findings,
+      verificationMatrix: review.verificationMatrix,
+      scoreRationale: computedScore.rationale,
+    });
+
+  // Header + TL;DR Short Summary (scannable in 5 seconds)
+  sections.push(
+    `## CiviReview: ${verdictBadge(review.verdict)} · Confidence: ${scoreBadge(computedScore.score)}\n\n` +
+      `> **Summary:** ${shortSummary}\n` +
+      `>\n` +
+      `> **Merge Confidence (${computedScore.score}/5):** ${computedScore.rationale}\n\n` +
+      `- **PR:** \`${review.repo}#${review.prNumber}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\` · **Images:** \`${bundle.abReport.imageA}\` vs \`${bundle.abReport.imageB}\``,
+  );
+
+  // Scannable Key Findings overview right at the top
+  if (review.findings.length > 0) {
+    const bullets = review.findings.map((f) => {
+      const loc =
+        f.startLine === f.endLine
+          ? `\`${f.path}:${f.endLine}\``
+          : `\`${f.path}:${f.startLine}-${f.endLine}\``;
+      return `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]** ${loc} — ${f.title}`;
+    });
+    sections.push(`### Key Findings (${review.findings.length})\n${bullets.join('\n')}`);
+  } else {
+    sections.push(
+      `### Findings\nNo verified high-signal issues found above the confidence gate.`,
+    );
+  }
+
+  // Empirical Verification Matrix (always visible, compact table)
+  const matrixRows = review.verificationMatrix
+    .map(
+      (row) =>
+        `| ${escapeTableCell(row.check)} | ${matrixStatusBadge(row.status)} | ${escapeTableCell(row.detail)} |`,
+    )
+    .join('\n');
+
+  let matrixSection =
+    `### Empirical Verification Matrix\n\n` +
+    `| Check | Status | Detail |\n` +
+    `| --- | --- | --- |\n` +
+    `${matrixRows}`;
+
+  if (review.notVerified.length > 0) {
+    matrixSection +=
+      `\n\n**Not Verified:**\n` +
+      review.notVerified.map((item) => `- ${item}`).join('\n');
+  }
+  sections.push(matrixSection);
+
+  // Standalone Browser A/B details (expanded when regressions exist, collapsible when clean)
+  const bd = bundle.abReport.browserDiff;
+  if (bd) {
+    const routesList = Array.from(
+      new Set([
+        ...bd.probedRoutes,
+        ...bd.probedAnonymousRoutes,
+        ...bd.screenshots.map((s) => s.route),
+      ]),
+    );
+    const hasBrowserRegressions =
+      Boolean(bd.error) ||
+      bd.new_console_errors.length > 0 ||
+      bd.new_page_errors.length > 0 ||
+      bd.new_network_failures.length > 0 ||
+      bd.new_a11y_violations.length > 0 ||
+      bd.render_regressions.length > 0;
+    const browserLines: string[] = [
+      `- **Probed routes (${routesList.length}):** ${routesList.map((r) => `\`${r}\``).join(', ') || 'none'}`,
+      `- **New console errors:** ${bd.new_console_errors.length} · **Page errors:** ${bd.new_page_errors.length} · **Network failures:** ${bd.new_network_failures.length} · **A11y violations:** ${bd.new_a11y_violations.length} · **Render regressions:** ${bd.render_regressions.length}`,
+    ];
+    if (bd.screenshots.length > 0) {
+      browserLines.push(
+        `- **Screenshots:** ${bd.screenshots.length} before/after pair(s) captured`,
+      );
+    }
+    const formatBrowserDetail = (label: string, items: unknown[]) => {
+      if (items.length === 0) return;
+      const preview = items
+        .slice(0, 5)
+        .map((it) => (typeof it === 'string' ? it : JSON.stringify(it)))
+        .join('; ');
+      browserLines.push(`- **${label}:** ${preview}`);
+    };
+    formatBrowserDetail('Console regressions', bd.new_console_errors);
+    formatBrowserDetail('Page errors', bd.new_page_errors);
+    formatBrowserDetail('Network failures', bd.new_network_failures);
+    formatBrowserDetail('A11y regressions', bd.new_a11y_violations);
+    formatBrowserDetail('Render regressions', bd.render_regressions);
+    if (bd.error) {
+      browserLines.push(`- **Error:** ${bd.error}`);
+    }
+    if (hasBrowserRegressions) {
+      sections.push(`### Standalone Browser A/B\n\n${browserLines.join('\n')}`);
+    } else {
+      sections.push(
+        `<details>\n<summary>Standalone Browser A/B (${routesList.length} route(s), 0 regressions)</summary>\n\n${browserLines.join('\n')}\n</details>`,
+      );
+    }
+  }
+
+  // Detailed Walkthrough (collapsible so reviewers aren't forced to read everything)
+  if (review.walkthrough.length > 0) {
+    const noteLabel = review.walkthrough.length === 1 ? 'note' : 'notes';
+    sections.push(
+      `<details>\n<summary>Detailed Walkthrough (${review.walkthrough.length} ${noteLabel})</summary>\n\n${review.walkthrough.map((b) => `- ${b}`).join('\n')}\n</details>`,
+    );
+  }
+
+  // CiviCRM Core Standards (expanded if any ISSUE, collapsible if all PASS/N/A)
+  if (review.standards && review.standards.length > 0) {
+    const stdRows = review.standards
+      .map(
+        (s) =>
+          `| \`${escapeTableCell(s.code)}\` | ${escapeTableCell(s.status)} | ${escapeTableCell(s.note)} |`,
+      )
+      .join('\n');
+    const hasStdIssue = review.standards.some((s) => s.status === 'ISSUE');
+    const stdTable = `| Code | Status | Note |\n| --- | --- | --- |\n${stdRows}`;
+    if (hasStdIssue) {
+      sections.push(`### CiviCRM Core Standards\n\n${stdTable}`);
+    } else {
+      sections.push(
+        `<details>\n<summary>CiviCRM Core Standards (${review.standards.length} checks — all PASS/N/A)</summary>\n\n${stdTable}\n</details>`,
+      );
+    }
+  }
+
+  // Ecosystem Blast Radius
+  if (review.blastRadius.length > 0) {
+    const blastRows = review.blastRadius
+      .map(
+        (b) =>
+          `| ${escapeTableCell(b.repo)} | \`${escapeTableCell(b.path)}\` | \`${escapeTableCell(b.symbol)}\` | ${escapeTableCell(b.impact)} |`,
+      )
+      .join('\n');
+    sections.push(
+      `### Ecosystem Blast Radius\n\n| Repo | Path | Symbol | Impact |\n| --- | --- | --- | --- |\n${blastRows}`,
+    );
+  }
+
+  // Summary-only / overflow findings
+  if (allSummaryFindings.length > 0) {
+    sections.push(
+      `### Additional Findings (Summary-Only)\n\n` +
+        allSummaryFindings.map(formatSummaryFinding).join('\n\n'),
+    );
+  }
+
+  if (review.findings.length > 0 && review.droppedCount > 0) {
+    sections.push(
+      `_Note: ${review.droppedCount} low-confidence, duplicate, or disproved candidate finding(s) were filtered out by the adversarial verifier and confidence gate._`,
+    );
+  }
+
+  // Mandatory AI-disclosure footer (CiviCRM AGENTS.md compliance)
+  const modelEntries = Object.entries(review.modelsUsed)
+    .map(([stage, spec]) => `${stage}=\`${spec}\``)
+    .join(', ');
+  const usesCliSubscription = Object.values(review.modelsUsed).some((spec) =>
+    /^(?:claude-cli|codex-cli|opencode-cli):/.test(spec),
+  );
+  let tokenLine = '';
+  if (review.tokenUsage) {
+    const tu = review.tokenUsage;
+    const parts: string[] = [`in: ${tu.inputTokens.toLocaleString('en-US')}`];
+    if (tu.cacheWriteInputTokens !== undefined && tu.cacheWriteInputTokens > 0) {
+      parts.push(`cache-write: ${tu.cacheWriteInputTokens.toLocaleString('en-US')}`);
+    }
+    if (tu.cachedInputTokens !== undefined && tu.cachedInputTokens > 0) {
+      parts.push(`cache-read: ${tu.cachedInputTokens.toLocaleString('en-US')}`);
+    }
+    parts.push(`out: ${tu.outputTokens.toLocaleString('en-US')}`);
+    const costLabel =
+      tu.estimatedUsd !== undefined
+        ? ` · **Est. cost:** ${formatUsd(tu.estimatedUsd)}${usesCliSubscription && tu.estimatedUsd > 0 ? ' (API-equiv.)' : ''}`
+        : '';
+    tokenLine = ` · **Tokens:** ${tu.totalTokens.toLocaleString('en-US')} (${parts.join(', ')})${costLabel}`;
+  }
+
+  const triggerAttr =
+    options.triggerCommentId !== undefined
+      ? ` trigger_comment=${options.triggerCommentId}`
+      : '';
+  sections.push(
+    `---\n` +
+      `<sub>**AI-Assisted Review Disclosure (CiviCRM AGENTS.md):** Generated by \`civireview\` using ${modelEntries || 'configured models'} · **Preset:** \`${preset}\` · **Base:** \`${review.baseSha}\` · **Head:** \`${review.headSha}\`${tokenLine}</sub>\n` +
+      `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5${triggerAttr} -->`,
+  );
+
+  return {
+    summaryBody: sections.join('\n\n'),
+    inlineComments,
+    overflowFindings: allSummaryFindings,
+  };
+}

@@ -1,0 +1,202 @@
+name: 'CiviReview Stage Runner'
+description: 'Run a privilege-isolated CiviReview stage (evidence, review, publish, reply, or pr)'
+
+inputs:
+  stage:
+    description: 'Stage to execute: evidence | review | publish | reply | pr'
+    required: true
+  repo:
+    description: 'GitHub owner/repo slug'
+    required: false
+    default: ''
+  pr:
+    description: 'Pull request number'
+    required: false
+    default: ''
+  out:
+    description: 'Output directory or file path'
+    required: false
+    default: './civireview-out'
+  evidence_dir:
+    description: 'Path to evidence bundle directory (for review, reply, and publish stages)'
+    required: false
+    default: './civireview-evidence'
+  review_file:
+    description: 'Path to review.json (for publish stage)'
+    required: false
+    default: './review.json'
+  reply_file:
+    description: 'Path to reply.json (for publish stage)'
+    required: false
+    default: ''
+  question:
+    description: 'Follow-up question text (for reply stage)'
+    required: false
+    default: ''
+  preset:
+    description: 'Model preset name'
+    required: false
+    default: 'sonnet'
+  model:
+    description: 'Specialist model override (<provider>:<model>)'
+    required: false
+    default: ''
+  verifier:
+    description: 'Verifier model override (<provider>:<model>)'
+    required: false
+    default: ''
+  base_sha:
+    description: 'Pinned base commit SHA'
+    required: false
+    default: ''
+  head_sha:
+    description: 'Pinned head commit SHA'
+    required: false
+    default: ''
+  ab:
+    description: 'Enable CiviKitchen A/B checks (true/false)'
+    required: false
+    default: 'true'
+  browser:
+    description: 'Enable Standalone browser A/B verification (true/false)'
+    required: false
+    default: 'true'
+  pages:
+    description: 'Comma-separated explicit civicrm/... routes to probe in browser A/B'
+    required: false
+    default: ''
+  include:
+    description: 'Comma-separated checks/lenses to include'
+    required: false
+    default: ''
+  exclude:
+    description: 'Comma-separated checks/lenses to exclude'
+    required: false
+    default: ''
+  demo:
+    description: 'Enable interactive ck demo run (true/false)'
+    required: false
+    default: 'false'
+  full:
+    description: 'Ignore incremental marker (true/false)'
+    required: false
+    default: 'false'
+  comment_id:
+    description: 'Triggering comment ID for completion reaction or thread reply'
+    required: false
+    default: ''
+  dry_run:
+    description: 'Do not post to GitHub (true/false)'
+    required: false
+    default: 'false'
+  cwd:
+    description: 'Target repository directory'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: '1.4.5'
+
+    - name: Install civireview dependencies
+      shell: bash
+      run: bun install --frozen-lockfile --cwd "${{ github.action_path }}"
+
+    - name: Run civireview stage
+      shell: bash
+      env:
+        CIVIREVIEW_ACTION_PATH: ${{ github.action_path }}
+        STAGE: ${{ inputs.stage }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_PR: ${{ inputs.pr }}
+        INPUT_OUT: ${{ inputs.out }}
+        INPUT_EVIDENCE_DIR: ${{ inputs.evidence_dir }}
+        INPUT_REVIEW_FILE: ${{ inputs.review_file }}
+        INPUT_REPLY_FILE: ${{ inputs.reply_file }}
+        INPUT_QUESTION: ${{ inputs.question }}
+        INPUT_PRESET: ${{ inputs.preset }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_VERIFIER: ${{ inputs.verifier }}
+        INPUT_BASE_SHA: ${{ inputs.base_sha }}
+        INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+        INPUT_AB: ${{ inputs.ab }}
+        INPUT_BROWSER: ${{ inputs.browser }}
+        INPUT_PAGES: ${{ inputs.pages }}
+        INPUT_INCLUDE: ${{ inputs.include }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_DEMO: ${{ inputs.demo }}
+        INPUT_FULL: ${{ inputs.full }}
+        INPUT_COMMENT_ID: ${{ inputs.comment_id }}
+        INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        INPUT_CWD: ${{ inputs.cwd }}
+      run: |
+        set -euo pipefail
+        ARGS=("$STAGE" --cwd "$INPUT_CWD")
+
+        append_csv_flags() {
+          if [ -n "$INPUT_INCLUDE" ]; then ARGS+=(--include "$INPUT_INCLUDE"); fi
+          if [ -n "$INPUT_EXCLUDE" ]; then ARGS+=(--exclude "$INPUT_EXCLUDE"); fi
+          if [ -n "$INPUT_PAGES" ]; then
+            IFS=',' read -ra PAGE_ITEMS <<< "$INPUT_PAGES"
+            for page in "${PAGE_ITEMS[@]}"; do
+              if [ -n "$page" ]; then ARGS+=(--page "$page"); fi
+            done
+          fi
+        }
+
+        case "$STAGE" in
+          evidence)
+            ARGS+=(--repo "$INPUT_REPO" --pr "$INPUT_PR" --out "$INPUT_OUT")
+            if [ -n "$INPUT_BASE_SHA" ]; then ARGS+=(--base-sha "$INPUT_BASE_SHA"); fi
+            if [ -n "$INPUT_HEAD_SHA" ]; then ARGS+=(--head-sha "$INPUT_HEAD_SHA"); fi
+            if [ "$INPUT_AB" = "true" ]; then ARGS+=(--ab); else ARGS+=(--no-ab); fi
+            if [ "$INPUT_BROWSER" = "true" ]; then ARGS+=(--browser); else ARGS+=(--no-browser); fi
+            if [ "$INPUT_DEMO" = "true" ]; then ARGS+=(--demo); fi
+            if [ "$INPUT_FULL" = "true" ]; then ARGS+=(--full); fi
+            append_csv_flags
+            ;;
+          review)
+            ARGS+=(--evidence "$INPUT_EVIDENCE_DIR" --out "$INPUT_OUT" --preset "$INPUT_PRESET")
+            if [ -n "$INPUT_MODEL" ]; then ARGS+=(--model "$INPUT_MODEL"); fi
+            if [ -n "$INPUT_VERIFIER" ]; then ARGS+=(--verifier "$INPUT_VERIFIER"); fi
+            if [ -n "$INPUT_INCLUDE" ]; then ARGS+=(--include "$INPUT_INCLUDE"); fi
+            if [ -n "$INPUT_EXCLUDE" ]; then ARGS+=(--exclude "$INPUT_EXCLUDE"); fi
+            ;;
+          reply)
+            ARGS+=(--repo "$INPUT_REPO" --pr "$INPUT_PR" --comment-id "$INPUT_COMMENT_ID" --evidence "$INPUT_EVIDENCE_DIR" --question "$INPUT_QUESTION" --preset "$INPUT_PRESET")
+            if [ -n "$INPUT_MODEL" ]; then ARGS+=(--model "$INPUT_MODEL"); fi
+            if [ -n "$INPUT_VERIFIER" ]; then ARGS+=(--verifier "$INPUT_VERIFIER"); fi
+            if [ -n "$INPUT_OUT" ]; then ARGS+=(--out "$INPUT_OUT"); fi
+            if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+            ;;
+          publish)
+            if [ -n "$INPUT_REPLY_FILE" ]; then
+              ARGS+=(--reply "$INPUT_REPLY_FILE" --evidence "$INPUT_EVIDENCE_DIR" --comment-id "$INPUT_COMMENT_ID")
+            else
+              ARGS+=(--review "$INPUT_REVIEW_FILE" --evidence "$INPUT_EVIDENCE_DIR" --preset "$INPUT_PRESET")
+              if [ -n "$INPUT_COMMENT_ID" ]; then ARGS+=(--comment-id "$INPUT_COMMENT_ID"); fi
+            fi
+            if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+            ;;
+          pr)
+            ARGS+=("$INPUT_PR" --repo "$INPUT_REPO" --preset "$INPUT_PRESET")
+            if [ -n "$INPUT_MODEL" ]; then ARGS+=(--model "$INPUT_MODEL"); fi
+            if [ -n "$INPUT_VERIFIER" ]; then ARGS+=(--verifier "$INPUT_VERIFIER"); fi
+            if [ "$INPUT_AB" = "true" ]; then ARGS+=(--ab); else ARGS+=(--no-ab); fi
+            if [ "$INPUT_BROWSER" = "true" ]; then ARGS+=(--browser); else ARGS+=(--no-browser); fi
+            if [ "$INPUT_DEMO" = "true" ]; then ARGS+=(--demo); fi
+            if [ "$INPUT_FULL" = "true" ]; then ARGS+=(--full); fi
+            if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+            append_csv_flags
+            ;;
+          *)
+            echo "Unsupported stage: $STAGE" >&2
+            exit 1
+            ;;
+        esac
+
+        bun run "$CIVIREVIEW_ACTION_PATH/bin/civireview.ts" "${ARGS[@]}"

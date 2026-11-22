@@ -1,0 +1,35 @@
+{
+  "name": "civireview",
+  "version": "0.1.0",
+  "description": "CiviCRM-native multi-model AI pull request reviewer built on CiviKitchen A/B verification and civicrm-knowledge MCP",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "civireview": "bin/civireview.ts"
+  },
+  "scripts": {
+    "dev": "bun run bin/civireview.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "latest",
+    "@ai-sdk/google": "latest",
+    "@ai-sdk/mcp": "latest",
+    "@ai-sdk/openai": "latest",
+    "@ai-sdk/openai-compatible": "latest",
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "@octokit/rest": "^21.1.1",
+    "ai": "latest",
+    "js-yaml": "^4.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "@types/js-yaml": "^4.0.9",
+    "typescript": "^5.8.0"
+  }
+}

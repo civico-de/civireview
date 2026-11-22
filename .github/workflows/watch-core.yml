@@ -1,0 +1,184 @@
+name: Watch CiviCRM Core PRs (@civireview)
+
+on:
+  schedule:
+    # Poll every 5 minutes once enabled via repository variable CIVIREVIEW_WATCH_ENABLED=true
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview reviews without posting to GitHub
+        required: false
+        type: boolean
+        default: true
+      preset:
+        description: Model preset override (defaults to repo var CIVIREVIEW_PRESET or sonnet)
+        required: false
+        type: string
+        default: ''
+      ab_enabled:
+        description: Enable CiviKitchen Standalone A/B Docker verification
+        required: false
+        type: boolean
+        default: true
+      max_age_minutes:
+        description: Ignore mentions older than N minutes (cold-start safeguard)
+        required: false
+        type: string
+        default: '1440'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: civireview-watch-civicrm-core
+  # Never cancel an in-flight A/B review when the next 5-minute poll fires
+  cancel-in-progress: false
+
+jobs:
+  watch-core:
+    name: Poll & Review civicrm/civicrm-core Mentions
+    # Safe by default: scheduled runs stay idle until repository variable
+    # CIVIREVIEW_WATCH_ENABLED is explicitly set to 'true'.
+    if: github.event_name == 'workflow_dispatch' || vars.CIVIREVIEW_WATCH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out civireview
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore watcher state cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .civireview-state
+          key: civireview-watch-core-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            civireview-watch-core-v1-
+
+      - name: Fast pre-flight check for pending @civireview mentions
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.CIVIREVIEW_GITHUB_TOKEN }}
+          WATCH_MODE: ${{ vars.CIVIREVIEW_WATCH_MODE || 'notifications' }}
+          WATCH_REPOS: ${{ vars.CIVIREVIEW_WATCH_REPOS || 'civicrm/civicrm-core' }}
+          ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
+          ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
+          MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
+          MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
+          MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
+          TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "Missing secret CIVIREVIEW_GITHUB_TOKEN. Configure a classic PAT for the @civireview account with scopes 'public_repo' and 'notifications' (or 'public_repo' with CIVIREVIEW_WATCH_MODE=search)." >&2
+            exit 1
+          fi
+
+          ARGS=(
+            watch
+            --mode "$WATCH_MODE"
+            --repos "$WATCH_REPOS"
+            --allow-orgs "$ALLOW_ORGS"
+            --trigger "$TRIGGER_STR"
+            --max-per-hour "$MAX_PER_HOUR"
+            --max-daily-usd "$MAX_DAILY_USD"
+            --max-age-minutes "$MAX_AGE_MINUTES"
+            --state "$PWD/.civireview-state/seen.json"
+            --check-only
+          )
+          if [ -n "$ALLOW_USERS" ]; then
+            ARGS+=(--allow "$ALLOW_USERS")
+          fi
+
+          CHECK_JSON="$(bun run bin/civireview.ts "${ARGS[@]}")"
+          echo "$CHECK_JSON"
+          PENDING_COUNT="$(printf '%s' "$CHECK_JSON" | bun -e 'const data = JSON.parse(await Bun.stdin.text()); console.log(Number(data.pendingCount || 0));')"
+          echo "pending_count=$PENDING_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Check out CiviKitchen (only when mentions are pending)
+        if: steps.check.outputs.pending_count != '0'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: civico-de/civikitchen
+          ref: ${{ vars.CIVIKITCHEN_REF || 'main' }}
+          path: .civikitchen-tool
+          persist-credentials: false
+
+      - name: Blobless-clone civicrm/civicrm-core (only when mentions are pending)
+        if: steps.check.outputs.pending_count != '0'
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/civicrm/civicrm-core.git .target-core
+
+      - name: Run civireview watch pass
+        if: steps.check.outputs.pending_count != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.CIVIREVIEW_GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          # SECURITY INVARIANT: civicrm/civicrm-core is public; never inject team MCP credentials.
+          CIVICRM_MCP_URL: ''
+          CIVICRM_MCP_TOKEN: ''
+          CIVICRM_KNOWLEDGE_MCP_TOKEN: ''
+          CIVIKITCHEN_PATH: ${{ github.workspace }}/.civikitchen-tool
+          WATCH_MODE: ${{ vars.CIVIREVIEW_WATCH_MODE || 'notifications' }}
+          WATCH_REPOS: ${{ vars.CIVIREVIEW_WATCH_REPOS || 'civicrm/civicrm-core' }}
+          ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
+          ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
+          PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet' }}
+          AB_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.ab_enabled || 'true' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
+          MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
+          MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
+          TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            watch
+            --cwd "$PWD/.target-core"
+            --mode "$WATCH_MODE"
+            --repos "$WATCH_REPOS"
+            --allow-orgs "$ALLOW_ORGS"
+            --trigger "$TRIGGER_STR"
+            --preset "$PRESET_VAL"
+            --max-per-hour "$MAX_PER_HOUR"
+            --max-daily-usd "$MAX_DAILY_USD"
+            --max-age-minutes "$MAX_AGE_MINUTES"
+            --state "$PWD/.civireview-state/seen.json"
+            --once
+          )
+          if [ -n "$ALLOW_USERS" ]; then
+            ARGS+=(--allow "$ALLOW_USERS")
+          fi
+          if [ "$AB_ENABLED" = "true" ]; then
+            ARGS+=(--ab)
+          else
+            ARGS+=(--no-ab)
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          bun run bin/civireview.ts "${ARGS[@]}"
+
+      - name: Save watcher state cache
+        if: >
+          always() &&
+          steps.check.outputs.pending_count != '0' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .civireview-state
+          key: civireview-watch-core-v1-${{ github.run_id }}-${{ github.run_attempt }}

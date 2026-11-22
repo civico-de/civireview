@@ -1,0 +1,107 @@
+# civireview configuration example
+# Place as `civireview.yaml` or `.civireview.yaml` in your repository root.
+
+trigger: "@civireview"
+
+# Named model presets:
+#   sonnet       -> Haiku triage, Sonnet specialists & verifier (API)
+#   sonnet-opus  -> Haiku triage, Sonnet specialists, Opus verifier (API)
+#   cross-model  -> Haiku triage, Sonnet specialists, GPT-5.2 verifier (API)
+#   subscription -> Claude Code CLI subscription (haiku/sonnet/opus, zero API key)
+#   local-gpu    -> OpenCode / OpenAI-compatible local server
+preset: sonnet
+
+# Optional per-stage model overrides (<provider>:<modelId>):
+# Supported providers: anthropic, openai, google, openrouter, openai-compat,
+#                      claude-cli, codex-cli, opencode-cli
+models:
+  # triage: anthropic:claude-haiku-4-5
+  specialists:
+    # correctness: anthropic:claude-sonnet-4-6
+    # security: openai:gpt-5.2
+    # tests: anthropic:claude-sonnet-4-6
+    # ui: google:gemini-2.5-pro
+  # verifier: anthropic:claude-opus-4-6
+  # threadReply: anthropic:claude-sonnet-4-6
+
+# Layer 1 CiviKitchen A/B verification options (Standalone only)
+ab:
+  enabled: true
+  runDemo: false
+  runMatrix: false
+  keepStacks: false
+  liveProve: false
+  # civikitchenPath: /path/to/civikitchen
+  # ckCommand: ck
+
+# Layer 1 check toggles (all CiviCRM Standalone focused; browser & a11y ON by default)
+checks:
+  abTests: true
+  surface: true
+  staticDelta: true
+  lifecycle: true
+  browser: true
+  a11y: true
+  interactiveBrowser: false # Tier 2 Playwright MCP (local/opt-in)
+  matrix: false
+  liveProve: false
+
+# Standalone browser A/B configuration
+browser:
+  # Explicit civicrm/... routes to always probe (in addition to auto-discovered routes)
+  pages: []
+  # Anonymous routes to probe without login
+  anonymousPages: []
+  maxAutoPages: 5
+  viewport: 1280x800
+  sendScreenshotsToLlm: true
+  # playwrightMcpCommand: npx -y @playwright/mcp@latest
+
+# CiviCRM Knowledge MCP scope isolation
+# Public repos ALWAYS connect to publicUrl with zero team token.
+# Private repos use teamUrl + env[tokenEnv] when configured.
+mcp:
+  enabled: true
+  publicUrl: https://mcp.civico.de/mcp
+  # teamUrl: https://your-team-mcp.example.com/mcp
+  tokenEnv: CIVICRM_MCP_TOKEN
+
+# Review gate, include/exclude controls, & GitHub publishing behavior
+review:
+  confidenceThreshold: 80
+  maxInlineComments: 10
+  maxDiffBytes: 250000
+  maxSteps: 15
+  autoPost: true
+  reviewEvent: COMMENT # COMMENT | REQUEST_CHANGES | APPROVE
+  # Optional allowlist/denylist of check keys (ab-tests, surface, static-delta,
+  # lifecycle, browser, a11y, interactive-browser, matrix, live-prove) and
+  # specialist lenses (correctness, security, tests, ui):
+  include: []
+  exclude: []
+  # Optional diff path glob filters (*, **, ?):
+  paths:
+    include: []
+    exclude: []
+    #   - "docs/**"
+
+# Cross-repo mention watcher (`civireview watch`)
+watch:
+  mode: search # search | notifications
+  repos:
+    - civicrm/civicrm-core
+  # REQUIRED for security: configure at least one of allowedAuthors, allowedOrgs,
+  # or allowedAssociations.
+  allowedAuthors: []
+  # Authorize all members (public and private) of a GitHub organization:
+  allowedOrgs:
+    - civicrm
+  # Optional GitHub author_association allowlist (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR):
+  allowedAssociations: []
+  # Rolling cost & abuse guardrails (excess mentions are deferred, not dropped):
+  maxReviewsPerHour: 10
+  maxDailyUsd: 15
+  # Ignore historical mentions older than N minutes (cold-start safety):
+  maxCommentAgeMinutes: 1440
+  intervalSec: 60
+  statePath: .civireview-state/seen.json
