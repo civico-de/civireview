@@ -111,5 +111,7 @@ watch:
   maxDailyUsd: 15
   # Ignore historical mentions older than N minutes (cold-start safety):
   maxCommentAgeMinutes: 1440
+  # Prevent PR commenters from switching to arbitrary models/presets:
+  lockModels: true
   intervalSec: 60
   statePath: .civireview-state/seen.json

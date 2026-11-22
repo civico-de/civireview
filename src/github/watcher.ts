@@ -760,6 +760,8 @@ export interface WatcherOptions {
   maxReviewsPerHour?: number;
   maxDailyUsd?: number;
   maxCommentAgeMinutes?: number;
+  /** When true, ignore `--preset`, `--model`, and `--verifier` overrides from PR comments. */
+  lockModels?: boolean;
   trigger?: string;
   intervalSec?: number;
   once?: boolean;
@@ -789,10 +791,12 @@ export interface WatcherPassResult {
 function applyMentionFlagsToConfig(
   baseConfig: ResolvedCiviReviewConfig,
   flags: ParsedMentionFlags,
+  options: { lockModels?: boolean } = {},
 ): ResolvedCiviReviewConfig {
-  const preset = flags.preset ?? baseConfig.preset;
+  const allowModels = !options.lockModels;
+  const preset = allowModels && flags.preset ? flags.preset : baseConfig.preset;
   const models =
-    flags.preset || flags.model || flags.verifier
+    allowModels && (flags.preset || flags.model || flags.verifier)
       ? resolveModels(
           preset,
           flags.preset ? undefined : baseConfig.models,
@@ -981,6 +985,7 @@ export async function runWatcherOnce(
   const maxDailyUsd = options.maxDailyUsd ?? options.config.watch?.maxDailyUsd;
   const maxCommentAgeMinutes =
     options.maxCommentAgeMinutes ?? options.config.watch?.maxCommentAgeMinutes;
+  const lockModels = options.lockModels ?? options.config.watch?.lockModels ?? false;
 
   const token = options.octokit
     ? options.token
@@ -1204,7 +1209,7 @@ export async function runWatcherOnce(
       }
     } else if (isThreadReply) {
       const effectiveConfig = buildLightweightReplyConfig(
-        applyMentionFlagsToConfig(options.config, mention.flags),
+        applyMentionFlagsToConfig(options.config, mention.flags, { lockModels }),
       );
       const { bundle, filteredPatch, cleanup } = await collectEvidenceFn({
         repoRoot: options.repoRoot,
@@ -1257,6 +1262,7 @@ export async function runWatcherOnce(
       const effectiveConfig = applyMentionFlagsToConfig(
         options.config,
         mention.flags,
+        { lockModels },
       );
       const { bundle, filteredPatch, urls, composeFiles, cleanup } =
         await collectEvidenceFn({

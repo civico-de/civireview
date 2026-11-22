@@ -1,12 +1,18 @@
 import {
   CHECK_KEYS,
-  EffortModeSchema,
   ModelSpecSchema,
   PresetNameSchema,
-  type EffortMode,
   type ModelSpec,
   type PresetName,
 } from '../config/schema.ts';
+
+/**
+ * Effort levels allowed from PR comments (`xhigh` and `max` are intentionally
+ * restricted to local CLI / repository config to prevent runaway API spend).
+ */
+export const COMMENT_EFFORT_MODES = ['auto', 'low', 'medium', 'high'] as const;
+export type CommentEffortMode = (typeof COMMENT_EFFORT_MODES)[number];
+const COMMENT_EFFORT_SET = new Set<string>(COMMENT_EFFORT_MODES);
 
 const ALLOWED_INCLUDE_EXCLUDE_KEYS = new Set<string>([
   ...CHECK_KEYS,
@@ -27,7 +33,7 @@ export interface ParsedMentionFlags {
   exclude?: string[];
   pages?: string[];
   preset?: PresetName;
-  effort?: EffortMode;
+  effort?: CommentEffortMode;
   model?: ModelSpec;
   verifier?: ModelSpec;
 }
@@ -264,13 +270,13 @@ export function parseMentionCommand(
     }
     if (token === '--effort' || token.startsWith('--effort=')) {
       const { value, nextIndex } = readFlagValue(token, i, '--effort');
-      const parsed = EffortModeSchema.safeParse(value.toLowerCase());
-      if (!parsed.success) {
+      const normalized = value.toLowerCase();
+      if (!COMMENT_EFFORT_SET.has(normalized)) {
         throw new Error(
-          `Invalid effort "${value}". Expected one of: ${EffortModeSchema.options.join(', ')}`,
+          `Invalid PR comment effort "${value}". Allowed in comments: ${COMMENT_EFFORT_MODES.join(', ')}`,
         );
       }
-      flags.effort = parsed.data;
+      flags.effort = normalized as CommentEffortMode;
       i = nextIndex;
       continue;
     }

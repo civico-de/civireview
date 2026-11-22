@@ -1060,4 +1060,176 @@ describe('github watcher', () => {
     // Must NOT advance lastModified while mention 952 is still throttled
     expect(loadSeenState(statePath).lastModified).toBeUndefined();
   });
+
+  test('lockModels ignores --preset, --model, and --verifier overrides from PR comments while still honoring --effort high', async () => {
+    const dir = makeTempDir();
+    const statePath = join(dir, 'seen.json');
+    const config = loadConfig(dir, { preset: 'sonnet-opus' });
+
+    const seenConfigs: Array<{
+      preset: string;
+      verifier: string;
+      correctness: string;
+      effort: string;
+    }> = [];
+
+    const octokit: WatcherOctokit = {
+      rest: {
+        search: {
+          async issuesAndPullRequests() {
+            return { data: { items: [{ number: 38200 }] } };
+          },
+        },
+        issues: {
+          async listComments() {
+            return {
+              data: [
+                {
+                  id: 990,
+                  user: { login: 'core-member' },
+                  author_association: 'MEMBER',
+                  body: '@civireview --preset cross-model --model anthropic:claude-fable-5-2 --verifier anthropic:claude-fable-5-2 --effort high',
+                },
+              ],
+            };
+          },
+        },
+        pulls: {
+          async listReviewComments() {
+            return { data: [] };
+          },
+          async createReview() {
+            return { data: { id: 1 } };
+          },
+          async createReplyForReviewComment() {
+            return { data: { id: 2 } };
+          },
+        },
+        activity: {
+          async listNotificationsForAuthenticatedUser() {
+            return { status: 200, data: [] };
+          },
+          async markThreadAsRead() {},
+        },
+      },
+    };
+
+    const mockBundle: EvidenceBundle = {
+      schemaVersion: '1',
+      collectedAt: '2026-11-23T00:00:00Z',
+      repoInfo: {
+        kind: 'civicrm-core',
+        root: dir,
+        recommendedImage: 'standalone-master',
+      },
+      pr: {
+        repo: 'civicrm/civicrm-core',
+        isPrivateRepo: false,
+        prNumber: 38200,
+        title: 'Test',
+        body: '',
+        author: 'core-member',
+        baseBranch: 'master',
+        headBranch: 'fix',
+        baseSha: '1111111111111111111111111111111111111111',
+        headSha: '2222222222222222222222222222222222222222',
+        labels: [],
+        draft: false,
+      },
+      comments: [],
+      linkedIssues: [],
+      diffFiles: [],
+      droppedNoiseFiles: [],
+      diffTruncated: false,
+      ciStatus: {
+        overallState: 'success',
+        checks: [],
+        jenkinsFailedTests: [],
+        summary: 'ok',
+      },
+      abReport: {
+        executed: false,
+        imageA: 'standalone-master',
+        imageB: 'standalone-master',
+        checks: [],
+        surfaceDiff: {
+          changes: [],
+          unverifiedSurfaces: [],
+          touchedComponents: [],
+          summary: 'none',
+        },
+        demoConsoleErrors: [],
+        notVerified: [],
+      },
+      staticDelta: {
+        executed: false,
+        toolsRun: [],
+        findings: [],
+        summary: 'skipped',
+      },
+      notVerified: [],
+    };
+
+    const mockReview: FinalReview = {
+      schemaVersion: '1',
+      repo: 'civicrm/civicrm-core',
+      prNumber: 38200,
+      baseSha: mockBundle.pr.baseSha,
+      headSha: mockBundle.pr.headSha,
+      prKind: 'core-bugfix',
+      verdict: 'READY',
+      score: 5,
+      shortSummary: 'Ok.',
+      walkthrough: ['Ok.'],
+      verificationMatrix: [],
+      notVerified: [],
+      blastRadius: [],
+      findings: [],
+      droppedCount: 0,
+      modelsUsed: { verifier: 'anthropic:claude-opus-5-5' },
+      generatedAt: '2026-11-23T00:00:00Z',
+    };
+
+    await runWatcherOnce({
+      mode: 'search',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      lockModels: true,
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      deps: {
+        collectEvidence: async (opts) => {
+          seenConfigs.push({
+            preset: opts.config.preset,
+            verifier: opts.config.models.verifier,
+            correctness: opts.config.models.specialists.correctness,
+            effort: opts.config.review.effort,
+          });
+          return {
+            bundle: mockBundle,
+            filteredPatch: '',
+            cleanup: async () => {},
+          };
+        },
+        runReviewPipeline: async () => mockReview,
+        publishReview: async () => ({
+          posted: true,
+          fallbackUsed: false,
+          summaryBody: 'ok',
+          inlineComments: [],
+        }),
+      },
+    });
+
+    expect(seenConfigs).toEqual([
+      {
+        preset: 'sonnet-opus',
+        verifier: 'anthropic:claude-opus-5-5',
+        correctness: 'anthropic:claude-sonnet-5-5',
+        effort: 'high',
+      },
+    ]);
+  });
 });

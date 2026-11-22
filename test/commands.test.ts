@@ -78,14 +78,20 @@ describe('parseMentionCommand', () => {
     expect(parsed.question).toBe('Check layout');
   });
 
-  test('parses --effort flag and rejects invalid effort values', () => {
+  test('parses --effort flag and restricts PR comments to auto/low/medium/high (rejects xhigh/max)', () => {
     const parsed = parseMentionCommand('@civireview --effort=high --full');
     expect(parsed.triggered).toBe(true);
     expect(parsed.flags.effort).toBe('high');
     expect(parsed.flags.full).toBe(true);
 
     expect(() =>
+      parseMentionCommand('@civireview --effort max'),
+    ).toThrow(/Allowed in comments/);
+    expect(() =>
+      parseMentionCommand('@civireview --effort xhigh'),
+    ).toThrow(/Allowed in comments/);
+    expect(() =>
       parseMentionCommand('@civireview --effort turbo'),
-    ).toThrow(/Invalid effort/);
+    ).toThrow(/Invalid PR comment effort/);
   });
 });

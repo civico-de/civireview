@@ -86,6 +86,7 @@ Watch Options:
   --max-per-hour <N>                   Rolling hourly cap on reviews/replies (defers excess mentions)
   --max-daily-usd <USD>                Rolling UTC-day estimated USD cap (defers excess mentions)
   --max-age-minutes <N>                Ignore comments older than N minutes (cold-start safeguard)
+  --lock-models                        Ignore --preset/--model/--verifier overrides from PR comments
   --state <path>                       Path to persistent seen/budget state file
   --check-only                         Poll for pending mentions and print JSON without reviewing
   --include-closed                     Include closed/merged PRs in search mode (default)
@@ -341,6 +342,7 @@ async function main(): Promise<void> {
       'max-per-hour': { type: 'string' },
       'max-daily-usd': { type: 'string' },
       'max-age-minutes': { type: 'string' },
+      'lock-models': { type: 'boolean', default: false },
       state: { type: 'string' },
       'check-only': { type: 'boolean', default: false },
       'include-closed': { type: 'boolean', default: false },
@@ -923,6 +925,7 @@ async function main(): Promise<void> {
       maxReviewsPerHour,
       maxDailyUsd,
       maxCommentAgeMinutes,
+      lockModels: values['lock-models'] ? true : config.watch?.lockModels,
       trigger: values.trigger ?? config.trigger,
       intervalSec,
       once: values.once || checkOnly,
