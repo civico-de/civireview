@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="CiviReview logo" width="140" />
+</p>
+
 # civireview
 
 **CiviCRM-native, multi-model AI pull request reviewer** built on deterministic **CiviKitchen Standalone A/B verification** (including automated real-browser A/B screenshots + a11y) and **civicrm-knowledge MCP**.
