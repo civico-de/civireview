@@ -251,6 +251,7 @@ export function formatReviewMarkdown(
   // Header + TL;DR Short Summary (scannable in 5 seconds)
   sections.push(
     `## CiviReview: ${verdictBadge(review.verdict)} · Confidence: ${scoreBadge(computedScore.score)}\n\n` +
+      `_Automated AI-assisted review (alpha) — verify findings before acting; [feedback / open an issue](https://github.com/civico-de/civireview/issues/new)._\n\n` +
       `> **Summary:** ${shortSummary}\n` +
       `>\n` +
       `> **Merge Confidence (${computedScore.score}/5):** ${computedScore.rationale}\n\n` +
