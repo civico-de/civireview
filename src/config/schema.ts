@@ -262,6 +262,8 @@ export const WatchConfigSchema = z
     maxDailyUsd: z.number().positive().optional(),
     maxCommentAgeMinutes: z.number().int().positive().optional(),
     lockModels: z.boolean().default(false),
+    waitForCi: z.boolean().default(false),
+    waitForCiMaxMinutes: z.number().int().positive().default(90),
     intervalSec: z.number().int().positive().default(60),
     statePath: z.string().min(1).default('.civireview-state/seen.json'),
   })

@@ -449,4 +449,137 @@ describe('github watcher auth, budget & dedup', () => {
     // checkOnly must not mutate seen.json
     expect(loadSeenState(statePath).seenCommentKeys).toHaveLength(0);
   });
+
+  test('waitForCi defers reviews while CI/Jenkins is pending and proceeds once finished or --full', async () => {
+    const dir = makeTempDir();
+    const statePath = join(dir, 'seen.json');
+    const config = loadConfig(dir, { preset: 'sonnet-opus' });
+    const nowMs = Date.parse('2026-11-23T12:00:00Z');
+    let ciState: 'pending' | 'success' = 'pending';
+    let markedRead = 0;
+
+    const octokit: WatcherOctokit = {
+      rest: {
+        search: {
+          async issuesAndPullRequests() {
+            return {
+              data: {
+                items: [
+                  {
+                    number: 38300,
+                    repository_url: 'https://api.github.com/repos/civicrm/civicrm-core',
+                    pull_request: {},
+                  },
+                ],
+              },
+            };
+          },
+        },
+        issues: {
+          async listComments() {
+            return {
+              data: [
+                {
+                  id: 801,
+                  body: '@civireview',
+                  user: { login: 'eileenmcnaughton' },
+                  author_association: 'MEMBER',
+                  created_at: '2026-11-23T11:50:00Z',
+                },
+              ],
+            };
+          },
+        },
+        pulls: {
+          async listReviewComments() {
+            return { data: [] };
+          },
+          async listReviews() {
+            return { data: [] };
+          },
+          async get() {
+            return { data: { head: { sha: 'abc1234567890' } } };
+          },
+          async createReview() {
+            return { data: { id: 1 } };
+          },
+          async createReplyForReviewComment() {
+            return { data: { id: 1 } };
+          },
+        },
+        repos: {
+          async getCombinedStatusForRef() {
+            return {
+              data: {
+                state: ciState,
+                statuses: [{ context: 'CiviCRM-PR', state: ciState }],
+              },
+            };
+          },
+        },
+        activity: {
+          async listNotificationsForAuthenticatedUser() {
+            return { data: [] };
+          },
+          async markThreadAsRead() {
+            markedRead++;
+          },
+        },
+      },
+    };
+
+    // 1. While Jenkins is pending -> deferred into waitingForCi (0 pending, 0 processed)
+    const deferred = await runWatcherOnce({
+      mode: 'search',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      waitForCi: true,
+      waitForCiMaxMinutes: 90,
+      checkOnly: true,
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      now: () => nowMs,
+    });
+    expect(deferred.waitingForCi.map((m) => m.commentId)).toEqual([801]);
+    expect(deferred.pending).toHaveLength(0);
+    expect(markedRead).toBe(0);
+
+    // 2. Once Jenkins finishes (success) -> ready in pending!
+    ciState = 'success';
+    const ready = await runWatcherOnce({
+      mode: 'search',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      waitForCi: true,
+      waitForCiMaxMinutes: 90,
+      checkOnly: true,
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      now: () => nowMs,
+    });
+    expect(ready.waitingForCi).toHaveLength(0);
+    expect(ready.pending.map((m) => m.commentId)).toEqual([801]);
+
+    // 3. If Jenkins stays pending past waitForCiMaxMinutes -> proceeds anyway
+    ciState = 'pending';
+    const timedOut = await runWatcherOnce({
+      mode: 'search',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      waitForCi: true,
+      waitForCiMaxMinutes: 5,
+      checkOnly: true,
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      now: () => nowMs,
+    });
+    expect(timedOut.waitingForCi).toHaveLength(0);
+    expect(timedOut.pending.map((m) => m.commentId)).toEqual([801]);
+  });
 });

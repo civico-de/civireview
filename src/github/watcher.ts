@@ -74,6 +74,10 @@ export interface WatcherOptions {
   maxCommentAgeMinutes?: number;
   /** When true, ignore `--preset`, `--model`, and `--verifier` overrides from PR comments. */
   lockModels?: boolean;
+  /** When true, defer full PR reviews while CI/Jenkins commit statuses on head SHA are still pending. */
+  waitForCi?: boolean;
+  /** Max minutes to wait for pending CI before reviewing anyway (default: 90). */
+  waitForCiMaxMinutes?: number;
   trigger?: string;
   intervalSec?: number;
   once?: boolean;
@@ -96,6 +100,7 @@ export interface WatcherPassResult {
   pending: WatcherMention[];
   throttled: WatcherMention[];
   skippedDuplicate: WatcherMention[];
+  waitingForCi: WatcherMention[];
 }
 
 function applyMentionFlagsToConfig(
@@ -323,6 +328,9 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
   const pending: WatcherMention[] = [];
   const throttled: WatcherMention[] = [];
   const skippedDuplicate: WatcherMention[] = [];
+  const waitingForCi: WatcherMention[] = [];
+  const prCiPendingCache = new Map<string, boolean>();
+  const waitForCiMaxMinutes = options.waitForCiMaxMinutes ?? 90;
 
   for (const mention of mentions) {
     const key = makeCommentKey(mention.repoFullName, mention.commentId);
@@ -417,6 +425,62 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
         saveSeenState(statePath, state, nowFn());
       }
       continue;
+    }
+
+    // Zero-Docker CI wait gate: when --wait-for-ci is enabled, defer full PR reviews
+    // while Jenkins / commit statuses on the PR head SHA are still `pending` (up to waitForCiMaxMinutes).
+    if (
+      !isThreadReply &&
+      options.waitForCi &&
+      !mention.flags.full &&
+      octokit.rest.pulls.get &&
+      octokit.rest.repos?.getCombinedStatusForRef
+    ) {
+      const mentionMs = mention.createdAt ? Date.parse(mention.createdAt) : Number.NaN;
+      const ageMinutes = Number.isFinite(mentionMs) ? (nowMs - mentionMs) / 60_000 : 0;
+      if (ageMinutes < waitForCiMaxMinutes) {
+        let headSha = prHeadShaCache.get(prCacheKey);
+        if (!prHeadShaCache.has(prCacheKey)) {
+          try {
+            const prRes = await octokit.rest.pulls.get({
+              owner: mention.owner,
+              repo: mention.repo,
+              pull_number: mention.prNumber,
+            });
+            headSha = prRes.data.head?.sha;
+          } catch {
+            headSha = undefined;
+          }
+          prHeadShaCache.set(prCacheKey, headSha);
+        }
+        if (headSha) {
+          const ciCacheKey = `${prCacheKey}@${headSha}`;
+          let ciPending = prCiPendingCache.get(ciCacheKey);
+          if (ciPending === undefined) {
+            try {
+              const statusRes = await octokit.rest.repos.getCombinedStatusForRef({
+                owner: mention.owner,
+                repo: mention.repo,
+                ref: headSha,
+              });
+              const statuses = statusRes.data.statuses ?? [];
+              ciPending =
+                statuses.some((s) => (s.state ?? '').toLowerCase() === 'pending') ||
+                (statuses.length > 0 && (statusRes.data.state ?? '').toLowerCase() === 'pending');
+            } catch {
+              ciPending = false;
+            }
+            prCiPendingCache.set(ciCacheKey, ciPending);
+          }
+          if (ciPending) {
+            options.logger?.info(
+              `Deferring ${mention.repoFullName}#${mention.prNumber}: CI/Jenkins still pending on ${headSha.slice(0, 7)} (age ${Math.max(0, Math.round(ageMinutes))}m < ${waitForCiMaxMinutes}m limit).`,
+            );
+            waitingForCi.push(mention);
+            continue;
+          }
+        }
+      }
     }
 
     // Rate limit & daily USD budget guard (deferred mentions are NOT marked seen)
@@ -623,13 +687,13 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
 
   if (!options.checkOnly && !options.dryRun) {
     // Only advance If-Modified-Since cursor once no mentions were deferred by
-    // rate/budget caps, so throttled notifications are re-fetched cleanly later.
-    if (pendingLastModified && throttled.length === 0) {
+    // rate/budget caps or pending CI, so deferred notifications are re-fetched cleanly later.
+    if (pendingLastModified && throttled.length === 0 && waitingForCi.length === 0) {
       state.lastModified = pendingLastModified;
     }
     saveSeenState(statePath, state, nowFn());
   }
-  return { processed, pending, throttled, skippedDuplicate };
+  return { processed, pending, throttled, skippedDuplicate, waitingForCi };
 }
 
 /**

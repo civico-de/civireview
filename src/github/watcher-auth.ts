@@ -93,6 +93,14 @@ export interface WatcherOctokit extends PublisherOctokit {
         username: string;
       }): Promise<{ status?: number }>;
     };
+    repos?: {
+      getCombinedStatusForRef?(params: { owner: string; repo: string; ref: string }): Promise<{
+        data: {
+          state?: string;
+          statuses?: Array<{ context?: string; state?: string }>;
+        };
+      }>;
+    };
     activity: {
       listNotificationsForAuthenticatedUser(params: {
         all?: boolean;

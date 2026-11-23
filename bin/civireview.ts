@@ -84,6 +84,8 @@ Watch Options:
   --max-daily-usd <USD>                Rolling UTC-day estimated USD cap (defers excess mentions)
   --max-age-minutes <N>                Ignore comments older than N minutes (cold-start safeguard)
   --lock-models                        Ignore --preset/--model/--verifier overrides from PR comments
+  --wait-for-ci                        Defer full PR reviews while CI/Jenkins statuses are pending
+  --wait-for-ci-max-minutes <n>        Max minutes to wait for pending CI before reviewing anyway (default: 90)
   --state <path>                       Path to persistent seen/budget state file
   --check-only                         Poll for pending mentions and print JSON without reviewing
   --include-closed                     Include closed/merged PRs in search mode (default)
@@ -336,6 +338,8 @@ async function main(): Promise<void> {
       'max-daily-usd': { type: 'string' },
       'max-age-minutes': { type: 'string' },
       'lock-models': { type: 'boolean', default: false },
+      'wait-for-ci': { type: 'boolean', default: false },
+      'wait-for-ci-max-minutes': { type: 'string' },
       state: { type: 'string' },
       'check-only': { type: 'boolean', default: false },
       'include-closed': { type: 'boolean', default: false },
@@ -861,6 +865,13 @@ async function main(): Promise<void> {
       maxDailyUsd,
       maxCommentAgeMinutes,
       lockModels: values['lock-models'] ? true : config.watch?.lockModels,
+      waitForCi: values['wait-for-ci'] ? true : config.watch?.waitForCi,
+      waitForCiMaxMinutes:
+        parseOptionalPositiveNumber(
+          values['wait-for-ci-max-minutes'],
+          '--wait-for-ci-max-minutes',
+          true,
+        ) ?? config.watch?.waitForCiMaxMinutes,
       trigger: values.trigger ?? config.trigger,
       intervalSec,
       once: values.once || checkOnly,
@@ -882,6 +893,7 @@ async function main(): Promise<void> {
             pendingCount: passResult.pending.length,
             throttledCount: passResult.throttled.length,
             skippedDuplicateCount: passResult.skippedDuplicate.length,
+            waitingForCiCount: passResult.waitingForCi.length,
             pending: passResult.pending.map((m) => ({
               repo: m.repoFullName,
               prNumber: m.prNumber,

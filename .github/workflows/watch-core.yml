@@ -82,6 +82,7 @@ jobs:
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
           MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
           MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
+          WAIT_FOR_CI: ${{ vars.CIVIREVIEW_WAIT_FOR_CI || 'true' }}
           TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
         run: |
           set -euo pipefail
@@ -103,6 +104,9 @@ jobs:
             --state "$PWD/.civireview-state/seen.json"
             --check-only
           )
+          if [ "$WAIT_FOR_CI" = "true" ]; then
+            ARGS+=(--wait-for-ci)
+          fi
           if [ -n "$ALLOW_ASSOCIATIONS" ]; then
             ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
           fi
@@ -157,6 +161,7 @@ jobs:
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
           MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
           MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
+          WAIT_FOR_CI: ${{ vars.CIVIREVIEW_WAIT_FOR_CI || 'true' }}
           TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
         run: |
           set -euo pipefail
@@ -176,6 +181,9 @@ jobs:
             --state "$PWD/.civireview-state/seen.json"
             --once
           )
+          if [ "$WAIT_FOR_CI" = "true" ]; then
+            ARGS+=(--wait-for-ci)
+          fi
           if [ -n "$ALLOW_ASSOCIATIONS" ]; then
             ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
           fi
