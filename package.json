@@ -8,6 +8,7 @@
     "civireview": "bin/civireview.ts"
   },
   "scripts": {
+    "release": "bash scripts/release.sh",
     "dev": "bun run bin/civireview.ts",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
