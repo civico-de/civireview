@@ -81,6 +81,7 @@ export interface RelatedPrOctokit {
           body?: string | null;
           html_url: string;
           draft?: boolean;
+          base?: { ref?: string | null } | null;
           user?: { login?: string | null } | null;
         }>;
       }>;
@@ -154,6 +155,8 @@ export interface CollectRelatedOpenPrsOptions {
   prNumber: number;
   prTitle: string;
   prBody: string;
+  prAuthor?: string;
+  baseBranch?: string;
   diffFiles: DiffFile[];
   linkedIssues: LinkedIssue[];
   token?: string;
@@ -194,8 +197,31 @@ export async function collectRelatedOpenPrs(
       options.linkedIssues,
     );
 
+    const currentAuthor = options.prAuthor?.toLowerCase();
+    const currentBase = options.baseBranch?.toLowerCase();
+    const currentTitleNorm = options.prTitle.trim().toLowerCase();
+
     const preScored = openPrs
-      .filter((p) => p.number !== options.prNumber)
+      .filter((p) => {
+        if (p.number === options.prNumber) return false;
+        // Skip routine same-author release-branch backport pairs (e.g. 6.20 vs 6.21 vs master)
+        const pBase = p.base?.ref?.toLowerCase();
+        const pAuthor = p.user?.login?.toLowerCase();
+        if (
+          currentBase &&
+          pBase &&
+          pBase !== currentBase &&
+          currentAuthor &&
+          pAuthor === currentAuthor
+        ) {
+          const pRefs = extractIssueRefSet(`${p.title}\n${p.body ?? ''}`);
+          const sharesIssue = Array.from(pRefs).some((r) => currentRefs.has(r));
+          if (p.title.trim().toLowerCase() === currentTitleNorm || sharesIssue) {
+            return false;
+          }
+        }
+        return true;
+      })
       .map((p) => {
         const pComponent = extractComponentPrefix(p.title);
         const pRefs = extractIssueRefSet(`${p.title}\n${p.body ?? ''}`);
@@ -257,6 +283,7 @@ export async function collectRelatedOpenPrs(
         number: e.pr.number,
         title: e.pr.title,
         author: e.pr.user?.login ?? 'unknown',
+        ...(e.pr.base?.ref ? { baseBranch: e.pr.base.ref } : {}),
         url: e.pr.html_url,
         overlappingFiles: e.overlappingFiles,
         sharedIssueRefs: e.sharedIssueRefs,

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Ignored same-author multi-branch backport PRs in Related PR discovery**: Open PRs targeting a different base branch (e.g. `6.20` vs `6.21` vs `master` release-branch backports by the same author) are no longer flagged as `duplicate` or `conflicts` or turned into bogus `[DUPLICATE]` Action Items.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added

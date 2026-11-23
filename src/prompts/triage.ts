@@ -30,7 +30,8 @@ CLASSIFICATION RULES:
 - summaryBullets: 3–6 concise technical walkthrough bullets separating PROVEN, CONFIRMED, NEEDS_QUESTION, and NOT VERIFIED.
 - relatedItems (optional, default \`[]\`):
   - ONLY if \`candidate_related_prs\` or \`candidate_related_gitlab_issues\` appear in the evidence, identify genuinely relevant open PRs or unlinked GitLab issues.
-  - Classify each as \`duplicate\` (solves the same bug/feature), \`conflicts\` (modifies overlapping files or competing logic), or \`related\` (same subsystem/bug area or likely unlinked GitLab issue for this PR).
+  - Classify each as \`duplicate\` (solves the same bug/feature on the SAME base branch), \`conflicts\` (modifies overlapping files or competing logic on the SAME base branch), or \`related\` (same subsystem/bug area, stacked PR, or likely unlinked GitLab issue for this PR).
+  - NEVER classify a PR targeting a DIFFERENT base branch (e.g. \`6.20\` vs \`6.21\` vs \`master\` release-branch backports) as \`duplicate\` or \`conflicts\` — omit routine same-author multi-branch backports.
   - Assign a calibrated \`confidence\` (0–100) and ONLY include items with \`confidence >= 60\`. Give a concise 1-sentence \`reason\` citing overlapping files or shared behavior.
   - NEVER invent PR numbers, GitLab refs, or URLs not present in the evidence; return \`[]\` if none are genuinely relevant.
 - ciFailureAssessment & ciFailureReason (ONLY when CI / Jenkins Status reports a failure):

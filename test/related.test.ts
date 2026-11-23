@@ -107,6 +107,48 @@ describe('related open PRs & GitLab issue discovery', () => {
     expect(dupPr?.sharedIssueRefs).toEqual(['dev/core#6900']);
   });
 
+  test('collectRelatedOpenPrs skips same-author release-branch backport pairs targeting a different baseBranch', async () => {
+    const diffFiles = parseUnifiedDiff(SAMPLE_DIFF);
+    const octokit: RelatedPrOctokit = {
+      rest: {
+        pulls: {
+          async list() {
+            return {
+              data: [
+                {
+                  number: 38164,
+                  title: 'dev/core#6948 Revert unique index on Country.iso_code',
+                  body: 'Backport to 6.21',
+                  html_url: 'https://github.com/civicrm/civicrm-core/pull/38164',
+                  base: { ref: '6.21' },
+                  user: { login: 'colemanw' },
+                },
+              ],
+            };
+          },
+          async listFiles() {
+            return { data: [{ filename: 'ext/afform/core/ang/afField/Number.tpl' }] };
+          },
+        },
+      },
+    };
+
+    const res = await collectRelatedOpenPrs({
+      owner: 'civicrm',
+      repo: 'civicrm-core',
+      prNumber: 38165,
+      prTitle: 'dev/core#6948 Revert unique index on Country.iso_code',
+      prBody: 'Backport to 6.20',
+      prAuthor: 'colemanw',
+      baseBranch: '6.20',
+      diffFiles,
+      linkedIssues: [],
+      octokit,
+    });
+
+    expect(res).toHaveLength(0);
+  });
+
   test('collectRelatedGitLabIssues queries lab.civicrm.org and excludes already-linked issues', async () => {
     const mockFetch = (async () =>
       new Response(

@@ -293,6 +293,7 @@ export const CandidateRelatedPrSchema = z.object({
   number: z.number().int().positive(),
   title: z.string(),
   author: z.string(),
+  baseBranch: z.string().optional(),
   url: z.string(),
   overlappingFiles: z.array(z.string()).default([]),
   sharedIssueRefs: z.array(z.string()).default([]),

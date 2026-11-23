@@ -190,6 +190,12 @@ function filterGroundedRelatedItems(
     ...(bundle.candidateRelatedPrs ?? []).map((p) => p.url.toLowerCase()),
     ...(bundle.candidateRelatedIssues ?? []).map((i) => i.url.toLowerCase()),
   ]);
+  const prBaseByUrl = new Map<string, string>(
+    (bundle.candidateRelatedPrs ?? [])
+      .filter((p) => Boolean(p.baseBranch))
+      .map((p) => [p.url.toLowerCase(), p.baseBranch!.toLowerCase()]),
+  );
+  const currentBase = bundle.pr.baseBranch.toLowerCase();
   if (allowedUrls.size === 0) return [];
   const seen = new Set<string>();
   return items
@@ -200,6 +206,18 @@ function filterGroundedRelatedItems(
       }
       seen.add(key);
       return true;
+    })
+    .map((item) => {
+      const candidateBase = prBaseByUrl.get(item.url.toLowerCase());
+      if (
+        item.kind === 'pr' &&
+        candidateBase &&
+        candidateBase !== currentBase &&
+        (item.relationship === 'duplicate' || item.relationship === 'conflicts')
+      ) {
+        return { ...item, relationship: 'related' as const };
+      }
+      return item;
     })
     .toSorted((a, b) => b.confidence - a.confidence)
     .slice(0, 5);

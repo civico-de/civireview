@@ -138,6 +138,8 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
           prNumber: options.prNumber,
           prTitle: pr.title,
           prBody: pr.body,
+          prAuthor: pr.author,
+          baseBranch: pr.baseBranch,
           diffFiles: filtered.files,
           linkedIssues,
           token: options.githubToken,
