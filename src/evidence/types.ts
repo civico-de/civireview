@@ -298,6 +298,8 @@ export const CandidateRelatedPrSchema = z.object({
   overlappingFiles: z.array(z.string()).default([]),
   sharedIssueRefs: z.array(z.string()).default([]),
   draft: z.boolean().optional(),
+  mergeConflict: z.enum(['conflicts', 'clean']).optional(),
+  conflictingFiles: z.array(z.string()).optional(),
 });
 export type CandidateRelatedPr = z.infer<typeof CandidateRelatedPrSchema>;
 

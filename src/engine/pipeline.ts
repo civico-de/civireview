@@ -202,6 +202,11 @@ function filterGroundedRelatedItems(
       .filter((p) => Boolean(p.baseBranch))
       .map((p) => [p.url.toLowerCase(), p.baseBranch!.toLowerCase()]),
   );
+  const prMergeCheckByUrl = new Map<string, 'conflicts' | 'clean'>(
+    (bundle.candidateRelatedPrs ?? [])
+      .filter((p) => Boolean(p.mergeConflict))
+      .map((p) => [p.url.toLowerCase(), p.mergeConflict!]),
+  );
   const currentBase = bundle.pr.baseBranch.toLowerCase();
   if (allowedUrls.size === 0) return [];
   const seen = new Set<string>();
@@ -215,12 +220,21 @@ function filterGroundedRelatedItems(
       return true;
     })
     .map((item) => {
-      const candidateBase = prBaseByUrl.get(item.url.toLowerCase());
+      const urlKey = item.url.toLowerCase();
+      const candidateBase = prBaseByUrl.get(urlKey);
       if (
         item.kind === 'pr' &&
         candidateBase &&
         candidateBase !== currentBase &&
         (item.relationship === 'duplicate' || item.relationship === 'conflicts')
+      ) {
+        return { ...item, relationship: 'related' as const };
+      }
+      // If `git merge-tree` proved two PRs merge cleanly, do not flag as a textual conflict.
+      if (
+        item.kind === 'pr' &&
+        item.relationship === 'conflicts' &&
+        prMergeCheckByUrl.get(urlKey) === 'clean'
       ) {
         return { ...item, relationship: 'related' as const };
       }

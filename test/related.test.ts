@@ -4,6 +4,7 @@ import { runReviewPipeline } from '../src/engine/pipeline.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import {
   buildGitLabSearchQuery,
+  checkRelatedPrMergeConflicts,
   collectRelatedGitLabIssues,
   collectRelatedOpenPrs,
   extractComponentPrefix,
@@ -347,5 +348,61 @@ describe('related open PRs & GitLab issue discovery', () => {
     expect(md).toContain('dev/core#6912');
     expect(md).toContain('**85%**');
     expect(md).not.toContain('#99999');
+  });
+
+  test('checkRelatedPrMergeConflicts marks clean vs conflicting PRs using git merge-tree', async () => {
+    const calls: string[][] = [];
+    const gitExec = async (args: string[]) => {
+      calls.push(args);
+      if (args.includes('fetch')) {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+      if (args.includes('merge-tree')) {
+        if (args.includes('refs/civireview/related-pr-101')) {
+          return {
+            exitCode: 1,
+            stdout:
+              'deadbeef\nCONFLICT (content): Merge conflict in ext/financialacls/financialacls.php\n',
+            stderr: '',
+          };
+        }
+        return { exitCode: 0, stdout: 'cafebabe\n', stderr: '' };
+      }
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
+
+    const res = await checkRelatedPrMergeConflicts({
+      repoRoot: '/tmp/repo',
+      baseSha: 'aaaa1111',
+      headSha: 'bbbb2222',
+      baseBranch: 'master',
+      candidates: [
+        {
+          number: 101,
+          title: 'Conflicting PR',
+          author: 'alice',
+          baseBranch: 'master',
+          url: 'https://github.com/civicrm/civicrm-core/pull/101',
+          overlappingFiles: ['ext/financialacls/financialacls.php'],
+          sharedIssueRefs: [],
+        },
+        {
+          number: 102,
+          title: 'Clean same-file PR',
+          author: 'bob',
+          baseBranch: 'master',
+          url: 'https://github.com/civicrm/civicrm-core/pull/102',
+          overlappingFiles: ['ext/financialacls/financialacls.php'],
+          sharedIssueRefs: [],
+        },
+      ],
+      gitExec,
+    });
+
+    expect(calls.some((c) => c.includes('fetch'))).toBe(true);
+    expect(res[0]?.mergeConflict).toBe('conflicts');
+    expect(res[0]?.conflictingFiles).toEqual(['ext/financialacls/financialacls.php']);
+    expect(res[1]?.mergeConflict).toBe('clean');
+    expect(res[1]?.conflictingFiles).toBeUndefined();
   });
 });

@@ -157,11 +157,131 @@ export interface CollectRelatedOpenPrsOptions {
   prBody: string;
   prAuthor?: string;
   baseBranch?: string;
+  repoRoot?: string;
+  baseSha?: string;
+  headSha?: string;
   diffFiles: DiffFile[];
   linkedIssues: LinkedIssue[];
   token?: string;
   octokit?: RelatedPrOctokit;
   maxCandidates?: number;
+  gitExec?: (args: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+}
+
+async function defaultGitExec(
+  args: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(['git', ...args], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const timer = setTimeout(() => {
+    try {
+      proc.kill();
+    } catch {
+      // ignore kill error
+    }
+  }, 15_000);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { exitCode, stdout, stderr };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function parseMergeTreeConflicts(stdout: string): string[] {
+  const files = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = line.match(/^CONFLICT \([^)]*\): Merge conflict in (.+)$/);
+    if (match?.[1]) {
+      files.add(match[1].trim());
+    }
+  }
+  return Array.from(files);
+}
+
+/**
+ * Deterministically tests whether overlapping open PRs on the same base branch
+ * have real textual merge conflicts using `git merge-tree --write-tree`
+ * (read-only, no working-tree modifications). Always fails soft.
+ */
+export async function checkRelatedPrMergeConflicts(params: {
+  repoRoot: string;
+  baseSha: string;
+  headSha: string;
+  baseBranch?: string;
+  candidates: CandidateRelatedPr[];
+  gitExec?: (args: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+}): Promise<CandidateRelatedPr[]> {
+  const gitExec = params.gitExec ?? defaultGitExec;
+  const currentBase = params.baseBranch?.toLowerCase();
+  const toCheck = params.candidates
+    .filter((c) => {
+      if (c.overlappingFiles.length === 0) return false;
+      if (currentBase && c.baseBranch && c.baseBranch.toLowerCase() !== currentBase) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, 4);
+
+  if (toCheck.length === 0) return params.candidates;
+
+  const refSpecs = toCheck.map(
+    (c) => `pull/${c.number}/head:refs/civireview/related-pr-${c.number}`,
+  );
+  const fetchRes = await gitExec([
+    '-C',
+    params.repoRoot,
+    'fetch',
+    '--no-tags',
+    'origin',
+    ...refSpecs,
+  ]);
+  if (fetchRes.exitCode !== 0) {
+    return params.candidates;
+  }
+
+  const results = new Map<
+    number,
+    { mergeConflict: 'conflicts' | 'clean'; conflictingFiles?: string[] }
+  >();
+  for (const c of toCheck) {
+    const otherRef = `refs/civireview/related-pr-${c.number}`;
+    const res = await gitExec([
+      '-C',
+      params.repoRoot,
+      'merge-tree',
+      '--write-tree',
+      `--merge-base=${params.baseSha}`,
+      params.headSha,
+      otherRef,
+    ]);
+    if (res.exitCode === 0) {
+      results.set(c.number, { mergeConflict: 'clean' });
+    } else if (res.exitCode === 1) {
+      const files = parseMergeTreeConflicts(res.stdout);
+      results.set(c.number, {
+        mergeConflict: 'conflicts',
+        ...(files.length > 0 ? { conflictingFiles: files.slice(0, 8) } : {}),
+      });
+    }
+  }
+
+  return params.candidates.map((c) => {
+    const found = results.get(c.number);
+    if (!found) return c;
+    return {
+      ...c,
+      mergeConflict: found.mergeConflict,
+      ...(found.conflictingFiles ? { conflictingFiles: found.conflictingFiles } : {}),
+    };
+  });
 }
 
 /**
@@ -273,7 +393,7 @@ export async function collectRelatedOpenPrs(
       }),
     );
 
-    return enriched
+    const candidates: CandidateRelatedPr[] = enriched
       .filter(
         (e) => e.overlappingFiles.length > 0 || e.sharedIssueRefs.length > 0 || e.finalScore >= 24,
       )
@@ -289,6 +409,18 @@ export async function collectRelatedOpenPrs(
         sharedIssueRefs: e.sharedIssueRefs,
         ...(e.pr.draft ? { draft: true } : {}),
       }));
+
+    if (options.repoRoot && options.baseSha && options.headSha) {
+      return await checkRelatedPrMergeConflicts({
+        repoRoot: options.repoRoot,
+        baseSha: options.baseSha,
+        headSha: options.headSha,
+        baseBranch: options.baseBranch,
+        candidates,
+        gitExec: options.gitExec,
+      });
+    }
+    return candidates;
   } catch {
     return [];
   }

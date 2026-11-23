@@ -93,7 +93,13 @@ export function buildSharedEvidencePrefix(
           p.sharedIssueRefs.length > 0 ? ` · shared_issues: ${p.sharedIssueRefs.join(', ')}` : '';
         const draftTag = p.draft ? ' [DRAFT]' : '';
         const baseTag = p.baseBranch ? ` [base=${p.baseBranch}]` : '';
-        return `- PR #${p.number}${draftTag}${baseTag} (@${p.author}): ${p.title}\n  URL: ${p.url}${overlap}${shared}`;
+        const mergeCheck =
+          p.mergeConflict === 'conflicts'
+            ? ` · git_merge_check: CONFLICTS${p.conflictingFiles && p.conflictingFiles.length > 0 ? ` (${p.conflictingFiles.join(', ')})` : ''}`
+            : p.mergeConflict === 'clean'
+              ? ' · git_merge_check: CLEAN (no textual merge conflict)'
+              : '';
+        return `- PR #${p.number}${draftTag}${baseTag} (@${p.author}): ${p.title}\n  URL: ${p.url}${overlap}${shared}${mergeCheck}`;
       })
       .join('\n');
     sections.push(wrapUntrustedData('candidate_related_prs', prLines));

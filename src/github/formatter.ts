@@ -139,7 +139,11 @@ function relatedBadge(rel: 'duplicate' | 'conflicts' | 'related'): string {
 
 function truncateOneLine(text: string, maxLen = 140): string {
   const clean = text.replace(/\s+/g, ' ').trim();
-  return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
+  if (clean.length <= maxLen) return clean;
+  const slice = clean.slice(0, maxLen - 1);
+  const lastSpace = slice.lastIndexOf(' ');
+  const cut = lastSpace >= Math.floor(maxLen * 0.6) ? slice.slice(0, lastSpace) : slice;
+  return `${cut.replace(/[,;:\-–—]+$/, '').trimEnd()}…`;
 }
 
 function buildActionItems(review: FinalReview): string[] {
@@ -409,9 +413,13 @@ export function formatReviewMarkdown(
     );
   }
 
-  if (review.droppedCount > 0) {
+  const hiddenDroppedCount = Math.max(
+    0,
+    review.droppedCount - (review.uncertainFindings?.length ?? 0),
+  );
+  if (hiddenDroppedCount > 0) {
     sections.push(
-      `_Note: ${review.droppedCount} low-confidence, duplicate, or disproved candidate finding(s) were filtered out by the adversarial verifier and confidence gate._`,
+      `_Note: ${hiddenDroppedCount} low-confidence, duplicate, or disproved candidate finding(s) were filtered out by the adversarial verifier and confidence gate._`,
     );
   }
 

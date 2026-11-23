@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-23
+
+### Added
+- **Deterministic `git merge-tree` conflict check for related open PRs**: When overlapping open PRs share the same `baseBranch`, `collectRelatedOpenPrs` now fetches their head refs and runs read-only `git merge-tree --write-tree --merge-base=<baseSha> <headSha> <otherRef>` to distinguish real textual merge conflicts (`CONFLICTS` + exact conflicting filenames) from same-file PRs that merge cleanly (`CLEAN`, automatically downgraded from `conflicts` to `related` so no bogus `[CONFLICTS]` Action Item is emitted).
+
+### Fixed
+- **Exact filtered-findings count & word-boundary Action Item truncation**: Subtracted `uncertainFindings.length` (already shown in the collapsed `Lower-Confidence Notes` `<details>` block) from the `_Note: N ... filtered out_` footer count, and updated `truncateOneLine` to break on word boundaries instead of cutting mid-word.
+
 ## [0.2.5] - 2026-11-23
 
 ### Added
