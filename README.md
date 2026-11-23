@@ -114,7 +114,7 @@ This repository ships a ready-to-enable scheduled watcher workflow ([`.github/wo
 1. **Secrets**: `CIVIREVIEW_GITHUB_TOKEN` (classic PAT on the `@civireview` account with **`public_repo`** + **`notifications`** scopes for default `notifications` mode, or `public_repo` with `CIVIREVIEW_WATCH_MODE=search`) and `ANTHROPIC_API_KEY` (plus `OPENAI_API_KEY` if using `cross-model`).
 2. **Repository Variables**:
    - `CIVIREVIEW_WATCH_ENABLED` = `true` (kill-switch to turn scheduled polling on/off)
-   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet-opus`), `CIVIREVIEW_EFFORT` (`auto`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`v1`).
+   - Optional overrides: `CIVIREVIEW_ALLOW_ORGS` (`civicrm`), `CIVIREVIEW_ALLOW_ASSOCIATIONS` (`OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` — covers private org members & established core contributors), `CIVIREVIEW_ALLOW_USERS`, `CIVIREVIEW_PRESET` (`sonnet-opus`), `CIVIREVIEW_EFFORT` (`auto`), `CIVIREVIEW_MAX_PER_HOUR` (`10`), `CIVIREVIEW_MAX_DAILY_USD` (`15`), `CIVIREVIEW_WATCH_MODE` (`notifications` default, or `search`), `CIVIKITCHEN_REF` (`v1`).
 
 Processed comment IDs and rolling hourly/daily budget records are persisted in `.civireview-state/seen.json` (and cached across GitHub Actions runs).
 

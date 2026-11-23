@@ -77,6 +77,7 @@ jobs:
           WATCH_MODE: ${{ vars.CIVIREVIEW_WATCH_MODE || 'notifications' }}
           WATCH_REPOS: ${{ vars.CIVIREVIEW_WATCH_REPOS || 'civicrm/civicrm-core' }}
           ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
+          ALLOW_ASSOCIATIONS: ${{ vars.CIVIREVIEW_ALLOW_ASSOCIATIONS || 'OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR' }}
           ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
           MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
@@ -102,6 +103,9 @@ jobs:
             --state "$PWD/.civireview-state/seen.json"
             --check-only
           )
+          if [ -n "$ALLOW_ASSOCIATIONS" ]; then
+            ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
+          fi
           if [ -n "$ALLOW_USERS" ]; then
             ARGS+=(--allow "$ALLOW_USERS")
           fi
@@ -142,6 +146,7 @@ jobs:
           WATCH_MODE: ${{ vars.CIVIREVIEW_WATCH_MODE || 'notifications' }}
           WATCH_REPOS: ${{ vars.CIVIREVIEW_WATCH_REPOS || 'civicrm/civicrm-core' }}
           ALLOW_ORGS: ${{ vars.CIVIREVIEW_ALLOW_ORGS || 'civicrm' }}
+          ALLOW_ASSOCIATIONS: ${{ vars.CIVIREVIEW_ALLOW_ASSOCIATIONS || 'OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR' }}
           ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
           PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet-opus' }}
           EFFORT_VAL: ${{ inputs.effort || vars.CIVIREVIEW_EFFORT || 'auto' }}
@@ -169,6 +174,9 @@ jobs:
             --state "$PWD/.civireview-state/seen.json"
             --once
           )
+          if [ -n "$ALLOW_ASSOCIATIONS" ]; then
+            ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
+          fi
           if [ -n "$ALLOW_USERS" ]; then
             ARGS+=(--allow "$ALLOW_USERS")
           fi
