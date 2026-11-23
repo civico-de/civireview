@@ -88,9 +88,18 @@ export const VerifiedFindingSchema = CandidateFindingSchema.extend({
 });
 export type VerifiedFinding = z.infer<typeof VerifiedFindingSchema>;
 
+export const FollowUpLeadSchema = z.object({
+  lens: SpecialistLensSchema,
+  question: z.string().min(1),
+  targetPaths: z.array(z.string()).default([]),
+  reason: z.string().min(1),
+});
+export type FollowUpLead = z.infer<typeof FollowUpLeadSchema>;
+
 export const VerifierOutputSchema = z.object({
   verifiedFindings: z.array(VerifiedFindingSchema),
   reconciledStandards: z.array(StandardVerdictSchema).optional(),
+  followUpLeads: z.array(FollowUpLeadSchema).max(3).default([]),
   notes: z.string(),
 });
 export type VerifierOutput = z.infer<typeof VerifierOutputSchema>;

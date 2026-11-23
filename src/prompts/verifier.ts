@@ -11,7 +11,16 @@ export function buildVerifierPrompt(
   bundle: EvidenceBundle,
   candidates: CandidateFinding[],
   standards?: StandardVerdict[],
+  options?: { allowFollowUpLeads?: boolean },
 ): StagePromptPair {
+  const allowFollowUp = options?.allowFollowUpLeads ?? true;
+  const followUpRule = allowFollowUp
+    ? `\n8. Targeted Follow-Up Leads (\`followUpLeads\`, optional — default \`[]\`):
+   - Leave \`followUpLeads\` EMPTY (\`[]\`) for clean PRs or when all concrete issues are already covered by the candidates above.
+   - ONLY emit 1–2 targeted \`followUpLeads\` if during verification you uncovered a concrete, high-signal adjacent defect, broken downstream caller/hook contract, or untested edge case that was NOT covered by the initial candidates and warrants a focused specialist follow-up.`
+    : `\n8. Final Verification Pass:
+   - This is the final follow-up verification round; return \`followUpLeads: []\`.`;
+
   const systemPrompt = `You are the Adversarial Verifier for civireview.
 Your job is to SCEPTICALLY DISPROVE each candidate finding before it is posted to a PR author.
 
@@ -39,7 +48,7 @@ VERIFICATION PROTOCOL (for every candidate finding):
 5. Set \`reassessedSeverity\` accurately (downgrade overblown severities; keep critical/high only for real impact).
 6. Preserve exact \`path\`, \`startLine\`, \`endLine\`, and \`side\` verified against the file/diff.
 7. Standards Reconciliation:
-   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.`;
+   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.${followUpRule}`;
 
   const serializedCandidates = JSON.stringify(candidates, null, 2);
   const standardsSection =

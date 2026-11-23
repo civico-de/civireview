@@ -736,4 +736,189 @@ describe('review pipeline', () => {
       true,
     );
   });
+
+  test('executes bounded verifier follow-up investigation loop and stops at maxFollowUpRounds', async () => {
+    const config = loadConfig('/tmp/nonexistent-cfg-dir', {
+      preset: 'sonnet-opus',
+      review: { maxFollowUpRounds: 1 },
+    });
+    const stagesRun: string[] = [];
+
+    const mockRunner: StageRunner = {
+      providers: ['anthropic'],
+      async run(req) {
+        stagesRun.push(req.stage);
+        if (req.stage === 'triage') {
+          return {
+            output: req.schema.parse({
+              prKind: 'core-bugfix',
+              riskLevel: 'medium',
+              activeLenses: ['correctness'],
+              summaryBullets: ['Changes entityInfo contract'],
+              recommendedAbTests: [],
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 100,
+          };
+        }
+        if (req.stage === 'specialist:correctness') {
+          return {
+            output: req.schema.parse({
+              lens: 'correctness',
+              summary: 'Initial check',
+              findings: [
+                {
+                  id: 'init-1',
+                  lens: 'correctness',
+                  title: 'Initial candidate',
+                  severity: 'medium',
+                  path: 'CRM/Contact/BAO/Contact.php',
+                  startLine: 11,
+                  endLine: 11,
+                  side: 'RIGHT',
+                  issue: 'Initial issue',
+                  failureScenario: 'Fails on null',
+                  evidence: 'Line 11',
+                  suggestedFix: 'Guard null',
+                  mcpCitations: [],
+                },
+              ],
+              checkedWithoutFindings: [],
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 200,
+          };
+        }
+        if (req.stage === 'verifier') {
+          return {
+            output: req.schema.parse({
+              verifiedFindings: [
+                {
+                  id: 'init-1',
+                  lens: 'correctness',
+                  title: 'Initial candidate',
+                  severity: 'medium',
+                  reassessedSeverity: 'medium',
+                  verdict: 'REJECTED',
+                  confidence: 20,
+                  path: 'CRM/Contact/BAO/Contact.php',
+                  startLine: 11,
+                  endLine: 11,
+                  side: 'RIGHT',
+                  issue: 'Initial issue',
+                  failureScenario: 'Fails on null',
+                  evidence: 'Line 11',
+                  verificationEvidence: 'Disproved',
+                  suggestedFix: 'None',
+                  mcpCitations: [],
+                },
+              ],
+              followUpLeads: [
+                {
+                  lens: 'correctness',
+                  question: 'Check downstream JS decorators reading entityInfo.name',
+                  targetPaths: ['CRM/Contact/BAO/Contact.php'],
+                  reason: 'Verifier spotted contract shape change',
+                },
+              ],
+              notes: 'Need follow-up on entityInfo callers',
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 250,
+          };
+        }
+        if (req.stage === 'specialist:correctness:followup-1') {
+          expect(req.userPrompt).toContain('FOLLOW-UP INVESTIGATION (Round 1/1');
+          expect(req.userPrompt).toContain('entityInfo.name');
+          return {
+            output: req.schema.parse({
+              lens: 'correctness',
+              summary: 'Found broken caller',
+              findings: [
+                {
+                  id: 'fu-1',
+                  lens: 'correctness',
+                  title: 'Downstream caller breaks on entityInfo map',
+                  severity: 'high',
+                  path: 'CRM/Contact/BAO/Contact.php',
+                  startLine: 11,
+                  endLine: 11,
+                  side: 'RIGHT',
+                  issue: 'entityInfo changed from record to map',
+                  failureScenario: 'Extensions reading entityInfo.name fail',
+                  evidence: 'Line 11',
+                  suggestedFix: 'Keep backward-compatible shape',
+                  mcpCitations: [],
+                },
+              ],
+              checkedWithoutFindings: [],
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 180,
+          };
+        }
+        return {
+          output: req.schema.parse({
+            verifiedFindings: [
+              {
+                id: 'fu-1',
+                lens: 'correctness',
+                title: 'Downstream caller breaks on entityInfo map',
+                severity: 'high',
+                reassessedSeverity: 'high',
+                verdict: 'CONFIRMED',
+                confidence: 92,
+                path: 'CRM/Contact/BAO/Contact.php',
+                startLine: 11,
+                endLine: 11,
+                side: 'RIGHT',
+                issue: 'entityInfo changed from record to map',
+                failureScenario: 'Extensions reading entityInfo.name fail',
+                evidence: 'Line 11',
+                verificationEvidence: 'Verified in callers',
+                suggestedFix: 'Keep backward-compatible shape',
+                mcpCitations: [],
+              },
+            ],
+            followUpLeads: [
+              {
+                lens: 'security',
+                question: 'Should not run past maxFollowUpRounds',
+                targetPaths: [],
+                reason: 'Cap test',
+              },
+            ],
+            notes: 'Confirmed follow-up finding',
+          }),
+          model: req.model,
+          provider: 'anthropic',
+          durationMs: 220,
+        };
+      },
+    };
+
+    const registry = createRunnerRegistry({ anthropic: mockRunner });
+    const review = await runReviewPipeline({
+      bundle: makeBundle(),
+      filteredPatch: SAMPLE_PATCH,
+      config,
+      cwd: process.cwd(),
+      registry,
+    });
+
+    expect(stagesRun).toEqual([
+      'triage',
+      'specialist:correctness',
+      'verifier',
+      'specialist:correctness:followup-1',
+      'verifier:followup-1',
+    ]);
+    expect(review.findings).toHaveLength(1);
+    expect(review.findings[0]!.id).toBe('fu-1');
+    expect(review.verdict).toBe('NEEDS_CHANGES');
+  });
 });

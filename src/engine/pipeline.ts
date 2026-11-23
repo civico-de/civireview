@@ -48,6 +48,7 @@ import {
   type BlastRadiusItem,
   type CandidateFinding,
   type FinalReview,
+  type FollowUpLead,
   type SpecialistLens,
   type StandardVerdict,
   type ThreadReplyOutput,
@@ -539,10 +540,10 @@ async function executeReviewPipeline(
   }
 
   let standards = mergeStandards(standardsLists);
-  const blastRadius = mergeBlastRadius(blastRadiusLists);
-
-  // Stage 2: Sceptical Adversarial Verifier
+  // Stage 2: Sceptical Adversarial Verifier (+ bounded follow-up investigation loop)
+  const maxFollowUpRounds = config.review.maxFollowUpRounds;
   let rawVerified: VerifiedFinding[] = [];
+  let blastRadius = mergeBlastRadius(blastRadiusLists);
   if (candidates.length > 0) {
     const verifierEffort = resolveStageEffort({
       stage: 'verifier',
@@ -555,7 +556,9 @@ async function executeReviewPipeline(
     logger?.info?.(
       `Stage 2 (Verifier) auditing ${candidates.length} candidate(s) using ${config.models.verifier} [effort=${verifierEffort}]`,
     );
-    const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards);
+    const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
+      allowFollowUpLeads: maxFollowUpRounds > 0,
+    });
     const liveProveEnabled =
       isCheckEnabled(config, 'live-prove') &&
       Boolean(effectiveUrlA || effectiveUrlB || options.composeFiles?.A || options.composeFiles?.B);
@@ -609,8 +612,144 @@ async function executeReviewPipeline(
         stageCost: verifierAcc.stageCost,
       }),
     );
-    rawVerified = verifierResult.output.verifiedFindings;
+    rawVerified = [...verifierResult.output.verifiedFindings];
     standards = adoptReconciledStandards(standards, verifierResult.output.reconciledStandards);
+
+    // Bounded Verifier -> Follow-up Specialist -> Verifier loop (at most maxFollowUpRounds)
+    let pendingLeads: FollowUpLead[] = verifierResult.output.followUpLeads ?? [];
+    for (let round = 1; round <= maxFollowUpRounds && pendingLeads.length > 0; round++) {
+      const enabledLeads = pendingLeads
+        .filter((lead) => isLensEnabled(config, lead.lens))
+        .slice(0, 2);
+      if (enabledLeads.length === 0) break;
+
+      logger?.info?.(
+        `Follow-up round ${round}/${maxFollowUpRounds}: investigating ${enabledLeads.length} lead(s) (${enabledLeads.map((l) => l.lens).join(', ')})`,
+      );
+
+      const followUpCandidates: CandidateFinding[] = [];
+      for (const lead of enabledLeads) {
+        const model = config.models.specialists[lead.lens];
+        const effort = resolveStageEffort({
+          stage: 'specialist',
+          config,
+          lens: lead.lens,
+          bundle,
+          triage,
+          verificationMatrix,
+        });
+        const basePrompt = buildSpecialistPrompt(lead.lens, bundle, triage);
+        const targetPathsNote =
+          lead.targetPaths.length > 0
+            ? `\nTarget paths to inspect: ${lead.targetPaths.join(', ')}`
+            : '';
+        const followUpDirective =
+          `\n\nFOLLOW-UP INVESTIGATION (Round ${round}/${maxFollowUpRounds}, requested by Verifier):` +
+          `\nQuestion: ${lead.question}` +
+          `\nReason: ${lead.reason}${targetPathsNote}` +
+          `\nFocus ONLY on this specific lead. Do not repeat previously checked findings unless you have new evidence.`;
+        const isUi = lead.lens === 'ui';
+        const stageName = `specialist:${lead.lens}:followup-${round}`;
+        const res = await runStage(
+          {
+            stage: stageName,
+            model,
+            cwd,
+            systemPrompt: basePrompt.systemPrompt,
+            sharedPrefix,
+            userPrompt: `${basePrompt.userPrompt}${isUi && liveUrlsNote ? liveUrlsNote : ''}${followUpDirective}`,
+            schema: SpecialistOutputSchema,
+            schemaName: `SpecialistOutput_${lead.lens}_followup_${round}`,
+            mcpScope,
+            effort,
+            ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
+            ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
+            maxSteps: config.review.maxSteps,
+          },
+          registry,
+        );
+        modelsUsed[stageName] = res.model;
+        const acc = accumulateUsage(tokenTotals, stageName, res.model, res.usage);
+        if (acc.recorded) hasUsage = true;
+        logger?.info?.(
+          formatStageTelemetry({
+            stage: stageName,
+            model: res.model,
+            effort,
+            durationMs: res.durationMs,
+            usage: res.usage,
+            stageCost: acc.stageCost,
+          }),
+        );
+        followUpCandidates.push(...res.output.findings);
+        if (res.output.blastRadius && res.output.blastRadius.length > 0) {
+          blastRadiusLists.push(res.output.blastRadius);
+          blastRadius = mergeBlastRadius(blastRadiusLists);
+        }
+      }
+
+      if (followUpCandidates.length === 0) {
+        logger?.info?.(
+          `Follow-up round ${round}/${maxFollowUpRounds}: 0 new candidates; stopping loop.`,
+        );
+        break;
+      }
+
+      const fuVerifierEffort = resolveStageEffort({
+        stage: 'verifier',
+        config,
+        bundle,
+        triage,
+        candidates: followUpCandidates,
+        verificationMatrix,
+      });
+      const fuStageName = `verifier:followup-${round}`;
+      const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
+        allowFollowUpLeads: round < maxFollowUpRounds,
+      });
+      const fuVerifierResult = await runStage(
+        {
+          stage: fuStageName,
+          model: config.models.verifier,
+          cwd,
+          systemPrompt: fuVerifierPrompt.systemPrompt,
+          sharedPrefix,
+          userPrompt: liveUrlsNote
+            ? `${fuVerifierPrompt.userPrompt}${liveUrlsNote}`
+            : fuVerifierPrompt.userPrompt,
+          schema: VerifierOutputSchema,
+          schemaName: `VerifierOutput_followup_${round}`,
+          mcpScope,
+          effort: fuVerifierEffort,
+          ...(browserImages.length > 0 ? { images: browserImages } : {}),
+          ...(extraTools ? { extraTools } : {}),
+          ...(extraMcpServers ? { extraMcpServers } : {}),
+          maxSteps: config.review.maxSteps,
+        },
+        registry,
+      );
+      modelsUsed[fuStageName] = fuVerifierResult.model;
+      const fuAcc = accumulateUsage(
+        tokenTotals,
+        fuStageName,
+        fuVerifierResult.model,
+        fuVerifierResult.usage,
+      );
+      if (fuAcc.recorded) hasUsage = true;
+      logger?.info?.(
+        formatStageTelemetry({
+          stage: fuStageName,
+          model: fuVerifierResult.model,
+          effort: fuVerifierEffort,
+          durationMs: fuVerifierResult.durationMs,
+          usage: fuVerifierResult.usage,
+          stageCost: fuAcc.stageCost,
+        }),
+      );
+      rawVerified.push(...fuVerifierResult.output.verifiedFindings);
+      standards = adoptReconciledStandards(standards, fuVerifierResult.output.reconciledStandards);
+      pendingLeads = round < maxFollowUpRounds ? (fuVerifierResult.output.followUpLeads ?? []) : [];
+    }
   } else {
     logger?.info?.('Stage 2 (Verifier) skipped: 0 candidate findings.');
   }

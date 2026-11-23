@@ -230,6 +230,7 @@ export const ReviewSettingsSchema = z
     maxInlineComments: z.number().int().nonnegative().default(10),
     maxDiffBytes: z.number().int().positive().default(250_000),
     maxSteps: z.number().int().positive().default(15),
+    maxFollowUpRounds: z.number().int().min(0).max(2).default(1),
     maxBudgetUsd: z.number().positive().optional(),
     effort: EffortModeSchema.default('auto'),
     stageEffort: StageEffortOverridesSchema.optional(),
