@@ -15,6 +15,8 @@ export interface RunCommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  timedOut?: boolean;
+  durationMs?: number;
 }
 
 export type ExecFn = (
@@ -291,16 +293,14 @@ export function parseTaintFindings(rawOutput: string): ParsedTaintItem[] {
   return items;
 }
 
+const COMPOSE_PROGRESS_RE =
+  /^\s*(?:Network|Container)\s+\S+\s+(?:Creating|Created|Starting|Started|Waiting|Healthy|Running|Stopping|Stopped|Removing|Removed)\b/;
+
 export function formatAbOutputSnippet(stdout: string, stderr: string, exitCode: number): string {
   const outTrim = stdout.trim();
   const errTrim = stderr
     .split(/\r?\n/)
-    .filter(
-      (line) =>
-        !/^\s*(?:Network|Container)\s+\S+\s+(?:Creating|Created|Starting|Started|Waiting|Healthy|Running|Stopping|Stopped|Removing|Removed)\b/.test(
-          line,
-        ),
-    )
+    .filter((line) => !COMPOSE_PROGRESS_RE.test(line))
     .join('\n')
     .trim();
   if (exitCode !== 0 && errTrim) {
@@ -308,6 +308,26 @@ export function formatAbOutputSnippet(stdout: string, stderr: string, exitCode: 
     return `${outTrim}\n[stderr]\n${errTrim}`.slice(0, 4000);
   }
   return (stdout || errTrim || stderr).slice(0, 4000);
+}
+
+/**
+ * Extracts the tail (last 10 meaningful lines) of stdout/stderr, stripping
+ * Docker Compose progress lines so runner error logs show the actual failure cause.
+ */
+export function formatAbDiagnosticTail(stdout: string, stderr: string): string {
+  const lines = `${stderr}\n${stdout}`
+    .split(/\r?\n/)
+    .map((l) => stripAnsi(l).trim())
+    .filter((l) => l.length > 0 && !COMPOSE_PROGRESS_RE.test(l));
+  if (lines.length === 0) {
+    const rawTail = `${stderr}\n${stdout}`
+      .split(/\r?\n/)
+      .map((l) => stripAnsi(l).trim())
+      .filter((l) => l.length > 0)
+      .slice(-5);
+    return rawTail.length > 0 ? rawTail.join(' | ').slice(0, 600) : 'no output';
+  }
+  return lines.slice(-10).join(' | ').slice(0, 800);
 }
 
 export function isUnsupportedCkFlagError(
@@ -426,13 +446,22 @@ export function buildAbCheckFromJson(params: {
       ? `${tautologicalTests.length} added test method(s) PASSED on unfixed base A (tautological: ${tautologicalTests.map((t) => t.method).join(', ')})`
       : undefined;
 
+  const aFailedBPassedOnlyOnB =
+    isProofOfFix &&
+    parsedJson.fixed.length === 0 &&
+    parsedJson.onlyOnB.length > 0 &&
+    (parsedJson.exitCodeA ?? 0) !== 0 &&
+    (parsedJson.exitCodeB ?? 0) === 0;
+
+  const effectiveFixed = aFailedBPassedOnlyOnB ? parsedJson.onlyOnB : parsedJson.fixed;
+
   const baseSummary =
     parsedJson.regressions.length > 0
       ? `${parsedJson.regressions.length} regression(s) (pass on A, fail on B)`
       : bootstrapCrash
         ? `0 tests passed on A or B (${parsedJson.bothFail.length} error/failure on both, ${(parsedJson.counts?.a ?? 0) - parsedJson.bothFail.length} skipped — likely bootstrap/setup crash)`
-        : parsedJson.fixed.length > 0
-          ? `${parsedJson.fixed.length} test(s) red on A, green on B`
+        : effectiveFixed.length > 0
+          ? `${effectiveFixed.length} test(s) red on A, green on B`
           : parsedJson.mode === 'exit-status' &&
               parsedJson.exitCodeA !== undefined &&
               parsedJson.exitCodeB !== undefined
@@ -458,7 +487,7 @@ export function buildAbCheckFromJson(params: {
     mode: parsedJson.mode,
     exitCodeA: parsedJson.exitCodeA,
     exitCodeB: parsedJson.exitCodeB,
-    fixed: parsedJson.fixed,
+    fixed: effectiveFixed,
     regressions: parsedJson.regressions,
     bothFail: parsedJson.bothFail,
     gone: parsedJson.gone,

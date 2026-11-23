@@ -143,6 +143,16 @@ export function loadConfig(
     (rawReviewFile && rawReviewFile.maxSteps !== undefined
       ? parsedFile.review?.maxSteps
       : undefined);
+  const explicitTriageMaxSteps =
+    overrides.review?.triageMaxSteps ??
+    (rawReviewFile && rawReviewFile.triageMaxSteps !== undefined
+      ? parsedFile.review?.triageMaxSteps
+      : undefined);
+  const explicitMaxOutputTokens =
+    overrides.review?.maxOutputTokens ??
+    (rawReviewFile && rawReviewFile.maxOutputTokens !== undefined
+      ? parsedFile.review?.maxOutputTokens
+      : undefined);
   const explicitMaxFollowUp =
     overrides.review?.maxFollowUpRounds ??
     (rawReviewFile && rawReviewFile.maxFollowUpRounds !== undefined
@@ -178,6 +188,8 @@ export function loadConfig(
       ...stripUndefined(overrides.review ?? {}),
       depth: effectiveDepth,
       maxSteps: explicitMaxSteps ?? depthProfile.maxSteps,
+      triageMaxSteps: explicitTriageMaxSteps ?? depthProfile.triageMaxSteps,
+      maxOutputTokens: explicitMaxOutputTokens ?? depthProfile.maxOutputTokens,
       maxFollowUpRounds: explicitMaxFollowUp ?? depthProfile.maxFollowUpRounds,
       stageTimeoutMs: explicitTimeoutMs ?? depthProfile.stageTimeoutMs,
       ...(mergedPaths ? { paths: mergedPaths } : {}),

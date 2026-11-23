@@ -39,6 +39,8 @@ export interface StageUsage {
   cacheWriteInputTokens?: number;
   totalTokens: number;
   estimatedUsd?: number;
+  steps?: number;
+  toolCalls?: number;
 }
 
 export interface StageImageInput {

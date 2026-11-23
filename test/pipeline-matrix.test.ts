@@ -624,9 +624,9 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       mcpCitations: [],
     };
 
-    // Default `deep` profile: triage=medium, correctness/security=high, tests=medium, verifier=high
+    // Default `deep` profile: triage=high, all specialists=high, verifier=high
     expect(resolveStageEffort({ stage: 'triage', config: baseCfg, bundle: smallBundle })).toBe(
-      'medium',
+      'high',
     );
     expect(resolveStageEffort({ stage: 'threadReply', config: baseCfg, bundle: smallBundle })).toBe(
       'medium',
@@ -650,7 +650,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         triage: smallTriage,
         verificationMatrix: cleanMatrix,
       }),
-    ).toBe('medium');
+    ).toBe('high');
     expect(
       resolveStageEffort({
         stage: 'verifier',

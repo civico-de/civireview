@@ -230,11 +230,35 @@ export type ReviewDepth = z.infer<typeof ReviewDepthSchema>;
 
 export const REVIEW_DEPTH_PROFILES: Record<
   ReviewDepth,
-  { maxSteps: number; maxFollowUpRounds: number; stageTimeoutMs: number }
+  {
+    maxSteps: number;
+    triageMaxSteps: number;
+    maxFollowUpRounds: number;
+    stageTimeoutMs: number;
+    maxOutputTokens: number;
+  }
 > = {
-  fast: { maxSteps: 12, maxFollowUpRounds: 0, stageTimeoutMs: 180_000 },
-  balanced: { maxSteps: 15, maxFollowUpRounds: 1, stageTimeoutMs: 240_000 },
-  deep: { maxSteps: 25, maxFollowUpRounds: 2, stageTimeoutMs: 300_000 },
+  fast: {
+    maxSteps: 12,
+    triageMaxSteps: 4,
+    maxFollowUpRounds: 0,
+    stageTimeoutMs: 180_000,
+    maxOutputTokens: 8_192,
+  },
+  balanced: {
+    maxSteps: 18,
+    triageMaxSteps: 6,
+    maxFollowUpRounds: 1,
+    stageTimeoutMs: 240_000,
+    maxOutputTokens: 12_288,
+  },
+  deep: {
+    maxSteps: 35,
+    triageMaxSteps: 10,
+    maxFollowUpRounds: 2,
+    stageTimeoutMs: 360_000,
+    maxOutputTokens: 16_384,
+  },
 };
 
 export const ReviewSettingsSchema = z
@@ -243,9 +267,11 @@ export const ReviewSettingsSchema = z
     confidenceThreshold: z.number().min(0).max(100).default(80),
     maxInlineComments: z.number().int().nonnegative().default(10),
     maxDiffBytes: z.number().int().positive().default(250_000),
-    maxSteps: z.number().int().positive().default(25),
+    maxSteps: z.number().int().positive().default(35),
+    triageMaxSteps: z.number().int().positive().default(10),
+    maxOutputTokens: z.number().int().positive().default(16_384),
     maxFollowUpRounds: z.number().int().min(0).max(2).default(2),
-    stageTimeoutMs: z.number().int().positive().default(300_000),
+    stageTimeoutMs: z.number().int().positive().default(360_000),
     maxBudgetUsd: z.number().positive().optional(),
     effort: EffortModeSchema.default('auto'),
     stageEffort: StageEffortOverridesSchema.optional(),

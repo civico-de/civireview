@@ -268,11 +268,16 @@ export function buildMultiTargetTestCommand(
     return [runnerBin, '--log-junit', '/tmp/ck-ab.xml', ...(only.filterArgs ?? []), only.path];
   }
 
-  const lines: string[] = ['rm -f /tmp/ck-ab.xml /tmp/ck-ab-part-*.xml', 'rc=0'];
+  const lines: string[] = [
+    'rm -f /tmp/ck-ab.xml /tmp/ck-ab-part-*.xml',
+    '_ck_run() { if command -v timeout >/dev/null 2>&1; then timeout -k 10 120 "$@"; else "$@"; fi; }',
+    'rc=0',
+  ];
   targets.forEach((t, idx) => {
     const partXml = `/tmp/ck-ab-part-${idx}.xml`;
     const filterPart = (t.filterArgs ?? []).map(shellQuote).join(' ');
     const filteredCmd = [
+      '_ck_run',
       runnerBin,
       '--log-junit',
       partXml,
@@ -281,7 +286,7 @@ export function buildMultiTargetTestCommand(
     ].join(' ');
     lines.push(`${filteredCmd} || rc=$?`);
     if (filterPart) {
-      const unfilteredCmd = `${runnerBin} --log-junit ${partXml} ${shellQuote(t.path)}`;
+      const unfilteredCmd = `_ck_run ${runnerBin} --log-junit ${partXml} ${shellQuote(t.path)}`;
       lines.push(
         `if [ ! -f ${partXml} ] || ! grep -q '<testcase' ${partXml}; then ${unfilteredCmd} || rc=$?; fi`,
       );

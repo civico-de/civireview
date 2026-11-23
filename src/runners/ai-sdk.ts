@@ -265,6 +265,12 @@ export class AiSdkRunner implements StageRunner {
         result.usage.inputTokenDetails?.noCacheTokens ??
         Math.max(0, rawInputTokens - (cachedInputTokens ?? 0) - (cacheWriteInputTokens ?? 0));
 
+      const stepsCount = result.steps?.length ?? 1;
+      const toolCallsCount = (result.steps ?? []).reduce(
+        (sum, s) => sum + (s.toolCalls?.length ?? 0),
+        0,
+      );
+
       const baseUsage: StageUsage = {
         inputTokens: uncachedInputTokens,
         outputTokens,
@@ -275,6 +281,8 @@ export class AiSdkRunner implements StageRunner {
           (cacheWriteInputTokens ?? 0) +
           (cachedInputTokens ?? 0) +
           outputTokens,
+        steps: stepsCount,
+        toolCalls: toolCallsCount,
       };
       const usage: StageUsage = {
         ...baseUsage,

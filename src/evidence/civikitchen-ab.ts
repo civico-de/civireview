@@ -25,6 +25,7 @@ import {
 import {
   buildAbCheckFromJson,
   buildAbCheckFromStdout,
+  formatAbDiagnosticTail,
   isUnsupportedCkFlagError,
   parseCkAbJsonReport,
   parseCkAbOutput,
@@ -71,6 +72,7 @@ async function defaultExec(
   if (!cmd) {
     return { exitCode: 2, stdout: '', stderr: 'empty command' };
   }
+  const startMs = Date.now();
   const proc = Bun.spawn([cmd, ...rest], {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
@@ -78,9 +80,11 @@ async function defaultExec(
     stderr: 'pipe',
   });
 
+  let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   if (opts.timeoutMs && opts.timeoutMs > 0) {
     timer = setTimeout(() => {
+      timedOut = true;
       try {
         proc.kill();
       } catch {
@@ -95,7 +99,13 @@ async function defaultExec(
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    return { exitCode, stdout, stderr };
+    return {
+      exitCode,
+      stdout,
+      stderr,
+      timedOut,
+      durationMs: Date.now() - startMs,
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -443,6 +453,25 @@ export async function runCiviKitchenAb(
         res = await execFn(args, { timeoutMs: 600_000 });
       }
 
+      // Transient Docker/runner failure retry: if ck ab exited non-zero without
+      // writing a report, did not time out, and did not hit a deterministic exit-2
+      // condition (only B wrote, holds no test case, same mounts), retry once.
+      const combinedOut = `${res.stderr}\n${res.stdout}`;
+      const isDeterministicExit2 =
+        /only B wrote\b|holds no test case|same mounts; nothing to compare/i.test(combinedOut);
+      if (
+        res.exitCode !== 0 &&
+        !res.timedOut &&
+        !existsSync(jsonReportPath) &&
+        !isDeterministicExit2
+      ) {
+        const durSec = ((res.durationMs ?? 0) / 1000).toFixed(1);
+        console.error(
+          `[civireview:ab] ${name} exited ${res.exitCode} without report after ${durSec}s; retrying once (tail: ${formatAbDiagnosticTail(res.stdout, res.stderr)})`,
+        );
+        res = await execFn(args, { timeoutMs: 600_000 });
+      }
+
       if (existsSync(jsonReportPath)) {
         try {
           const rawJson = readFileSync(jsonReportPath, 'utf8');
@@ -506,13 +535,12 @@ export async function runCiviKitchenAb(
         addedTestMethods,
       });
       if (check.status === 'ERROR') {
-        const firstErrLine =
-          `${res.stderr}\n${res.stdout}`
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .find((l) => l.length > 0) ?? 'no stderr';
+        const durStr =
+          res.durationMs !== undefined ? ` after ${(res.durationMs / 1000).toFixed(1)}s` : '';
+        const timeoutNote = res.timedOut || res.exitCode === 143 ? ' [TIMED OUT]' : '';
+        const tail = formatAbDiagnosticTail(res.stdout, res.stderr);
         console.error(
-          `[civireview:ab] ${name} runner error (exit ${res.exitCode}): ${firstErrLine.slice(0, 240)}`,
+          `[civireview:ab] ${name} runner error (exit ${res.exitCode}${timeoutNote}${durStr}) cmd="${effectiveInnerCmd.join(' ').slice(0, 180)}" tail: ${tail}`,
         );
       }
       return {

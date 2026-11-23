@@ -11,18 +11,24 @@ export function buildVerifierPrompt(
   bundle: EvidenceBundle,
   candidates: CandidateFinding[],
   standards?: StandardVerdict[],
-  options?: { allowFollowUpLeads?: boolean },
+  options?: { allowFollowUpLeads?: boolean; triageBullets?: string[] },
 ): StagePromptPair {
   const allowFollowUp = options?.allowFollowUpLeads ?? true;
+  const triageBullets = options?.triageBullets;
   const followUpRule = allowFollowUp
     ? `\n8. Targeted Follow-Up Leads (\`followUpLeads\`, optional — default \`[]\`):
    - Leave \`followUpLeads\` EMPTY (\`[]\`) for clean PRs or when all concrete issues are already covered by the candidates above.
    - ONLY emit 1–2 targeted \`followUpLeads\` if during verification you uncovered a concrete, high-signal adjacent defect, broken downstream caller/hook contract, or untested edge case that was NOT covered by the initial candidates and warrants a focused specialist follow-up.`
     : `\n8. Final Verification Pass:
    - This is the final follow-up verification round; return \`followUpLeads: []\`.`;
+  const walkthroughRule =
+    triageBullets && triageBullets.length > 0
+      ? `\n9. Walkthrough Reconciliation (\`reconciledWalkthrough\`):
+   - Reconcile Stage 0's initial \`walkthrough\` bullets against your verified evidence and Stage 1 findings: replace any early \`NEEDS_QUESTION: I did not confirm...\` bullet whose question was answered by your code inspection with a factual \`CONFIRMED:\` or \`PROVEN:\` bullet, strip any bullet that merely repeats third-party bot comments (e.g. Greptile/CodeRabbit), and keep 3–6 crisp, non-contradictory bullets.`
+      : '';
 
   const systemPrompt = `You are the Adversarial Verifier for civireview.
-Your job is to SCEPTICALLY DISPROVE each candidate finding before it is posted to a PR author.
+Your job is to SCEPTICALLY DISPROVE each candidate finding before it is posted to a PR author, and ensure the final review walkthrough and CiviCRM standards are 100% consistent with verified repository facts.
 
 ${ANTI_INJECTION_RULES}
 
@@ -48,18 +54,29 @@ VERIFICATION PROTOCOL (for every candidate finding):
 5. Set \`reassessedSeverity\` accurately (downgrade overblown severities; keep critical/high only for real impact).
 6. Preserve exact \`path\`, \`startLine\`, \`endLine\`, and \`side\` verified against the file/diff.
 7. Standards Reconciliation:
-   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.${followUpRule}`;
+   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.${followUpRule}${walkthroughRule}`;
 
   const serializedCandidates = JSON.stringify(candidates, null, 2);
   const standardsSection =
     standards && standards.length > 0
       ? `\n\nStage 1 CiviCRM Standards to reconcile into \`reconciledStandards\`:\n${JSON.stringify(standards, null, 2)}`
       : '';
-  const userPrompt = `Verify the following ${candidates.length} candidate finding(s) for PR #${bundle.pr.prNumber} in ${bundle.pr.repo}:
+  const walkthroughSection =
+    triageBullets && triageBullets.length > 0
+      ? `\n\nStage 0 Walkthrough Bullets to reconcile into \`reconciledWalkthrough\`:\n${JSON.stringify(triageBullets, null, 2)}`
+      : '';
+  const userPrompt =
+    candidates.length > 0
+      ? `Verify the following ${candidates.length} candidate finding(s) for PR #${bundle.pr.prNumber} in ${bundle.pr.repo}:
 
-${serializedCandidates}${standardsSection}
+${serializedCandidates}${standardsSection}${walkthroughSection}
 
-Return VerifierOutput JSON with one VerifiedFinding entry per candidate (do not silently omit candidates; mark disproved ones as verdict='REJECTED')${standards && standards.length > 0 ? ', plus `reconciledStandards` matching your final verdicts' : ''}.`;
+Return VerifierOutput JSON with one VerifiedFinding entry per candidate (do not silently omit candidates; mark disproved ones as verdict='REJECTED')${standards && standards.length > 0 ? ', plus `reconciledStandards` matching your final verdicts' : ''}${triageBullets && triageBullets.length > 0 ? ', plus `reconciledWalkthrough`' : ''}.`
+      : `Stage 1 specialists reported 0 candidate findings for PR #${bundle.pr.prNumber} in ${bundle.pr.repo}.${standardsSection}${walkthroughSection}
+
+Perform an independent adversarial audit of the PR diff, standards, and walkthrough bullets:
+- Return \`verifiedFindings: []\`.
+- If Stage 1 missed a concrete, high-signal defect or broken test/caller contract, emit 1–2 targeted \`followUpLeads\`; otherwise return \`followUpLeads: []\`.${standards && standards.length > 0 ? '\n- Return `reconciledStandards` verifying Stage 1 standards.' : ''}${triageBullets && triageBullets.length > 0 ? '\n- Return `reconciledWalkthrough` resolving any unverified Stage 0 `NEEDS_QUESTION` bullets against the repository.' : ''}`;
 
   return { systemPrompt, userPrompt };
 }

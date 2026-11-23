@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-23
+
+### Added
+- **Mandatory Stage 2 Verifier audit & walkthrough reconciliation in `deep` mode**: Even when Stage 1 specialists report 0 candidate findings, `deep` mode now runs Stage 2 (Opus Verifier) to perform an independent adversarial audit, emit `followUpLeads` if Stage 1 missed a concrete defect, and return `reconciledWalkthrough` bullets resolving early Stage 0 `NEEDS_QUESTION` guesses against verified code.
+- **Step and tool-call count telemetry (`steps=X/Y tools=Z`)**: `[stage]` telemetry logs and `tokenUsage.byStage` now record exact AI SDK step count and tool-call count per stage.
+- **External 1-minute cron poller script (`scripts/external-cron-trigger.sh`)**: Lightweight external cron trigger that polls `@civireview` notifications or public PR comments every minute with zero idle GitHub Actions runs.
+
+### Changed
+- **Expanded `deep` mode stage budgets and efforts**:
+  - `deep`: `maxSteps: 35`, `triageMaxSteps: 10`, `maxOutputTokens: 16,384`, `stageTimeoutMs: 360s`, with Triage, **all** active Specialists (`correctness`, `security`, `tests`, `ui`), and Verifier running at `effort: high`.
+  - `balanced`: `maxSteps: 18`, `triageMaxSteps: 6`, `maxOutputTokens: 12,288`, `stageTimeoutMs: 240s`.
+  - `fast`: `maxSteps: 12`, `triageMaxSteps: 4`, `maxOutputTokens: 8,192`, `stageTimeoutMs: 180s`.
+- **Hardened `ck ab` multi-target execution, retry, and diagnostic tail logging**:
+  - Wrapped multi-target container test runs with a 120s per-target `timeout` so a table-lock hang on unfixed Base A fails cleanly in 120s instead of killing the outer `ck ab` runner at 600s (`exit 143`).
+  - Added automatic 1-time retry on transient non-timeout `ck ab` runner failures and replaced first-line Docker Compose progress logging (`Network ... Creating`) with a stripped 10-line diagnostic tail + duration and timeout flag.
+
 ## [0.2.2] - 2026-11-23
 
 ### Added

@@ -116,6 +116,7 @@ export type FollowUpLead = z.infer<typeof FollowUpLeadSchema>;
 export const VerifierOutputSchema = z.object({
   verifiedFindings: z.array(VerifiedFindingSchema),
   reconciledStandards: z.array(StandardVerdictSchema).optional(),
+  reconciledWalkthrough: z.array(z.string().min(1)).max(10).optional(),
   followUpLeads: z.array(FollowUpLeadSchema).max(3).default([]),
   notes: z.string(),
 });
@@ -140,6 +141,8 @@ export const StageTokenUsageSchema = z.object({
   cacheWriteInputTokens: z.number().nonnegative().optional(),
   totalTokens: z.number().nonnegative(),
   estimatedUsd: z.number().nonnegative().optional(),
+  steps: z.number().int().nonnegative().optional(),
+  toolCalls: z.number().int().nonnegative().optional(),
 });
 export type StageTokenUsage = z.infer<typeof StageTokenUsageSchema>;
 

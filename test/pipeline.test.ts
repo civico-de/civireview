@@ -672,13 +672,40 @@ describe('review pipeline', () => {
               prKind: 'core-bugfix',
               riskLevel: 'medium',
               activeLenses: ['correctness', 'security', 'tests'],
-              summaryBullets: ['Bugfix'],
+              summaryBullets: ['NEEDS_QUESTION: Unverified triage note'],
               recommendedAbTests: [],
             }),
             model: req.model,
             provider: 'anthropic',
             durationMs: 1200,
-            usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 },
+            usage: {
+              inputTokens: 1000,
+              outputTokens: 200,
+              totalTokens: 1200,
+              steps: 4,
+              toolCalls: 6,
+            },
+          };
+        }
+        if (req.stage === 'verifier') {
+          return {
+            output: req.schema.parse({
+              verifiedFindings: [],
+              reconciledWalkthrough: ['CONFIRMED: Verified by Opus verifier in deep mode'],
+              notes: 'Clean PR verified in deep mode',
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 2500,
+            usage: {
+              inputTokens: 100,
+              cacheWriteInputTokens: 500,
+              cachedInputTokens: 19_500,
+              outputTokens: 250,
+              totalTokens: 20_350,
+              steps: 5,
+              toolCalls: 8,
+            },
           };
         }
         const lens = req.stage.replace('specialist:', '');
@@ -699,13 +726,15 @@ describe('review pipeline', () => {
             cachedInputTokens: isFirst ? 0 : 19_000,
             outputTokens: 300,
             totalTokens: 20_800,
+            steps: 7,
+            toolCalls: 11,
           },
         };
       },
     };
 
     const registry = createRunnerRegistry({ anthropic: mockRunner });
-    await runReviewPipeline({
+    const review = await runReviewPipeline({
       bundle: makeBundle(),
       filteredPatch: SAMPLE_PATCH,
       config,
@@ -715,13 +744,20 @@ describe('review pipeline', () => {
     });
 
     expect(maxConcurrentSpecialists).toBe(1);
-    expect(logs.some((l) => l.includes('[stage] triage') && l.includes('effort=medium'))).toBe(
-      true,
-    );
+    expect(review.walkthrough).toEqual(['CONFIRMED: Verified by Opus verifier in deep mode']);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('[stage] triage') &&
+          l.includes('effort=high') &&
+          l.includes('steps=4/10 tools=6'),
+      ),
+    ).toBe(true);
     expect(
       logs.some(
         (l) =>
           l.includes('[stage] specialist:correctness') &&
+          l.includes('steps=7/35 tools=11') &&
           l.includes('cache_write=20,000') &&
           l.includes('0% hit'),
       ),
@@ -734,7 +770,7 @@ describe('review pipeline', () => {
           l.includes('93% hit'),
       ),
     ).toBe(true);
-    expect(logs.some((l) => l.includes('[telemetry] total stages=4') && l.includes('cost=$'))).toBe(
+    expect(logs.some((l) => l.includes('[telemetry] total stages=5') && l.includes('cost=$'))).toBe(
       true,
     );
   });

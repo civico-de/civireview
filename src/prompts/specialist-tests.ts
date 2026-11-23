@@ -24,8 +24,9 @@ TEST QUALITY & A/B PROOF AUDIT:
    - If no test was added for a non-trivial bugfix/feature, flag what specific scenario needs test coverage (unless clearly exempt).
 2. Tautological / Weak Assertions:
    - Flag tests that mock away the unit under test, assert only \`assertTrue(true)\` / non-empty without checking the actual mutated state/response, or silently swallow exceptions.
-3. Base-Test Regression & CI Failures:
+3. Base-Test Regression, Runner Timeouts & CI Failures:
    - Inspect \`base-test-regression\` A/B results and Jenkins/Duderino CI failed tests. Explain whether CI failures are caused by this PR or pre-existing flakes (use \`civicrm_issues\` / \`civicrm_search\` if needed).
+   - When \`proof-of-fix\` or \`base-test-regression\` reports a timeout / runner \`ERROR\` (e.g. exit 124/143) or modifies multiple test files, inspect \`setUp()\` / \`tearDown()\` and exception handling (\`catch (Exception)\` vs \`catch (Throwable)\`, missing \`UNLOCK TABLES\` in \`tearDown()\` when one test file has it and a sibling test file omits it) to check whether a test-cleanup asymmetry or lock leak caused unfixed base A or head B to hang.
 4. Upgrade & Schema Parity (rg-upgrades):
    - When CRM/Upgrade/*, Upgrader.php, xml/schema/*, schema/*.entityType.php, or managed/* are modified:
      - Verify fresh install and upgrade produce identical schema, custom data/option values, managed entities, and multilingual state.

@@ -777,7 +777,7 @@ export function resolveStageEffort(params: {
   const depth = config.review.depth ?? 'deep';
 
   if (stage === 'triage') {
-    return depth === 'deep' ? 'medium' : 'low';
+    return depth === 'deep' ? 'high' : 'low';
   }
   if (stage === 'threadReply') {
     return 'medium';
@@ -792,10 +792,7 @@ export function resolveStageEffort(params: {
       return 'low';
     }
     if (depth === 'deep') {
-      if (params.lens === 'correctness' || params.lens === 'security') {
-        return 'high';
-      }
-      return isHighRiskPr || hasEmpiricalFail ? 'high' : 'medium';
+      return 'high';
     }
     return 'medium';
   }

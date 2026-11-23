@@ -99,23 +99,28 @@ function formatStageTelemetry(params: {
   stage: string;
   model: ModelSpec;
   effort?: string;
+  maxSteps?: number;
   durationMs: number;
   usage?: StageUsage;
   stageCost?: number;
 }): string {
-  const { stage, model, effort, durationMs, usage, stageCost } = params;
+  const { stage, model, effort, maxSteps, durationMs, usage, stageCost } = params;
   const durStr = `${(durationMs / 1000).toFixed(1)}s`;
   const effortStr = effort ? ` effort=${effort}` : '';
   if (!usage) {
     return `[stage] ${stage} model=${model}${effortStr} dur=${durStr} usage=n/a`;
   }
+  const stepsStr =
+    usage.steps !== undefined
+      ? ` steps=${usage.steps}${maxSteps !== undefined ? `/${maxSteps}` : ''}${usage.toolCalls !== undefined ? ` tools=${usage.toolCalls}` : ''}`
+      : '';
   const cacheWrite = usage.cacheWriteInputTokens ?? 0;
   const cacheRead = usage.cachedInputTokens ?? 0;
   const totalIn = usage.inputTokens + cacheWrite + cacheRead;
   const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
   const costStr = stageCost !== undefined ? ` cost=${formatUsd(stageCost)}` : '';
   return (
-    `[stage] ${stage} model=${model}${effortStr} dur=${durStr}` +
+    `[stage] ${stage} model=${model}${effortStr}${stepsStr} dur=${durStr}` +
     ` in=${usage.inputTokens.toLocaleString('en-US')}` +
     ` cache_write=${cacheWrite.toLocaleString('en-US')}` +
     ` cache_read=${cacheRead.toLocaleString('en-US')} (${hitPct}% hit)` +
@@ -177,6 +182,8 @@ function accumulateUsage(
       : {}),
     totalTokens: usage.totalTokens,
     ...(stageCost !== undefined ? { estimatedUsd: stageCost } : {}),
+    ...(usage.steps !== undefined ? { steps: usage.steps } : {}),
+    ...(usage.toolCalls !== undefined ? { toolCalls: usage.toolCalls } : {}),
   });
   return { recorded: true, stageCost };
 }
@@ -417,6 +424,8 @@ async function executeReviewPipeline(
     bundle,
     verificationMatrix,
   });
+  const triageMaxSteps = Math.min(config.review.maxSteps, config.review.triageMaxSteps ?? 10);
+  const maxOutputTokens = config.review.maxOutputTokens;
   logger?.info?.(`Stage 0 (Triage) using ${config.models.triage} [effort=${triageEffort}]`);
   const triagePrompt = buildTriagePrompt(bundle);
   const triageResult = await runStage(
@@ -431,7 +440,8 @@ async function executeReviewPipeline(
       schemaName: 'TriageOutput',
       mcpScope,
       effort: triageEffort,
-      maxSteps: Math.min(config.review.maxSteps, 3),
+      maxSteps: triageMaxSteps,
+      maxOutputTokens,
       timeoutMs: config.review.stageTimeoutMs,
     },
     registry,
@@ -446,6 +456,7 @@ async function executeReviewPipeline(
       stage: 'triage',
       model: triageResult.model,
       effort: triageEffort,
+      maxSteps: triageMaxSteps,
       durationMs: triageResult.durationMs,
       usage: triageResult.usage,
       stageCost: triageAcc.stageCost,
@@ -565,6 +576,7 @@ async function executeReviewPipeline(
         ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
         ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
         maxSteps: config.review.maxSteps,
+        maxOutputTokens,
         timeoutMs: config.review.stageTimeoutMs,
       },
       registry,
@@ -579,6 +591,7 @@ async function executeReviewPipeline(
         stage: stageName,
         model: res.model,
         effort,
+        maxSteps: config.review.maxSteps,
         durationMs: res.durationMs,
         usage: res.usage,
         stageCost: specAcc.stageCost,
@@ -590,11 +603,15 @@ async function executeReviewPipeline(
   }
 
   let standards = mergeStandards(standardsLists);
+  let walkthrough = triage.summaryBullets;
   // Stage 2: Sceptical Adversarial Verifier (+ bounded follow-up investigation loop)
+  // In `deep` mode, always run Verifier even when Stage 1 returned 0 candidates so Opus
+  // audits the PR, reconciles early Stage 0 walkthrough guesses, and can emit followUpLeads.
   const maxFollowUpRounds = config.review.maxFollowUpRounds;
   let rawVerified: VerifiedFinding[] = [];
   let blastRadius = mergeBlastRadius(blastRadiusLists);
-  if (candidates.length > 0) {
+  const shouldRunVerifier = candidates.length > 0 || (config.review.depth ?? 'deep') === 'deep';
+  if (shouldRunVerifier) {
     const verifierEffort = resolveStageEffort({
       stage: 'verifier',
       config,
@@ -608,6 +625,7 @@ async function executeReviewPipeline(
     );
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
       allowFollowUpLeads: maxFollowUpRounds > 0,
+      triageBullets: walkthrough,
     });
     const liveProveEnabled =
       isCheckEnabled(config, 'live-prove') &&
@@ -639,6 +657,7 @@ async function executeReviewPipeline(
         ...(extraTools ? { extraTools } : {}),
         ...(extraMcpServers ? { extraMcpServers } : {}),
         maxSteps: config.review.maxSteps,
+        maxOutputTokens,
         timeoutMs: config.review.stageTimeoutMs,
       },
       registry,
@@ -658,6 +677,7 @@ async function executeReviewPipeline(
         stage: 'verifier',
         model: verifierResult.model,
         effort: verifierEffort,
+        maxSteps: config.review.maxSteps,
         durationMs: verifierResult.durationMs,
         usage: verifierResult.usage,
         stageCost: verifierAcc.stageCost,
@@ -665,6 +685,12 @@ async function executeReviewPipeline(
     );
     rawVerified = [...verifierResult.output.verifiedFindings];
     standards = adoptReconciledStandards(standards, verifierResult.output.reconciledStandards);
+    if (
+      verifierResult.output.reconciledWalkthrough &&
+      verifierResult.output.reconciledWalkthrough.length > 0
+    ) {
+      walkthrough = verifierResult.output.reconciledWalkthrough;
+    }
 
     // Bounded Verifier -> Follow-up Specialist -> Verifier loop (at most maxFollowUpRounds)
     let pendingLeads: FollowUpLead[] = verifierResult.output.followUpLeads ?? [];
@@ -716,6 +742,7 @@ async function executeReviewPipeline(
             ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
             ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
             maxSteps: config.review.maxSteps,
+            maxOutputTokens,
             timeoutMs: config.review.stageTimeoutMs,
           },
           registry,
@@ -728,6 +755,7 @@ async function executeReviewPipeline(
             stage: stageName,
             model: res.model,
             effort,
+            maxSteps: config.review.maxSteps,
             durationMs: res.durationMs,
             usage: res.usage,
             stageCost: acc.stageCost,
@@ -758,6 +786,7 @@ async function executeReviewPipeline(
       const fuStageName = `verifier:followup-${round}`;
       const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
         allowFollowUpLeads: round < maxFollowUpRounds,
+        triageBullets: walkthrough,
       });
       const fuVerifierResult = await runStage(
         {
@@ -777,6 +806,7 @@ async function executeReviewPipeline(
           ...(extraTools ? { extraTools } : {}),
           ...(extraMcpServers ? { extraMcpServers } : {}),
           maxSteps: config.review.maxSteps,
+          maxOutputTokens,
           timeoutMs: config.review.stageTimeoutMs,
         },
         registry,
@@ -794,6 +824,7 @@ async function executeReviewPipeline(
           stage: fuStageName,
           model: fuVerifierResult.model,
           effort: fuVerifierEffort,
+          maxSteps: config.review.maxSteps,
           durationMs: fuVerifierResult.durationMs,
           usage: fuVerifierResult.usage,
           stageCost: fuAcc.stageCost,
@@ -801,6 +832,12 @@ async function executeReviewPipeline(
       );
       rawVerified.push(...fuVerifierResult.output.verifiedFindings);
       standards = adoptReconciledStandards(standards, fuVerifierResult.output.reconciledStandards);
+      if (
+        fuVerifierResult.output.reconciledWalkthrough &&
+        fuVerifierResult.output.reconciledWalkthrough.length > 0
+      ) {
+        walkthrough = fuVerifierResult.output.reconciledWalkthrough;
+      }
       pendingLeads = round < maxFollowUpRounds ? (fuVerifierResult.output.followUpLeads ?? []) : [];
     }
   } else {
@@ -860,7 +897,7 @@ async function executeReviewPipeline(
     score,
     scoreRationale,
     shortSummary,
-    walkthrough: triage.summaryBullets,
+    walkthrough,
     verificationMatrix,
     notVerified,
     standards,

@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbConfigSchema } from '../src/config/schema.ts';
-import { deriveRegressionTargets, isE2eMinkTestPath } from '../src/evidence/ab/test-targets.ts';
+import { formatAbDiagnosticTail } from '../src/evidence/ab/parsers.ts';
+import {
+  buildMultiTargetTestCommand,
+  deriveRegressionTargets,
+  isE2eMinkTestPath,
+} from '../src/evidence/ab/test-targets.ts';
 import { runCiviKitchenAb, type ExecFn } from '../src/evidence/civikitchen-ab.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import type { RepoInfo } from '../src/evidence/types.ts';
@@ -257,5 +262,105 @@ diff --git a/tests/phpunit/CRM/Contact/BAO/QueryTest.php b/tests/phpunit/CRM/Con
 
     const targets = deriveRegressionTargets(diffFiles, wtA);
     expect(targets).toEqual(['tests/phpunit/CRM/Contact/BAO/ContactTest.php']);
+  });
+
+  test('wraps multi-target tests with 120s per-target timeout, formats diagnostic tail, and retries transient runner failures', async () => {
+    const multi = buildMultiTargetTestCommand('ckcoretest', [
+      { path: 'tests/phpunit/CRM/Queue/Queue/SqlParallelTest.php' },
+      { path: 'tests/phpunit/CRM/Queue/Queue/SqlTest.php' },
+    ]);
+    expect(multi[2]).toContain('timeout -k 10 120');
+    expect(multi[2]).toContain('_ck_run ckcoretest');
+
+    const tail = formatAbDiagnosticTail(
+      'PHPUnit 9.6.0\nFatal error: Unserialization of Closure is not allowed',
+      'Network civireview-run-a_default Creating\nContainer civireview-run-a-1 Starting\nError response from daemon: network error',
+    );
+    expect(tail).not.toContain('Network civireview-run-a_default Creating');
+    expect(tail).toContain('Error response from daemon: network error');
+    expect(tail).toContain('Fatal error: Unserialization of Closure is not allowed');
+
+    const repoDir = makeTempDir();
+    const repoInfo: RepoInfo = {
+      kind: 'civicrm-core',
+      root: repoDir,
+      recommendedImage: 'standalone-master',
+    };
+    const diffFiles = parseUnifiedDiff(`diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php
+--- a/CRM/Queue/Sql.php
++++ b/CRM/Queue/Sql.php
+@@ -1,2 +1,3 @@
+ <?php
++// fix
+diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTest.php
+--- a/tests/phpunit/CRM/Queue/SqlTest.php
++++ b/tests/phpunit/CRM/Queue/SqlTest.php
+@@ -1,2 +1,5 @@
+ <?php
++  public function testClaim(): void {}
+`);
+
+    let ckAbAttempts = 0;
+    const execFn: ExecFn = async (args) => {
+      if (args[0] === 'docker' && args[1] === 'info') {
+        return { exitCode: 0, stdout: 'ok', stderr: '' };
+      }
+      if (args[0] === 'git' && args[3] === 'worktree' && args[4] === 'add') {
+        const target = args[6]!;
+        mkdirSync(join(target, 'CRM/Queue'), { recursive: true });
+        mkdirSync(join(target, 'tests/phpunit/CRM/Queue'), { recursive: true });
+        writeFileSync(join(target, 'CRM/Queue/Sql.php'), '<?php\n');
+        writeFileSync(join(target, 'tests/phpunit/CRM/Queue/SqlTest.php'), '<?php\n');
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'ck' && args[1] === 'ab') {
+        ckAbAttempts += 1;
+        if (ckAbAttempts === 1) {
+          return {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'Network civireview_default Creating\nError: transient docker socket reset',
+            durationMs: 2500,
+          };
+        }
+        const jsonIdx = args.indexOf('--json');
+        writeFileSync(
+          args[jsonIdx + 1]!,
+          JSON.stringify({
+            A: { image: 'standalone-master', core: 'master', status: 124, junit: '' },
+            B: { image: 'standalone-master', core: 'master', status: 0, junit: 'b.xml' },
+            mode: 'junit',
+            groups: {
+              regression: [],
+              fixed: [],
+              both: [],
+              gone: [],
+              only_on_b: ['CRM_Queue_SqlTest::testClaim'],
+              passed_both: [],
+            },
+            exit_code: 0,
+          }),
+        );
+        return { exitCode: 0, stdout: 'ok', stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const outcome = await runCiviKitchenAb({
+      repoRoot: repoDir,
+      repoInfo,
+      baseSha: 'aaaaaaa',
+      headSha: 'bbbbbbb',
+      diffFiles,
+      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      execFn,
+      worktreeBaseDir: join(repoDir, '.worktrees'),
+    });
+
+    expect(ckAbAttempts).toBe(2);
+    const proof = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
+    expect(proof?.status).toBe('PASS');
+    expect(proof?.fixed).toEqual(['CRM_Queue_SqlTest::testClaim']);
+    expect(proof?.summary).toContain('1 test(s) red on A, green on B');
   });
 });

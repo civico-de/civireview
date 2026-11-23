@@ -28,6 +28,8 @@ CLASSIFICATION RULES:
   - Activate 'correctness' and 'tests' for all non-docs PRs.
 - shortSummary: 1–2 crisp sentences (<= 240 chars) in plain English summarizing WHAT this PR changes so a busy reviewer can understand it in 5 seconds without reading the full walkthrough.
 - summaryBullets: 3–6 concise technical walkthrough bullets separating PROVEN, CONFIRMED, NEEDS_QUESTION, and NOT VERIFIED.
+  - Use \`read_file\` or \`grep_repo\` to verify the PR's core technical claims against the repository before emitting \`NEEDS_QUESTION\` (do not emit \`NEEDS_QUESTION: I did not check X\` when you can inspect \`X\` directly with \`read_file\`).
+  - NEVER repeat or parrot comments from other review bots (such as Greptile, CodeRabbit, Copilot) in \`summaryBullets\`; verify against the actual files at \`headSha\` yourself.
 - relatedItems (optional, default \`[]\`):
   - ONLY if \`candidate_related_prs\` or \`candidate_related_gitlab_issues\` appear in the evidence, identify genuinely relevant open PRs or unlinked GitLab issues.
   - Classify each as \`duplicate\` (solves the same bug/feature on the SAME base branch), \`conflicts\` (modifies overlapping files or competing logic on the SAME base branch), or \`related\` (same subsystem/bug area, stacked PR, or likely unlinked GitLab issue for this PR).
