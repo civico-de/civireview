@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
 ### Added
 - **Wait-for-CI gate (`--wait-for-ci` / `watch.waitForCi`, enabled by default in `watch-core.yml`)**: Zero-Docker pre-flight check defers full PR reviews while Jenkins/CI commit statuses on the head SHA are still `pending` (up to `--wait-for-ci-max-minutes`, default `90`, bypassed by `--full`), preserving notification cursors so the next poll reviews the PR once CI finishes.
 - **Native Duderino → Jenkins `/testReport/api/json` + `CiviCRM-Style` CI evidence & flaky-CI assessment**: Parses failing jobs from `test.civicrm.org/duderino/batch/.../tasks?filter=failed`, reads public `CiviCRM-Style` bad-style files, fetches exact failed test names + stack traces when `CIVICRM_JENKINS_USER` + `CIVICRM_JENKINS_TOKEN` are configured (wired in `watch-core.yml`), and lets Stage 0 Triage distinguish PR-related CI failures from unrelated flaky CI runs.
@@ -46,5 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release of `civireview`: CiviCRM-native multi-model AI pull request reviewer with Layer 1 CiviKitchen A/B Proof-of-Fix, live surface diffing, Standalone Browser A/B screenshots & a11y checks, `civicrm-knowledge` MCP integration, GitHub Actions watcher (`watch-core.yml`), and inline thread replies.
 
-[Unreleased]: https://github.com/civico-de/civireview/compare/9e373d9...HEAD
-[0.1.0]: https://github.com/civico-de/civireview/commit/9e373d9
+[Unreleased]: https://github.com/civico-de/civireview/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/civico-de/civireview/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/civico-de/civireview/releases/tag/v0.1.0
