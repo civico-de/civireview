@@ -6,6 +6,7 @@ import type {
   FinalVerdict,
   PrKind,
   StandardVerdict,
+  ThreadResolution,
   TriageOutput,
   VerificationMatrixEntry,
   VerifiedFinding,
@@ -526,6 +527,34 @@ export function reconcileMatrixForTriage(
   });
 }
 
+/**
+ * Appends a `Reviewer Thread` row to the Empirical Verification Matrix when
+ * prior human reviewer questions or change requests exist on the PR.
+ */
+export function applyThreadResolutionsToMatrix(
+  matrix: VerificationMatrixEntry[],
+  threadResolutions: ThreadResolution[] | undefined,
+): VerificationMatrixEntry[] {
+  if (!threadResolutions || threadResolutions.length === 0) return matrix;
+  const openItems = threadResolutions.filter((t) => t.status === 'open');
+  const resolvedCount = threadResolutions.length - openItems.length;
+  const row: VerificationMatrixEntry =
+    openItems.length > 0
+      ? {
+          check: 'Reviewer Thread',
+          status: 'WARN',
+          detail: `${openItems.length} open question/request(s) (${Array.from(
+            new Set(openItems.map((t) => `@${t.author.replace(/^@/, '')}`)),
+          ).join(', ')})${resolvedCount > 0 ? ` · ${resolvedCount} addressed/answered` : ''}`,
+        }
+      : {
+          check: 'Reviewer Thread',
+          status: 'PASS',
+          detail: `All ${threadResolutions.length} reviewer question/request(s) addressed or answered.`,
+        };
+  return [...matrix.filter((m) => m.check !== 'Reviewer Thread'), row];
+}
+
 export interface ConfidenceScoreResult {
   score: ConfidenceScore;
   rationale: string;
@@ -659,6 +688,10 @@ export function computeConfidenceScore(params: {
   }
   if (browser?.status === 'WARN') {
     capAt(4, 'Standalone Browser A/B flagged new accessibility violations');
+  }
+  const reviewerThread = byCheck.get('Reviewer Thread');
+  if (reviewerThread?.status === 'WARN') {
+    capAt(4, `unaddressed reviewer feedback (${reviewerThread.detail})`);
   }
 
   const isLowRiskKind = prKind === 'docs-only' || prKind === 'core-ref-nfc';

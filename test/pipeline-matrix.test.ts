@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { loadConfig } from '../src/config/loader.ts';
+import { applyThreadResolutionsToMatrix } from '../src/engine/matrix.ts';
 import {
   buildVerificationMatrix,
   computeConfidenceScore,
@@ -732,5 +733,45 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     });
     expect(resolveStageEffort({ stage: 'triage', config: perStageCfg })).toBe('low');
     expect(resolveStageEffort({ stage: 'verifier', config: perStageCfg })).toBe('max');
+  });
+
+  test('applyThreadResolutionsToMatrix adds Reviewer Thread row and caps open feedback at 4/5 QUESTIONS_ONLY', () => {
+    const baseMatrix = [{ check: 'CI / Jenkins', status: 'PASS' as const, detail: '1/1 passed' }];
+    const withOpen = applyThreadResolutionsToMatrix(baseMatrix, [
+      {
+        author: 'ufundo',
+        topic: 'Use postContainerBoot',
+        status: 'addressed',
+        detail: 'Moved call into postContainerBoot().',
+      },
+      {
+        author: 'ufundo',
+        topic: 'Make restrictPrivateDir() private or fold into restrictAccess()',
+        status: 'open',
+        detail: 'Author replied "I will look into it"; helper is still public static in head.',
+      },
+    ]);
+    const threadRow = withOpen.find((m) => m.check === 'Reviewer Thread');
+    expect(threadRow?.status).toBe('WARN');
+    expect(threadRow?.detail).toContain('1 open question/request(s) (@ufundo)');
+    expect(computeFinalVerdict([], withOpen)).toBe('QUESTIONS_ONLY');
+    const scoreRes = computeConfidenceScore({
+      verdict: 'QUESTIONS_ONLY',
+      findings: [],
+      verificationMatrix: withOpen,
+    });
+    expect(scoreRes.score).toBe(4);
+    expect(scoreRes.rationale).toContain('Unaddressed reviewer feedback');
+
+    const allResolved = applyThreadResolutionsToMatrix(baseMatrix, [
+      {
+        author: 'ufundo',
+        topic: 'Use postContainerBoot',
+        status: 'addressed',
+        detail: 'Moved call into postContainerBoot().',
+      },
+    ]);
+    expect(allResolved.find((m) => m.check === 'Reviewer Thread')?.status).toBe('PASS');
+    expect(computeFinalVerdict([], allResolved)).toBe('READY');
   });
 });

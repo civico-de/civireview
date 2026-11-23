@@ -113,11 +113,23 @@ export const FollowUpLeadSchema = z.object({
 });
 export type FollowUpLead = z.infer<typeof FollowUpLeadSchema>;
 
+export const ThreadResolutionStatusSchema = z.enum(['addressed', 'answered', 'open']);
+export type ThreadResolutionStatus = z.infer<typeof ThreadResolutionStatusSchema>;
+
+export const ThreadResolutionSchema = z.object({
+  author: z.string().min(1),
+  topic: z.string().min(1),
+  status: ThreadResolutionStatusSchema,
+  detail: z.string().min(1),
+});
+export type ThreadResolution = z.infer<typeof ThreadResolutionSchema>;
+
 export const VerifierOutputSchema = z.object({
   verifiedFindings: z.array(VerifiedFindingSchema),
   reconciledStandards: z.array(StandardVerdictSchema).optional(),
   reconciledWalkthrough: z.array(z.string().min(1)).max(10).optional(),
   reconciledBlastRadius: z.array(BlastRadiusItemSchema).max(12).optional(),
+  threadResolutions: z.array(ThreadResolutionSchema).max(15).optional(),
   followUpLeads: z.array(FollowUpLeadSchema).max(3).default([]),
   notes: z.string(),
 });
@@ -187,6 +199,7 @@ export const FinalReviewSchema = z.object({
   standards: z.array(StandardVerdictSchema).optional(),
   blastRadius: z.array(BlastRadiusItemSchema),
   relatedItems: z.array(RelatedItemSchema).optional(),
+  threadResolutions: z.array(ThreadResolutionSchema).optional(),
   findings: z.array(VerifiedFindingSchema),
   uncertainFindings: z.array(VerifiedFindingSchema).optional(),
   droppedCount: z.number().int().nonnegative(),

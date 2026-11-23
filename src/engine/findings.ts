@@ -1,7 +1,9 @@
+import type { EvidenceBundle } from '../evidence/types.ts';
 import type {
   BlastRadiusItem,
   FinalVerdict,
   FindingVerdict,
+  RelatedItem,
   Severity,
   VerificationMatrixEntry,
   VerifiedFinding,
@@ -86,8 +88,13 @@ export function computeFinalVerdict(
   const hasEmpiricalFailure = Boolean(
     verificationMatrix?.some((m) => m.status === 'FAIL' && EMPIRICAL_BLOCKING_CHECKS.has(m.check)),
   );
+  const hasOpenReviewerThread = Boolean(
+    verificationMatrix?.some((m) => m.check === 'Reviewer Thread' && m.status === 'WARN'),
+  );
   if (findings.length === 0) {
-    return hasEmpiricalFailure ? 'NEEDS_CHANGES' : 'READY';
+    if (hasEmpiricalFailure) return 'NEEDS_CHANGES';
+    if (hasOpenReviewerThread) return 'QUESTIONS_ONLY';
+    return 'READY';
   }
   const needsChanges =
     hasEmpiricalFailure ||
@@ -112,4 +119,59 @@ export function mergeBlastRadius(lists: Array<BlastRadiusItem[] | undefined>): B
     }
   }
   return Array.from(byRepoPath.values());
+}
+
+export function filterGroundedRelatedItems(
+  items: RelatedItem[] | undefined,
+  bundle: EvidenceBundle,
+): RelatedItem[] {
+  if (!items || items.length === 0) return [];
+  const allowedUrls = new Set<string>([
+    ...(bundle.candidateRelatedPrs ?? []).map((p) => p.url.toLowerCase()),
+    ...(bundle.candidateRelatedIssues ?? []).map((i) => i.url.toLowerCase()),
+  ]);
+  const prBaseByUrl = new Map<string, string>(
+    (bundle.candidateRelatedPrs ?? [])
+      .filter((p) => Boolean(p.baseBranch))
+      .map((p) => [p.url.toLowerCase(), p.baseBranch!.toLowerCase()]),
+  );
+  const prMergeCheckByUrl = new Map<string, 'conflicts' | 'clean'>(
+    (bundle.candidateRelatedPrs ?? [])
+      .filter((p) => Boolean(p.mergeConflict))
+      .map((p) => [p.url.toLowerCase(), p.mergeConflict!]),
+  );
+  const currentBase = bundle.pr.baseBranch.toLowerCase();
+  if (allowedUrls.size === 0) return [];
+  const seen = new Set<string>();
+  return items
+    .filter((item) => {
+      const key = item.url.toLowerCase();
+      if (item.confidence < 60 || !allowedUrls.has(key) || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .map((item) => {
+      const urlKey = item.url.toLowerCase();
+      const candidateBase = prBaseByUrl.get(urlKey);
+      if (
+        item.kind === 'pr' &&
+        candidateBase &&
+        candidateBase !== currentBase &&
+        (item.relationship === 'duplicate' || item.relationship === 'conflicts')
+      ) {
+        return { ...item, relationship: 'related' as const };
+      }
+      if (
+        item.kind === 'pr' &&
+        item.relationship === 'conflicts' &&
+        prMergeCheckByUrl.get(urlKey) === 'clean'
+      ) {
+        return { ...item, relationship: 'related' as const };
+      }
+      return item;
+    })
+    .toSorted((a, b) => b.confidence - a.confidence)
+    .slice(0, 5);
 }

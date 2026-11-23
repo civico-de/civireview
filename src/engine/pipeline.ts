@@ -25,11 +25,13 @@ import {
   compareVerifiedFindings,
   computeFinalVerdict,
   deduplicateVerifiedFindings,
+  filterGroundedRelatedItems,
   mergeBlastRadius,
 } from './findings.ts';
 import { mapFindingsToDiff } from './line-mapper.ts';
 import {
   adoptReconciledStandards,
+  applyThreadResolutionsToMatrix,
   buildShortSummary,
   buildVerificationMatrix,
   CANONICAL_STANDARD_CODES,
@@ -50,10 +52,10 @@ import {
   type CandidateFinding,
   type FinalReview,
   type FollowUpLead,
-  type RelatedItem,
   type SpecialistLens,
   type StandardVerdict,
   type ThreadReplyOutput,
+  type ThreadResolution,
   type TokenUsageTotals,
   type TriageOutput,
   type VerifiedFinding,
@@ -186,62 +188,6 @@ function accumulateUsage(
     ...(usage.toolCalls !== undefined ? { toolCalls: usage.toolCalls } : {}),
   });
   return { recorded: true, stageCost };
-}
-
-function filterGroundedRelatedItems(
-  items: RelatedItem[] | undefined,
-  bundle: EvidenceBundle,
-): RelatedItem[] {
-  if (!items || items.length === 0) return [];
-  const allowedUrls = new Set<string>([
-    ...(bundle.candidateRelatedPrs ?? []).map((p) => p.url.toLowerCase()),
-    ...(bundle.candidateRelatedIssues ?? []).map((i) => i.url.toLowerCase()),
-  ]);
-  const prBaseByUrl = new Map<string, string>(
-    (bundle.candidateRelatedPrs ?? [])
-      .filter((p) => Boolean(p.baseBranch))
-      .map((p) => [p.url.toLowerCase(), p.baseBranch!.toLowerCase()]),
-  );
-  const prMergeCheckByUrl = new Map<string, 'conflicts' | 'clean'>(
-    (bundle.candidateRelatedPrs ?? [])
-      .filter((p) => Boolean(p.mergeConflict))
-      .map((p) => [p.url.toLowerCase(), p.mergeConflict!]),
-  );
-  const currentBase = bundle.pr.baseBranch.toLowerCase();
-  if (allowedUrls.size === 0) return [];
-  const seen = new Set<string>();
-  return items
-    .filter((item) => {
-      const key = item.url.toLowerCase();
-      if (item.confidence < 60 || !allowedUrls.has(key) || seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    })
-    .map((item) => {
-      const urlKey = item.url.toLowerCase();
-      const candidateBase = prBaseByUrl.get(urlKey);
-      if (
-        item.kind === 'pr' &&
-        candidateBase &&
-        candidateBase !== currentBase &&
-        (item.relationship === 'duplicate' || item.relationship === 'conflicts')
-      ) {
-        return { ...item, relationship: 'related' as const };
-      }
-      // If `git merge-tree` proved two PRs merge cleanly, do not flag as a textual conflict.
-      if (
-        item.kind === 'pr' &&
-        item.relationship === 'conflicts' &&
-        prMergeCheckByUrl.get(urlKey) === 'clean'
-      ) {
-        return { ...item, relationship: 'related' as const };
-      }
-      return item;
-    })
-    .toSorted((a, b) => b.confidence - a.confidence)
-    .slice(0, 5);
 }
 
 function buildSpecialistPrompt(
@@ -624,6 +570,7 @@ async function executeReviewPipeline(
   const maxFollowUpRounds = config.review.maxFollowUpRounds;
   let rawVerified: VerifiedFinding[] = [];
   let blastRadius = mergeBlastRadius(blastRadiusLists);
+  let threadResolutions: ThreadResolution[] | undefined;
   const shouldRunVerifier = candidates.length > 0 || (config.review.depth ?? 'deep') === 'deep';
   if (shouldRunVerifier) {
     const verifierEffort = resolveStageEffort({
@@ -709,6 +656,12 @@ async function executeReviewPipeline(
     }
     if (verifierResult.output.reconciledBlastRadius) {
       blastRadius = mergeBlastRadius([verifierResult.output.reconciledBlastRadius]);
+    }
+    if (
+      verifierResult.output.threadResolutions &&
+      verifierResult.output.threadResolutions.length > 0
+    ) {
+      threadResolutions = verifierResult.output.threadResolutions;
     }
 
     // Bounded Verifier -> Follow-up Specialist -> Verifier loop (at most maxFollowUpRounds)
@@ -862,6 +815,12 @@ async function executeReviewPipeline(
       if (fuVerifierResult.output.reconciledBlastRadius) {
         blastRadius = mergeBlastRadius([fuVerifierResult.output.reconciledBlastRadius]);
       }
+      if (
+        fuVerifierResult.output.threadResolutions &&
+        fuVerifierResult.output.threadResolutions.length > 0
+      ) {
+        threadResolutions = fuVerifierResult.output.threadResolutions;
+      }
       pendingLeads = round < maxFollowUpRounds ? (fuVerifierResult.output.followUpLeads ?? []) : [];
     }
   } else {
@@ -902,6 +861,7 @@ async function executeReviewPipeline(
       `[stage] verifier verdicts: total=${rawVerified.length} PROVEN=${counts.PROVEN} CONFIRMED=${counts.CONFIRMED} NEEDS_QUESTION=${counts.NEEDS_QUESTION} REJECTED=${counts.REJECTED} surviving=${survivingFindings.length} dropped=${droppedCount} (threshold=${config.review.confidenceThreshold})`,
     );
   }
+  verificationMatrix = applyThreadResolutionsToMatrix(verificationMatrix, threadResolutions);
   const verdict = computeFinalVerdict(survivingFindings, verificationMatrix);
   const { score, rationale: scoreRationale } = computeConfidenceScore({
     verdict,
@@ -945,6 +905,7 @@ async function executeReviewPipeline(
     standards,
     blastRadius,
     ...(relatedItems.length > 0 ? { relatedItems } : {}),
+    ...(threadResolutions && threadResolutions.length > 0 ? { threadResolutions } : {}),
     findings: survivingFindings,
     ...(uncertainFindings.length > 0 ? { uncertainFindings } : {}),
     droppedCount,

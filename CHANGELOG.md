@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
+### Added
+- **First-class `Reviewer Thread` check & `threadResolutions` tracking**: Stage 2 Verifier now audits every substantive question or change request raised by human reviewers in `pr_comments` (`addressed`, `answered`, or `open`):
+  - Adds a **`Reviewer Thread`** row to the `Empirical Verification Matrix` (`✅ PASS | All N reviewer question/request(s) addressed or answered.` or `⚠️ WARN | M open question/request(s) (@reviewer) · K addressed/answered`).
+  - Emits a top-level **`[OPEN REVIEWER FEEDBACK]`** Action Item for each unaddressed human reviewer question/request.
+  - Deterministically upgrades the verdict from `READY` to **`QUESTIONS_ONLY`** and caps merge confidence at **`4/5`** whenever any human reviewer question/request is still open.
+  - Renders a `<details><summary>Reviewer Questions & Thread Resolution (...)</summary>` breakdown table in Zone 2.
+
 ## [0.2.9] - 2026-11-23
 
 ### Changed

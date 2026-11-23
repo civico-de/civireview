@@ -182,6 +182,15 @@ function buildActionItems(review: FinalReview): string[] {
     }
   }
 
+  for (const tr of review.threadResolutions ?? []) {
+    if (tr.status === 'open') {
+      const handle = `@${tr.author.replace(/^@/, '')}`;
+      items.push(
+        `- [ ] **[OPEN REVIEWER FEEDBACK]** Address ${handle}: ${tr.topic} — ${truncateOneLine(tr.detail, 220)}`,
+      );
+    }
+  }
+
   return items;
 }
 
@@ -359,6 +368,30 @@ export function formatReviewMarkdown(
   }
 
   // Zone 2 (Bottom — all reference details consistently in collapsed <details> blocks)
+  if (review.threadResolutions && review.threadResolutions.length > 0) {
+    const openCount = review.threadResolutions.filter((t) => t.status === 'open').length;
+    const resolvedCount = review.threadResolutions.length - openCount;
+    const statusSummary =
+      openCount > 0
+        ? `${openCount} open, ${resolvedCount} addressed/answered`
+        : `all ${review.threadResolutions.length} addressed/answered`;
+    const rows = review.threadResolutions
+      .map((t) => {
+        const badge =
+          t.status === 'addressed'
+            ? '✅ Addressed'
+            : t.status === 'answered'
+              ? '💬 Answered'
+              : '⏳ Open';
+        const handle = `@${t.author.replace(/^@/, '')}`;
+        return `| ${escapeTableCell(handle)} | ${escapeTableCell(t.topic)} | ${badge} | ${escapeTableCell(t.detail)} |`;
+      })
+      .join('\n');
+    sections.push(
+      `<details>\n<summary>Reviewer Questions & Thread Resolution (${statusSummary})</summary>\n\n| Reviewer | Question / Request | Status | Detail |\n| --- | --- | --- | --- |\n${rows}\n</details>`,
+    );
+  }
+
   if (review.walkthrough.length > 0) {
     const noteLabel = review.walkthrough.length === 1 ? 'note' : 'notes';
     sections.push(

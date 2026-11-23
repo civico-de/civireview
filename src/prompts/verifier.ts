@@ -39,6 +39,26 @@ export function buildVerifierPrompt(
       ? `\n10. Blast Radius Reconciliation (\`reconciledBlastRadius\`):
    - Reconcile Stage 1's \`blastRadius\` entries against your verified evidence: remove or correct any entry that repeats a disproved/REJECTED claim (e.g. claiming a method is undefined when you verified it exists), and return the cleaned \`reconciledBlastRadius\` array.`
       : '';
+  const hasHumanComments = bundle.comments.some((c) => {
+    const login = c.author.toLowerCase();
+    return (
+      login !== bundle.pr.author.toLowerCase() &&
+      !login.endsWith('[bot]') &&
+      !['civibot', 'civireview', 'greptile-apps', 'coderabbitai'].includes(login)
+    );
+  });
+  const threadResolutionRule = hasHumanComments
+    ? `\n11. Reviewer Questions & Thread Resolution (\`threadResolutions\`):
+   - Check every substantive question, concern, or change request raised by a HUMAN reviewer in \`pr_comments\` (ignore bots such as \`civibot\`, \`civireview\`, \`greptile\`, \`coderabbit\`, and ignore the PR author's own comments or \`@civireview\` trigger comments).
+   - Return one \`threadResolutions\` entry per distinct human reviewer question/request:
+     - \`author\`: reviewer's GitHub username (without \`@\`).
+     - \`topic\`: concise summary of what the reviewer asked or requested.
+     - \`status\`:
+       - \`'addressed'\`: the requested code, test, or doc change was actually implemented in \`headSha\`.
+       - \`'answered'\`: a question or design trade-off was substantively explained/agreed in the thread and no code change is still pending.
+       - \`'open'\`: the reviewer's question or requested change is STILL unaddressed in \`headSha\` (including when the author replied "I will look into it", "will take a while", "TODO", or has not replied yet).
+     - \`detail\`: 1-sentence factual evidence of how it was addressed/answered or why it is still open in \`headSha\`.`
+    : '';
 
   const systemPrompt = `You are the Adversarial Verifier for civireview.
 Your job is to SCEPTICALLY DISPROVE each candidate finding before it is posted to a PR author, and ensure the final review walkthrough and CiviCRM standards are 100% consistent with verified repository facts.
@@ -67,7 +87,7 @@ VERIFICATION PROTOCOL (for every candidate finding):
 5. Set \`reassessedSeverity\` accurately (downgrade overblown severities; keep critical/high only for real impact).
 6. Preserve exact \`path\`, \`startLine\`, \`endLine\`, and \`side\` verified against the file/diff.
 7. Standards Reconciliation:
-   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.${followUpRule}${walkthroughRule}${blastRadiusRule}`;
+   - When Stage 1 \`r-*\`/\`rg-*\` \`standards\` are provided, return \`reconciledStandards\` reconciling Stage 1's \`r-*\`/\`rg-*\` standards against your final verified verdicts: downgrade any Stage 1 \`ISSUE\` whose underlying candidate finding(s) were \`REJECTED\` to \`PASS\` (with a clear note) or \`N/A\`, and keep \`ISSUE\` only when backed by a surviving finding or deterministic Layer 1 failure.${followUpRule}${walkthroughRule}${blastRadiusRule}${threadResolutionRule}`;
 
   const serializedCandidates = JSON.stringify(candidates, null, 2);
   const standardsSection =
