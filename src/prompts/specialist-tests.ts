@@ -7,10 +7,7 @@ import {
 } from './shared.ts';
 import type { StagePromptPair } from './triage.ts';
 
-export function buildTestsPrompt(
-  bundle: EvidenceBundle,
-  triage: TriageOutput,
-): StagePromptPair {
+export function buildTestsPrompt(bundle: EvidenceBundle, triage: TriageOutput): StagePromptPair {
   const systemPrompt = `You are the CiviCRM Tests & Verification specialist reviewer (lens: 'tests').
 
 ${ANTI_INJECTION_RULES}
@@ -35,9 +32,7 @@ TEST QUALITY & A/B PROOF AUDIT:
      - Verify upgrade steps match the version in xml/version.xml on the base branch.
      - Note clearly what could not be verified locally by mounts.`;
 
-  const proofCheck = bundle.abReport.checks.find(
-    (c) => c.name === 'proof-of-fix',
-  );
+  const proofCheck = bundle.abReport.checks.find((c) => c.name === 'proof-of-fix');
   const tautological = proofCheck?.tautologicalTests ?? [];
   const fixedCount = proofCheck?.fixed.length ?? 0;
   const tautNote =

@@ -228,9 +228,9 @@ describe('formatter & publisher', () => {
     expect(formatted.summaryBody).not.toContain('**Images:**');
     expect(formatted.summaryBody).not.toContain('standalone-master vs standalone-master');
     // Summary and Merge Confidence must not repeat the exact same rationale sentence
-    const rationaleOccurrences = formatted.summaryBody.split(
-      'No verified issues; passed CI / Jenkins, A/B Proof-of-Fix.',
-    ).length - 1;
+    const rationaleOccurrences =
+      formatted.summaryBody.split('No verified issues; passed CI / Jenkins, A/B Proof-of-Fix.')
+        .length - 1;
     expect(rationaleOccurrences).toBe(1);
     expect(formatted.summaryBody).toContain(
       '> **Summary:** Changes: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',

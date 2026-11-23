@@ -14,7 +14,8 @@ export interface DiscoveredStandaloneRoutes {
   reason: string;
 }
 
-const FILE_EXT_RE = /\.(?:php|js|ts|tsx|jsx|css|scss|tpl|xml|json|html|md|rst|txt|yml|yaml|png|jpe?g|gif|svg|woff2?)$/i;
+const FILE_EXT_RE =
+  /\.(?:php|js|ts|tsx|jsx|css|scss|tpl|xml|json|html|md|rst|txt|yml|yaml|png|jpe?g|gif|svg|woff2?)$/i;
 const ROUTE_MENTION_RE = /(?:^|[\s"'`(>])\/?(civicrm\/[^\s"'`<>()\\]+(?:\?[A-Za-z0-9_=&%+-]+)?)/g;
 
 /**
@@ -204,8 +205,7 @@ export function discoverStandaloneRoutes(
     cappedAutoAnon.length === 0
   ) {
     const uiTouched = diffFiles.some(
-      (f) =>
-        f.flags.isFrontendAsset || f.flags.isSmartyTemplate || f.flags.isAfform,
+      (f) => f.flags.isFrontendAsset || f.flags.isSmartyTemplate || f.flags.isAfform,
     );
     if (uiTouched) {
       cappedAutoPages.push('civicrm/dashboard?reset=1');
@@ -218,9 +218,7 @@ export function discoverStandaloneRoutes(
 
   const reasonParts: string[] = [];
   if (explicitPages.length > 0 || explicitAnonPages.length > 0) {
-    reasonParts.push(
-      `explicit (${explicitPages.length + explicitAnonPages.length})`,
-    );
+    reasonParts.push(`explicit (${explicitPages.length + explicitAnonPages.length})`);
   }
   if (liveCount > 0) reasonParts.push(`live surface (${liveCount})`);
   if (staticXmlAfformCount > 0) {
@@ -232,9 +230,7 @@ export function discoverStandaloneRoutes(
   }
 
   const reason =
-    reasonParts.length > 0
-      ? reasonParts.join(', ')
-      : 'no UI routes or frontend assets touched';
+    reasonParts.length > 0 ? reasonParts.join(', ') : 'no UI routes or frontend assets touched';
 
   return {
     pages,

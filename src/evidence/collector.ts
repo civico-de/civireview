@@ -26,10 +26,7 @@ export interface CollectEvidenceOptions {
   execFn?: ExecFn;
 }
 
-async function runGitCommand(
-  repoRoot: string,
-  args: string[],
-): Promise<string> {
+async function runGitCommand(repoRoot: string, args: string[]): Promise<string> {
   const proc = Bun.spawn(['git', '-C', repoRoot, ...args], {
     stdout: 'pipe',
     stderr: 'pipe',
@@ -51,9 +48,7 @@ async function runGitCommand(
  * validates the `EvidenceBundle`, and optionally writes `evidence.json` +
  * `diff.patch` into `outputDir`.
  */
-export async function collectEvidence(
-  options: CollectEvidenceOptions,
-): Promise<{
+export async function collectEvidence(options: CollectEvidenceOptions): Promise<{
   bundle: EvidenceBundle;
   filteredPatch: string;
   urls?: { A?: string; B?: string };
@@ -89,15 +84,11 @@ export async function collectEvidence(
     ciStatus = await fetchJenkinsStatus({ statuses: gh.statuses });
   } else {
     const baseSha =
-      options.baseSha ??
-      (await runGitCommand(repoRoot, ['rev-parse', 'HEAD~1'])).trim();
+      options.baseSha ?? (await runGitCommand(repoRoot, ['rev-parse', 'HEAD~1'])).trim();
     const headSha =
-      options.headSha ??
-      (await runGitCommand(repoRoot, ['rev-parse', 'HEAD'])).trim();
+      options.headSha ?? (await runGitCommand(repoRoot, ['rev-parse', 'HEAD'])).trim();
     rawDiffText = await runGitCommand(repoRoot, ['diff', baseSha, headSha]);
-    const subject = (
-      await runGitCommand(repoRoot, ['log', '-1', '--pretty=%s', headSha])
-    ).trim();
+    const subject = (await runGitCommand(repoRoot, ['log', '-1', '--pretty=%s', headSha])).trim();
 
     pr = {
       repo: options.owner && options.repo ? `${options.owner}/${options.repo}` : 'local/repo',
@@ -143,9 +134,7 @@ export async function collectEvidence(
   const notVerified = Array.from(
     new Set([
       ...abReport.notVerified,
-      ...(filtered.truncated
-        ? [`Diff truncated at ${config.review.maxDiffBytes} bytes.`]
-        : []),
+      ...(filtered.truncated ? [`Diff truncated at ${config.review.maxDiffBytes} bytes.`] : []),
     ]),
   );
 
@@ -172,11 +161,7 @@ export async function collectEvidence(
       JSON.stringify(bundle, null, 2),
       'utf8',
     );
-    writeFileSync(
-      join(options.outputDir, 'diff.patch'),
-      filtered.filteredPatch,
-      'utf8',
-    );
+    writeFileSync(join(options.outputDir, 'diff.patch'), filtered.filteredPatch, 'utf8');
   }
 
   return {

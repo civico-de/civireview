@@ -1,9 +1,4 @@
-import type {
-  DiffFile,
-  DiffFileStatus,
-  DiffHunk,
-  FileSurfaceFlags,
-} from './types.ts';
+import type { DiffFile, DiffFileStatus, DiffHunk, FileSurfaceFlags } from './types.ts';
 
 const NOISE_EXACT_BASENAMES = new Set([
   'composer.lock',
@@ -15,13 +10,7 @@ const NOISE_EXACT_BASENAMES = new Set([
   'npm-shrinkwrap.json',
 ]);
 
-const NOISE_PATH_PREFIXES = [
-  'vendor/',
-  'node_modules/',
-  'bower_components/',
-  'dist/',
-  '.yarn/',
-];
+const NOISE_PATH_PREFIXES = ['vendor/', 'node_modules/', 'bower_components/', 'dist/', '.yarn/'];
 
 const NOISE_EXTENSIONS = [
   '.min.js',
@@ -90,12 +79,9 @@ export function classifyFilePath(filePath: string): FileSurfaceFlags {
     /\/schema\/.*\.entityType\.php$/i.test(p);
 
   const isUpgrade =
-    p.startsWith('CRM/Upgrade/') ||
-    p.includes('/CRM/Upgrade/') ||
-    /(^|\/)Upgrader\.php$/.test(p);
+    p.startsWith('CRM/Upgrade/') || p.includes('/CRM/Upgrade/') || /(^|\/)Upgrader\.php$/.test(p);
 
-  const isManaged =
-    p.startsWith('managed/') || p.includes('/managed/');
+  const isManaged = p.startsWith('managed/') || p.includes('/managed/');
 
   const isSmartyTemplate = lower.endsWith('.tpl');
   const isAfform =
@@ -118,16 +104,14 @@ export function classifyFilePath(filePath: string): FileSurfaceFlags {
   const isTest =
     p.startsWith('tests/') ||
     p.includes('/tests/') ||
-    /Test\.php$/.test(p) ||
+    p.endsWith('Test.php') ||
     /\.(test|spec)\.(ts|tsx|js|jsx)$/.test(lower);
 
   const isMenuXml =
-    (p.startsWith('xml/Menu/') || p.includes('/xml/Menu/')) &&
-    lower.endsWith('.xml');
+    (p.startsWith('xml/Menu/') || p.includes('/xml/Menu/')) && lower.endsWith('.xml');
 
   const isApiV4 =
-    (p.startsWith('Civi/Api4/') || p.includes('/Civi/Api4/')) &&
-    lower.endsWith('.php');
+    (p.startsWith('Civi/Api4/') || p.includes('/Civi/Api4/')) && lower.endsWith('.php');
 
   const isDocsOnly =
     lower.endsWith('.md') ||
@@ -150,8 +134,7 @@ export function classifyFilePath(filePath: string): FileSurfaceFlags {
   };
 }
 
-const HUNK_HEADER_RE =
-  /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
 
 function stripGitPrefix(raw: string): string {
   const trimmed = raw.trim();
@@ -259,10 +242,7 @@ function parseSingleFileDiff(lines: string[]): DiffFile | null {
         newPath = line.slice('rename to '.length).trim();
         continue;
       }
-      if (
-        line.startsWith('Binary files ') ||
-        line === 'GIT binary patch'
-      ) {
+      if (line.startsWith('Binary files ') || line === 'GIT binary patch') {
         isBinary = true;
         continue;
       }
@@ -285,11 +265,9 @@ function parseSingleFileDiff(lines: string[]): DiffFile | null {
     const hunkMatch = line.match(HUNK_HEADER_RE);
     if (hunkMatch) {
       const oldStart = Number(hunkMatch[1]);
-      const oldCount =
-        hunkMatch[2] !== undefined ? Number(hunkMatch[2]) : 1;
+      const oldCount = hunkMatch[2] !== undefined ? Number(hunkMatch[2]) : 1;
       const newStart = Number(hunkMatch[3]);
-      const newCount =
-        hunkMatch[4] !== undefined ? Number(hunkMatch[4]) : 1;
+      const newCount = hunkMatch[4] !== undefined ? Number(hunkMatch[4]) : 1;
       currentHunk = {
         header: line,
         oldStart,
@@ -329,8 +307,7 @@ function parseSingleFileDiff(lines: string[]): DiffFile | null {
     }
   }
 
-  const effectivePath =
-    status === 'deleted' ? oldPath : newPath || oldPath;
+  const effectivePath = status === 'deleted' ? oldPath : newPath || oldPath;
 
   return {
     path: effectivePath,
@@ -353,16 +330,13 @@ export interface AddedTestMethod {
   line: number;
 }
 
-const ADDED_PHPUNIT_TEST_METHOD_RE =
-  /^\+\s*(?:public\s+)?function\s+(test[A-Za-z0-9_]+)\s*\(/;
+const ADDED_PHPUNIT_TEST_METHOD_RE = /^\+\s*(?:public\s+)?function\s+(test[A-Za-z0-9_]+)\s*\(/;
 
 /**
  * Extracts newly added PHPUnit test methods (with their right-side line numbers)
  * from test files in the parsed diff.
  */
-export function extractAddedTestMethods(
-  diffFiles: DiffFile[],
-): AddedTestMethod[] {
+export function extractAddedTestMethods(diffFiles: DiffFile[]): AddedTestMethod[] {
   const results: AddedTestMethod[] = [];
 
   for (const file of diffFiles) {

@@ -3,12 +3,7 @@ import { AiSdkRunner } from './ai-sdk.ts';
 import { ClaudeCliRunner } from './claude-cli.ts';
 import { CodexCliRunner } from './codex-cli.ts';
 import { OpenCodeCliRunner } from './opencode-cli.ts';
-import {
-  parseModelSpec,
-  type StageRequest,
-  type StageResult,
-  type StageRunner,
-} from './types.ts';
+import { parseModelSpec, type StageRequest, type StageResult, type StageRunner } from './types.ts';
 
 export type RunnerRegistry = Map<ModelProvider, StageRunner>;
 
@@ -55,9 +50,7 @@ export async function runStage<T>(
   const parsed = parseModelSpec(req.model);
   const runner = registry.get(parsed.provider);
   if (!runner) {
-    throw new Error(
-      `No StageRunner registered for provider "${parsed.provider}"`,
-    );
+    throw new Error(`No StageRunner registered for provider "${parsed.provider}"`);
   }
   return runner.run(req);
 }

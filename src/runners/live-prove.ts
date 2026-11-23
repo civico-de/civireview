@@ -16,10 +16,7 @@ export interface CreateLiveProbeToolOptions {
 const ENTITY_RE = /^[A-Za-z0-9_]+$/;
 const ALLOWED_API4_ACTIONS = ['get', 'getActions', 'getFields'] as const;
 
-async function defaultComposeExec(
-  args: string[],
-  opts: { timeoutMs?: number } = {},
-) {
+async function defaultComposeExec(args: string[], opts: { timeoutMs?: number } = {}) {
   const [cmd, ...rest] = args;
   if (!cmd) return { exitCode: 2, stdout: '', stderr: 'empty command' };
   const proc = Bun.spawn([cmd, ...rest], {
@@ -74,19 +71,13 @@ function truncateText(text: string, limit = 2000): string {
  * `--live-prove` is enabled. Strictly locked to the kept A/B localhost URLs
  * and read-only `cv api4 <Entity>.get|getActions|getFields` checks.
  */
-export function createLiveProbeTool(
-  options: CreateLiveProbeToolOptions,
-): ToolSet {
+export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSet {
   const urlA = validateLocalhostUrl(options.urlA);
   const urlB = validateLocalhostUrl(options.urlB);
   const composeFileA =
-    options.composeFileA && existsSync(options.composeFileA)
-      ? options.composeFileA
-      : undefined;
+    options.composeFileA && existsSync(options.composeFileA) ? options.composeFileA : undefined;
   const composeFileB =
-    options.composeFileB && existsSync(options.composeFileB)
-      ? options.composeFileB
-      : undefined;
+    options.composeFileB && existsSync(options.composeFileB) ? options.composeFileB : undefined;
   const serviceName = options.serviceName ?? 'app';
   const execFn = options.execFn ?? defaultComposeExec;
   const fetchFn = options.fetchFn ?? fetch;
@@ -101,10 +92,7 @@ export function createLiveProbeTool(
           .string()
           .optional()
           .describe('Relative CiviCRM route for http-get (e.g. civicrm/dashboard?reset=1)'),
-        entity: z
-          .string()
-          .optional()
-          .describe('APIv4 entity name for api4-read (e.g. Contact)'),
+        entity: z.string().optional().describe('APIv4 entity name for api4-read (e.g. Contact)'),
         action: z.enum(ALLOWED_API4_ACTIONS).default('get'),
         paramsJson: z
           .string()
@@ -142,9 +130,7 @@ export function createLiveProbeTool(
 
           const [a, b] = await Promise.all([probeHttp(targetA), probeHttp(targetB)]);
           const differs =
-            a.status !== b.status ||
-            a.location !== b.location ||
-            a.bodySnippet !== b.bodySnippet;
+            a.status !== b.status || a.location !== b.location || a.bodySnippet !== b.bodySnippet;
           return {
             mode,
             route: targetRoute,
@@ -157,9 +143,7 @@ export function createLiveProbeTool(
 
         // api4-read
         if (!entity || !ENTITY_RE.test(entity)) {
-          throw new Error(
-            `Invalid APIv4 entity "${entity ?? ''}": must match ${ENTITY_RE.source}`,
-          );
+          throw new Error(`Invalid APIv4 entity "${entity ?? ''}": must match ${ENTITY_RE.source}`);
         }
         let safeParamsArg: string | undefined;
         if (paramsJson && paramsJson.trim()) {
@@ -175,8 +159,7 @@ export function createLiveProbeTool(
 
         if (!composeFileA || !composeFileB) {
           return {
-            error:
-              'Docker Compose files for kept A/B stacks are unavailable for cv api4 probes.',
+            error: 'Docker Compose files for kept A/B stacks are unavailable for cv api4 probes.',
             differs: false,
           };
         }
@@ -190,11 +173,37 @@ export function createLiveProbeTool(
 
         const [resA, resB] = await Promise.all([
           execFn(
-            ['docker', 'compose', '-f', composeFileA, 'exec', '-T', '-u', 'www-data', '-w', '/var/www/html', serviceName, ...api4Args],
+            [
+              'docker',
+              'compose',
+              '-f',
+              composeFileA,
+              'exec',
+              '-T',
+              '-u',
+              'www-data',
+              '-w',
+              '/var/www/html',
+              serviceName,
+              ...api4Args,
+            ],
             { timeoutMs: 20_000 },
           ),
           execFn(
-            ['docker', 'compose', '-f', composeFileB, 'exec', '-T', '-u', 'www-data', '-w', '/var/www/html', serviceName, ...api4Args],
+            [
+              'docker',
+              'compose',
+              '-f',
+              composeFileB,
+              'exec',
+              '-T',
+              '-u',
+              'www-data',
+              '-w',
+              '/var/www/html',
+              serviceName,
+              ...api4Args,
+            ],
             { timeoutMs: 20_000 },
           ),
         ]);

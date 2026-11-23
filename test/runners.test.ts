@@ -1,23 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { createLiveProbeTool } from '../src/runners/live-prove.ts';
-import {
-  createRunnerRegistry,
-  runStage,
-} from '../src/runners/registry.ts';
-import {
-  createRepoTools,
-  resolveSafeRepoPath,
-} from '../src/runners/repo-tools.ts';
+import { createRunnerRegistry, runStage } from '../src/runners/registry.ts';
+import { createRepoTools, resolveSafeRepoPath } from '../src/runners/repo-tools.ts';
 import { parseModelSpec, type StageRunner } from '../src/runners/types.ts';
 
 const tempDirs: string[] = [];
@@ -88,20 +76,13 @@ describe('runners', () => {
     mkdirSync(join(repoDir, 'src'), { recursive: true });
     writeFileSync(join(repoDir, 'src', 'ok.txt'), 'line1\nline2\n', 'utf8');
     writeFileSync(join(outsideDir, 'secret.txt'), 'top-secret', 'utf8');
-    symlinkSync(
-      join(outsideDir, 'secret.txt'),
-      join(repoDir, 'src', 'escape-link.txt'),
-    );
+    symlinkSync(join(outsideDir, 'secret.txt'), join(repoDir, 'src', 'escape-link.txt'));
 
     expect(resolveSafeRepoPath(repoDir, 'src/ok.txt')).toContain('ok.txt');
     expect(() => resolveSafeRepoPath(repoDir, '../secret.txt')).toThrow();
-    expect(() =>
-      resolveSafeRepoPath(repoDir, 'src/../../secret.txt'),
-    ).toThrow();
+    expect(() => resolveSafeRepoPath(repoDir, 'src/../../secret.txt')).toThrow();
     expect(() => resolveSafeRepoPath(repoDir, '/etc/passwd')).toThrow();
-    expect(() =>
-      resolveSafeRepoPath(repoDir, 'src/escape-link.txt'),
-    ).toThrow();
+    expect(() => resolveSafeRepoPath(repoDir, 'src/escape-link.txt')).toThrow();
 
     const tools = createRepoTools(repoDir);
     const readTool = tools.read_file;

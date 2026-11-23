@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-} from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
@@ -78,12 +72,7 @@ async function execReadOnlyGit(cwd: string, args: string[]): Promise<string> {
   return truncateOutput(stdout);
 }
 
-function walkFiles(
-  root: string,
-  dir: string,
-  results: string[],
-  limit: number,
-): void {
+function walkFiles(root: string, dir: string, results: string[], limit: number): void {
   if (results.length >= limit) return;
   let entries;
   try {
@@ -93,11 +82,7 @@ function walkFiles(
   }
   for (const entry of entries) {
     if (results.length >= limit) return;
-    if (
-      entry.name === '.git' ||
-      entry.name === 'node_modules' ||
-      entry.name === 'vendor'
-    ) {
+    if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'vendor') {
       continue;
     }
     const full = join(dir, entry.name);
@@ -126,8 +111,7 @@ export function createRepoTools(cwd: string): ToolSet {
 
   return {
     read_file: tool({
-      description:
-        'Read lines from a file inside the repository. Returns line-numbered text.',
+      description: 'Read lines from a file inside the repository. Returns line-numbered text.',
       inputSchema: z.object({
         path: z.string().describe('Repository-relative file path'),
         startLine: z.number().int().positive().optional(),
@@ -148,21 +132,15 @@ export function createRepoTools(cwd: string): ToolSet {
     }),
 
     grep_repo: tool({
-      description:
-        'Search repository files for a regex or literal pattern (read-only).',
+      description: 'Search repository files for a regex or literal pattern (read-only).',
       inputSchema: z.object({
         pattern: z.string().min(1).describe('Search pattern'),
-        subpath: z
-          .string()
-          .optional()
-          .describe('Optional repository-relative directory or file'),
+        subpath: z.string().optional().describe('Optional repository-relative directory or file'),
         fixedStrings: z.boolean().optional(),
         maxMatches: z.number().int().positive().max(100).optional(),
       }),
       execute: async ({ pattern, subpath, fixedStrings, maxMatches }) => {
-        const searchRoot = subpath
-          ? resolveSafeRepoPath(realRoot, subpath)
-          : realRoot;
+        const searchRoot = subpath ? resolveSafeRepoPath(realRoot, subpath) : realRoot;
         const cap = maxMatches ?? 40;
         const args = [
           'rg',
@@ -192,9 +170,7 @@ export function createRepoTools(cwd: string): ToolSet {
             .filter(Boolean)
             .slice(0, cap)
             .map((line) =>
-              line.startsWith(realRoot + sep)
-                ? line.slice(realRoot.length + 1)
-                : line,
+              line.startsWith(realRoot + sep) ? line.slice(realRoot.length + 1) : line,
             );
           return truncateOutput(lines.join('\n'));
         } catch {
@@ -223,9 +199,7 @@ export function createRepoTools(cwd: string): ToolSet {
               // ignore unreadable files
             }
           }
-          return hits.length > 0
-            ? truncateOutput(hits.join('\n'))
-            : 'No matches found.';
+          return hits.length > 0 ? truncateOutput(hits.join('\n')) : 'No matches found.';
         }
       },
     }),
@@ -237,9 +211,7 @@ export function createRepoTools(cwd: string): ToolSet {
         limit: z.number().int().positive().max(500).optional(),
       }),
       execute: async ({ subpath, limit }) => {
-        const target = subpath
-          ? resolveSafeRepoPath(realRoot, subpath)
-          : realRoot;
+        const target = subpath ? resolveSafeRepoPath(realRoot, subpath) : realRoot;
         const files: string[] = [];
         walkFiles(realRoot, target, files, limit ?? 200);
         return truncateOutput(files.join('\n') || '(no files)');
@@ -247,8 +219,7 @@ export function createRepoTools(cwd: string): ToolSet {
     }),
 
     git_show: tool({
-      description:
-        'Show a file at a specific git revision (read-only, e.g. baseSha:path).',
+      description: 'Show a file at a specific git revision (read-only, e.g. baseSha:path).',
       inputSchema: z.object({
         rev: z.string().min(1).describe('Git commit SHA or ref'),
         path: z.string().min(1).describe('Repository-relative file path'),

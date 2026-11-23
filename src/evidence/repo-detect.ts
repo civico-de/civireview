@@ -9,9 +9,7 @@ function parseXmlTag(xml: string, tag: string): string | undefined {
 }
 
 function parseXmlAttr(xml: string, tag: string, attr: string): string | undefined {
-  const match = xml.match(
-    new RegExp(`<${tag}[^>]*\\s${attr}\\s*=\\s*["']([^"']+)["']`, 'i'),
-  );
+  const match = xml.match(new RegExp(`<${tag}[^>]*\\s${attr}\\s*=\\s*["']([^"']+)["']`, 'i'));
   return match?.[1]?.trim();
 }
 
@@ -60,10 +58,7 @@ export function selectCivikitchenImage(params: {
  * Detects whether `repoRoot` is `civicrm-core`, a `civicrm-extension`, or `generic`,
  * extracting version/extension metadata and recommending the CiviKitchen Standalone image.
  */
-export function detectRepoInfo(
-  repoRoot: string,
-  baseBranch?: string,
-): RepoInfo {
+export function detectRepoInfo(repoRoot: string, baseBranch?: string): RepoInfo {
   const versionXmlPath = join(repoRoot, 'xml', 'version.xml');
   const crmDirPath = join(repoRoot, 'CRM');
   if (existsSync(versionXmlPath) && existsSync(crmDirPath)) {

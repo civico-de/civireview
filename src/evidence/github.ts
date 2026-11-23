@@ -69,9 +69,7 @@ export function extractLastReviewedMarker(
 /**
  * Resolves a GitHub token from `explicitToken`, `GITHUB_TOKEN`, or `gh auth token`.
  */
-export async function resolveGitHubToken(
-  explicitToken?: string,
-): Promise<string | undefined> {
+export async function resolveGitHubToken(explicitToken?: string): Promise<string | undefined> {
   if (explicitToken) return explicitToken;
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
   if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
@@ -152,11 +150,7 @@ export function parseGitLabIssueRefs(text: string): GitLabIssueRef[] {
   const pushRef = (rawProject: string, rawIid: string) => {
     const projectPath = rawProject.replace(/\/+$/, '').replace(/\/-$/, '');
     const iid = Number(rawIid);
-    if (
-      !SAFE_GITLAB_PROJECT_RE.test(projectPath) ||
-      !Number.isInteger(iid) ||
-      iid <= 0
-    ) {
+    if (!SAFE_GITLAB_PROJECT_RE.test(projectPath) || !Number.isInteger(iid) || iid <= 0) {
       return;
     }
     const key = `${projectPath.toLowerCase()}#${iid}`;
@@ -195,8 +189,7 @@ export async function fetchGitLabIssue(
     // lab.civicrm.org's WAF rejects unrecognized user agents without "curl"
     'User-Agent': 'civireview/0.1 (like curl)',
   };
-  const glToken =
-    process.env.CIVICRM_GITLAB_TOKEN || process.env.GITLAB_TOKEN;
+  const glToken = process.env.CIVICRM_GITLAB_TOKEN || process.env.GITLAB_TOKEN;
   if (glToken) {
     headers['PRIVATE-TOKEN'] = glToken;
   }
@@ -212,13 +205,10 @@ export async function fetchGitLabIssue(
 
     const comments: Array<{ author: string; body: string; createdAt?: string }> = [];
     try {
-      const notesResp = await fetchImpl(
-        `${baseUrl}/notes?per_page=20&sort=asc`,
-        {
-          headers,
-          signal: AbortSignal.timeout(8_000),
-        },
-      );
+      const notesResp = await fetchImpl(`${baseUrl}/notes?per_page=20&sort=asc`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      });
       if (notesResp.ok) {
         const notes = (await notesResp.json()) as Array<Record<string, unknown>>;
         if (Array.isArray(notes)) {
@@ -236,10 +226,7 @@ export async function fetchGitLabIssue(
             comments.push({
               author,
               body: body.slice(0, 1500),
-              createdAt:
-                typeof note.created_at === 'string'
-                  ? note.created_at
-                  : undefined,
+              createdAt: typeof note.created_at === 'string' ? note.created_at : undefined,
             });
             if (comments.length >= 10) break;
           }
@@ -258,10 +245,7 @@ export async function fetchGitLabIssue(
       repo: `lab.civicrm.org/${ref.projectPath}`,
       source: 'gitlab',
       title: data.title,
-      body:
-        typeof data.description === 'string'
-          ? data.description.slice(0, 8000)
-          : '',
+      body: typeof data.description === 'string' ? data.description.slice(0, 8000) : '',
       state: typeof data.state === 'string' ? data.state : 'unknown',
       url:
         typeof data.web_url === 'string'
@@ -284,7 +268,9 @@ function extractMcpTextResult(raw: unknown): { text: string; isError: boolean } 
   if (Array.isArray(obj.content)) {
     const text = obj.content
       .map((part) =>
-        part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string'
+        part &&
+        typeof part === 'object' &&
+        typeof (part as Record<string, unknown>).text === 'string'
           ? String((part as Record<string, unknown>).text)
           : '',
       )
@@ -299,10 +285,7 @@ function extractMcpTextResult(raw: unknown): { text: string; isError: boolean } 
  * Parses a markdown document read from the `civicrm-knowledge` MCP public `lab`
  * archive (`lab/<project-slug>__<iid>.md`) into a structured `LinkedIssue`.
  */
-export function parseLabArchiveMarkdown(
-  markdown: string,
-  ref: GitLabIssueRef,
-): LinkedIssue | null {
+export function parseLabArchiveMarkdown(markdown: string, ref: GitLabIssueRef): LinkedIssue | null {
   const trimmed = markdown.trim();
   if (!trimmed || /^Not in index:/i.test(trimmed)) return null;
 
@@ -332,19 +315,14 @@ export function parseLabArchiveMarkdown(
   const commentSplitRe = /^## Comment by ([^\n]+)\n/gm;
   const matches = Array.from(rest.matchAll(commentSplitRe));
 
-  const body = (
-    matches.length > 0 ? rest.slice(0, matches[0]!.index) : rest
-  )
-    .trim()
-    .slice(0, 8000);
+  const body = (matches.length > 0 ? rest.slice(0, matches[0]!.index) : rest).trim().slice(0, 8000);
 
   const comments: Array<{ author: string; body: string }> = [];
   for (let i = 0; i < matches.length && comments.length < 10; i++) {
     const m = matches[i]!;
     const author = (m[1] ?? 'unknown').trim();
     const start = (m.index ?? 0) + m[0].length;
-    const end =
-      i + 1 < matches.length ? (matches[i + 1]!.index ?? rest.length) : rest.length;
+    const end = i + 1 < matches.length ? (matches[i + 1]!.index ?? rest.length) : rest.length;
     const cBody = rest.slice(start, end).trim().slice(0, 1500);
     if (cBody) {
       comments.push({ author, body: cBody });
@@ -381,9 +359,7 @@ export async function fetchGitLabIssues(
 
   const connect = options.connectMcp ?? connectMcpClient;
   const mcpHandle =
-    options.mcpScope?.enabled && options.mcpScope.url
-      ? await connect(options.mcpScope)
-      : null;
+    options.mcpScope?.enabled && options.mcpScope.url ? await connect(options.mcpScope) : null;
 
   const results: LinkedIssue[] = [];
   try {
@@ -413,9 +389,10 @@ export async function fetchGitLabIssues(
               const comments = rawComments
                 .map((c) => ({
                   author: String(c.author ?? 'unknown'),
-                  body: String(c.body ?? '').trim().slice(0, 1500),
-                  createdAt:
-                    typeof c.created === 'string' ? c.created : undefined,
+                  body: String(c.body ?? '')
+                    .trim()
+                    .slice(0, 1500),
+                  createdAt: typeof c.created === 'string' ? c.created : undefined,
                 }))
                 .filter((c) => c.body.length > 0)
                 .slice(0, 10);
@@ -427,12 +404,8 @@ export async function fetchGitLabIssues(
                 repo: `lab.civicrm.org/${ref.projectPath}`,
                 source: 'gitlab',
                 title: parsed.title,
-                body:
-                  typeof parsed.body === 'string'
-                    ? parsed.body.slice(0, 8000)
-                    : '',
-                state:
-                  typeof parsed.state === 'string' ? parsed.state : 'unknown',
+                body: typeof parsed.body === 'string' ? parsed.body.slice(0, 8000) : '',
+                state: typeof parsed.state === 'string' ? parsed.state : 'unknown',
                 url:
                   typeof parsed.url === 'string'
                     ? parsed.url
@@ -496,27 +469,26 @@ export async function fetchGitHubPrContext(
     octokit.pulls.get({ owner, repo, pull_number: prNumber }),
   ]);
 
-  const [{ data: issueComments }, { data: reviewComments }, { data: reviews }] =
-    await Promise.all([
-      octokit.issues.listComments({
-        owner,
-        repo,
-        issue_number: prNumber,
-        per_page: 100,
-      }),
-      octokit.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: 100,
-      }),
-      octokit.pulls.listReviews({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: 100,
-      }),
-    ]);
+  const [{ data: issueComments }, { data: reviewComments }, { data: reviews }] = await Promise.all([
+    octokit.issues.listComments({
+      owner,
+      repo,
+      issue_number: prNumber,
+      per_page: 100,
+    }),
+    octokit.pulls.listReviewComments({
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    }),
+    octokit.pulls.listReviews({
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    }),
+  ]);
 
   const comments: PrComment[] = [
     ...issueComments.map((c) => ({
@@ -545,7 +517,7 @@ export async function fetchGitHubPrContext(
         body: `[${r.state}] ${r.body ?? ''}`,
         createdAt: r.submitted_at ?? '',
       })),
-  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  ].toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const marker = extractLastReviewedMarker(comments);
   const lastReviewedHeadSha = marker?.headSha;
@@ -575,9 +547,7 @@ export async function fetchGitHubPrContext(
           mediaType: { format: 'diff' },
         });
         diffText =
-          typeof compareResp.data === 'string'
-            ? compareResp.data
-            : String(compareResp.data);
+          typeof compareResp.data === 'string' ? compareResp.data : String(compareResp.data);
       }
     } catch {
       // Fallback to full PR diff if force-push invalidated lastReviewedHeadSha
@@ -591,10 +561,7 @@ export async function fetchGitHubPrContext(
       pull_number: prNumber,
       mediaType: { format: 'diff' },
     });
-    diffText =
-      typeof diffResp.data === 'string'
-        ? diffResp.data
-        : String(diffResp.data);
+    diffText = typeof diffResp.data === 'string' ? diffResp.data : String(diffResp.data);
   }
 
   const statuses: CommitStatusInput[] = [];
@@ -627,7 +594,9 @@ export async function fetchGitHubPrContext(
       const state =
         cr.status !== 'completed'
           ? 'pending'
-          : cr.conclusion === 'success' || cr.conclusion === 'neutral' || cr.conclusion === 'skipped'
+          : cr.conclusion === 'success' ||
+              cr.conclusion === 'neutral' ||
+              cr.conclusion === 'skipped'
             ? 'success'
             : 'failure';
       statuses.push({
@@ -641,11 +610,9 @@ export async function fetchGitHubPrContext(
     // Ignore check-runs permission errors on public tokens
   }
 
-  const issueSearchCorpus = [
-    prData.title,
-    prData.body ?? '',
-    ...comments.map((c) => c.body),
-  ].join('\n');
+  const issueSearchCorpus = [prData.title, prData.body ?? '', ...comments.map((c) => c.body)].join(
+    '\n',
+  );
 
   const linkedRefs = parseIssueRefs(issueSearchCorpus, `${owner}/${repo}`);
   const linkedGitLabRefs = parseGitLabIssueRefs(issueSearchCorpus);
@@ -658,9 +625,7 @@ export async function fetchGitHubPrContext(
         repo: ref.repo,
         issue_number: ref.number,
       });
-      let ghIssueComments:
-        | Array<{ author: string; body: string; createdAt?: string }>
-        | undefined;
+      let ghIssueComments: Array<{ author: string; body: string; createdAt?: string }> | undefined;
       try {
         const { data: rawComments } = await octokit.issues.listComments({
           owner: ref.owner,
@@ -681,7 +646,7 @@ export async function fetchGitHubPrContext(
         // Best-effort issue comments fetch
       }
       const issueLabels = (issue.labels ?? [])
-        .map((l) => (typeof l === 'string' ? l : l.name ?? ''))
+        .map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
         .filter(Boolean);
       linkedIssues.push({
         number: issue.number,
@@ -692,9 +657,7 @@ export async function fetchGitHubPrContext(
         state: issue.state,
         url: issue.html_url,
         ...(issueLabels.length > 0 ? { labels: issueLabels } : {}),
-        ...(ghIssueComments && ghIssueComments.length > 0
-          ? { comments: ghIssueComments }
-          : {}),
+        ...(ghIssueComments && ghIssueComments.length > 0 ? { comments: ghIssueComments } : {}),
       });
     } catch {
       // Issue may be in a private repo or deleted
@@ -713,7 +676,7 @@ export async function fetchGitHubPrContext(
   }
 
   const labels = (prData.labels ?? [])
-    .map((l) => (typeof l === 'string' ? l : l.name ?? ''))
+    .map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
     .filter(Boolean);
 
   return {

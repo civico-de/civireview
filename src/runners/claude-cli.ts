@@ -29,17 +29,12 @@ export function extractJsonFromCliText(text: string): unknown {
     if (firstBrace !== -1 && lastBrace > firstBrace) {
       return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
     }
-    throw new Error(
-      `Could not parse JSON from CLI output: ${trimmed.slice(0, 300)}`,
-    );
+    throw new Error(`Could not parse JSON from CLI output: ${trimmed.slice(0, 300)}`);
   }
 }
 
 export function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
-  const raw = z.toJSONSchema(schema, { target: 'draft-7' }) as Record<
-    string,
-    unknown
-  >;
+  const raw = z.toJSONSchema(schema, { target: 'draft-7' }) as Record<string, unknown>;
   delete raw.$schema;
   return raw;
 }
@@ -62,12 +57,7 @@ export class ClaudeCliRunner implements StageRunner {
           ].join('\n')
         : '';
 
-    const fullPrompt = [
-      req.systemPrompt,
-      req.sharedPrefix ?? '',
-      imageBlock,
-      req.userPrompt,
-    ]
+    const fullPrompt = [req.systemPrompt, req.sharedPrefix ?? '', imageBlock, req.userPrompt]
       .filter(Boolean)
       .join('\n\n');
 
@@ -114,9 +104,7 @@ export class ClaudeCliRunner implements StageRunner {
       ]);
 
       if (exitCode !== 0) {
-        throw new Error(
-          `claude CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`,
-        );
+        throw new Error(`claude CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`);
       }
 
       const envelope = JSON.parse(stdout) as Record<string, unknown>;
@@ -124,7 +112,7 @@ export class ClaudeCliRunner implements StageRunner {
         envelope.structured_output ??
         (typeof envelope.result === 'string'
           ? extractJsonFromCliText(envelope.result)
-          : envelope.result ?? envelope);
+          : (envelope.result ?? envelope));
 
       const output = req.schema.parse(rawCandidate);
       const rawUsage = envelope.usage as Record<string, unknown> | undefined;
@@ -147,10 +135,7 @@ export class ClaudeCliRunner implements StageRunner {
             ? Number(rawUsage.cache_creation_input_tokens)
             : undefined;
         const totalTokens =
-          inputTokens +
-          outputTokens +
-          (cachedInputTokens ?? 0) +
-          (cacheWriteInputTokens ?? 0);
+          inputTokens + outputTokens + (cachedInputTokens ?? 0) + (cacheWriteInputTokens ?? 0);
         const baseUsage: StageUsage = {
           inputTokens,
           outputTokens,
@@ -161,8 +146,7 @@ export class ClaudeCliRunner implements StageRunner {
         };
         usage = {
           ...baseUsage,
-          estimatedUsd:
-            reportedCostUsd ?? estimateStageCostUsd(parsed.raw, baseUsage),
+          estimatedUsd: reportedCostUsd ?? estimateStageCostUsd(parsed.raw, baseUsage),
         };
       }
 

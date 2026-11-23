@@ -112,9 +112,7 @@ export function loadConfig(
     const parsed = yaml.load(rawText);
     if (parsed !== undefined && parsed !== null) {
       if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error(
-          `Invalid config in ${configPath}: root must be a YAML mapping`,
-        );
+        throw new Error(`Invalid config in ${configPath}: root must be a YAML mapping`);
       }
       rawFileConfig = parsed as Record<string, unknown>;
     }
@@ -127,7 +125,7 @@ export function loadConfig(
   const mergedPaths =
     parsedFile.review?.paths || overrides.review?.paths
       ? {
-          ...(parsedFile.review?.paths ?? {}),
+          ...parsedFile.review?.paths,
           ...stripUndefined(overrides.review?.paths ?? {}),
         }
       : undefined;
@@ -136,23 +134,23 @@ export function loadConfig(
     trigger: overrides.trigger ?? parsedFile.trigger,
     preset,
     ab: {
-      ...(parsedFile.ab ?? {}),
+      ...parsedFile.ab,
       ...stripUndefined(overrides.ab ?? {}),
     },
     checks: {
-      ...(parsedFile.checks ?? {}),
+      ...parsedFile.checks,
       ...stripUndefined(overrides.checks ?? {}),
     },
     browser: {
-      ...(parsedFile.browser ?? {}),
+      ...parsedFile.browser,
       ...stripUndefined(overrides.browser ?? {}),
     },
     mcp: {
-      ...(parsedFile.mcp ?? {}),
+      ...parsedFile.mcp,
       ...stripUndefined(overrides.mcp ?? {}),
     },
     review: {
-      ...(parsedFile.review ?? {}),
+      ...parsedFile.review,
       ...stripUndefined(overrides.review ?? {}),
       ...(mergedPaths ? { paths: mergedPaths } : {}),
     },

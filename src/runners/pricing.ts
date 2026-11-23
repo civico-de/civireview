@@ -255,10 +255,7 @@ export function lookupModelPricing(modelSpec: string): ModelPricing | undefined 
  * Prefers a runner-supplied exact cost (`usage.estimatedUsd`, e.g. Claude CLI's
  * `total_cost_usd`) when present.
  */
-export function estimateStageCostUsd(
-  modelSpec: string,
-  usage: StageUsage,
-): number | undefined {
+export function estimateStageCostUsd(modelSpec: string, usage: StageUsage): number | undefined {
   if (
     typeof usage.estimatedUsd === 'number' &&
     Number.isFinite(usage.estimatedUsd) &&

@@ -15,12 +15,9 @@ export interface FetchJenkinsStatusOptions {
   timeoutMs?: number;
 }
 
-const DUDERINO_BATCH_RE =
-  /https?:\/\/test\.civicrm\.org\/duderino\/batch\/CiviCRM-PR\/[^/\s?#]+/i;
+const DUDERINO_BATCH_RE = /https?:\/\/test\.civicrm\.org\/duderino\/batch\/CiviCRM-PR\/[^/\s?#]+/i;
 
-function normalizeCiState(
-  rawState: string,
-): CiCheckItem['state'] {
+function normalizeCiState(rawState: string): CiCheckItem['state'] {
   const s = rawState.toLowerCase();
   if (s === 'success' || s === 'passed') return 'success';
   if (s === 'failure' || s === 'failed') return 'failure';
@@ -36,18 +33,14 @@ function extractDuderinoSummary(htmlOrText: string): {
   const failedTests: string[] = [];
   // Duderino pages list failed jobs or test class/method identifiers
   const jobFailureRe =
-    /(?:FAILED|FAILURE|FAIL)\s*[:\-]?\s*([A-Za-z0-9_\\/:.-]+Test(?:::[A-Za-z0-9_]+)?)/g;
+    /(?:FAILED|FAILURE|FAIL)\s*[:-]?\s*([A-Za-z0-9_\\/:.-]+Test(?:::[A-Za-z0-9_]+)?)/g;
   for (const match of htmlOrText.matchAll(jobFailureRe)) {
     if (match[1] && !failedTests.includes(match[1])) {
       failedTests.push(match[1]);
     }
   }
-  const countMatch = htmlOrText.match(
-    /(\d+)\s+pass(?:ed|ing)?[,;\s]+(\d+)\s+fail(?:ed|ing|ure)?/i,
-  );
-  const summaryNote = countMatch
-    ? `${countMatch[1]} passed, ${countMatch[2]} failed`
-    : undefined;
+  const countMatch = htmlOrText.match(/(\d+)\s+pass(?:ed|ing)?[,;\s]+(\d+)\s+fail(?:ed|ing|ure)?/i);
+  const summaryNote = countMatch ? `${countMatch[1]} passed, ${countMatch[2]} failed` : undefined;
   return { failedTests: failedTests.slice(0, 30), summaryNote };
 }
 
@@ -87,10 +80,8 @@ export async function fetchJenkinsStatus(
 ): Promise<CiStatusReport> {
   const fetchFn = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 8000;
-  const jenkinsUser =
-    options.jenkinsUser ?? process.env.CIVICRM_JENKINS_USER;
-  const jenkinsToken =
-    options.jenkinsToken ?? process.env.CIVICRM_JENKINS_TOKEN;
+  const jenkinsUser = options.jenkinsUser ?? process.env.CIVICRM_JENKINS_USER;
+  const jenkinsToken = options.jenkinsToken ?? process.env.CIVICRM_JENKINS_TOKEN;
 
   const checks: CiCheckItem[] = [];
   let jenkinsBatchUrl: string | undefined;
@@ -187,9 +178,7 @@ export async function fetchJenkinsStatus(
   }
 
   const passedCount = checks.filter((c) => c.state === 'success').length;
-  const failedCount = checks.filter(
-    (c) => c.state === 'failure' || c.state === 'error',
-  ).length;
+  const failedCount = checks.filter((c) => c.state === 'failure' || c.state === 'error').length;
   const pendingCount = checks.filter((c) => c.state === 'pending').length;
 
   const summary =

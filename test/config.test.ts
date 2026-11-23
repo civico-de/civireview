@@ -3,11 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, resolveModels } from '../src/config/loader.ts';
-import {
-  PRESETS,
-  isCheckEnabled,
-  isLensEnabled,
-} from '../src/config/schema.ts';
+import { PRESETS, isCheckEnabled, isLensEnabled } from '../src/config/schema.ts';
 
 const tempDirs: string[] = [];
 
@@ -45,9 +41,7 @@ describe('config schema and loader', () => {
   });
 
   test('resolves all named presets cleanly', () => {
-    expect(resolveModels('sonnet-opus').verifier).toBe(
-      'anthropic:claude-opus-5-5',
-    );
+    expect(resolveModels('sonnet-opus').verifier).toBe('anthropic:claude-opus-5-5');
     expect(resolveModels('cross-model').verifier).toBe('openai:gpt-5.2');
     expect(resolveModels('subscription').triage).toBe('claude-cli:haiku');
     expect(resolveModels('subscription').verifier).toBe('claude-cli:opus');
@@ -86,9 +80,7 @@ review:
     expect(cfg.trigger).toBe('@review-bot');
     expect(cfg.preset).toBe('cross-model');
     expect(cfg.models.triage).toBe('anthropic:claude-haiku-5-5');
-    expect(cfg.models.specialists.correctness).toBe(
-      'anthropic:claude-sonnet-5-5',
-    );
+    expect(cfg.models.specialists.correctness).toBe('anthropic:claude-sonnet-5-5');
     expect(cfg.models.specialists.security).toBe('openai:gpt-5.2');
     expect(cfg.models.specialists.ui).toBe('google:gemini-2.5-pro');
     // CLI override beats YAML & preset

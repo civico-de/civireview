@@ -36,6 +36,9 @@ GOTCHAS TO CHECK:
 - rg-setting: Deployments referencing added or removed settings.
 - rg-upgrades: Fresh install and upgrade end with the same schema, helpers, batches, and multilingual strings; new upgrade steps match xml/version.xml base version.
 - rg-hook: New hook parameters or semantics remain backward-compatible.
+- DDL/schema atomicity: Flag migrations or schema changes that drop an index/constraint in a separate non-atomic step before re-adding it (leaving the table broken if a step fails), instead of using a single atomic \`ALTER TABLE\`.
+- Hook & JS/Angular data-shape contract breaks: When changing the structure of data exposed to hooks or frontend components (Afform, SearchKit, Angular, Smarty), verify downstream callers and ecosystem extensions are not broken.
+- Unresolved PR discussion: Check existing PR comments for unresolved maintainer objections or edge cases and verify whether the latest diff actually addressed them.
 - Label honesty: For (NFC) PRs, flag altered runtime logic, altered tests, or docblock annotation changes. For (REF) PRs, flag behavioural changes or un-deprecated removals.
 
 MCP & REPO TOOLS WORKFLOW:

@@ -1,11 +1,6 @@
 import { z } from 'zod';
 import { extractJsonFromCliText } from './claude-cli.ts';
-import {
-  parseModelSpec,
-  type StageRequest,
-  type StageResult,
-  type StageRunner,
-} from './types.ts';
+import { parseModelSpec, type StageRequest, type StageResult, type StageRunner } from './types.ts';
 
 export class OpenCodeCliRunner implements StageRunner {
   readonly providers = ['opencode-cli'] as const;
@@ -44,14 +39,7 @@ export class OpenCodeCliRunner implements StageRunner {
       .filter(Boolean)
       .join('\n\n');
 
-    const args = [
-      'opencode',
-      'run',
-      '--standalone',
-      '-m',
-      parsed.modelId,
-      fullPrompt,
-    ];
+    const args = ['opencode', 'run', '--standalone', '-m', parsed.modelId, fullPrompt];
 
     const proc = Bun.spawn(args, {
       cwd: req.cwd,
@@ -70,9 +58,7 @@ export class OpenCodeCliRunner implements StageRunner {
     ]);
 
     if (exitCode !== 0) {
-      throw new Error(
-        `opencode CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`,
-      );
+      throw new Error(`opencode CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`);
     }
 
     const candidate = extractJsonFromCliText(stdout);

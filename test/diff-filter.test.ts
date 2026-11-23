@@ -54,9 +54,7 @@ index 8888888..9999999 100644
 describe('diff-filter', () => {
   test('parses hunks and valid right/left line numbers accurately', () => {
     const files = parseUnifiedDiff(SAMPLE_DIFF);
-    const contact = files.find(
-      (f) => f.path === 'CRM/Contact/BAO/Contact.php',
-    );
+    const contact = files.find((f) => f.path === 'CRM/Contact/BAO/Contact.php');
     expect(contact).toBeDefined();
     expect(contact?.status).toBe('modified');
     expect(contact?.additions).toBe(2);
@@ -120,19 +118,13 @@ describe('diff-filter', () => {
     const excluded = filterAndTruncateDiff(SAMPLE_DIFF, 100_000, {
       exclude: ['CRM/Upgrade/**'],
     });
-    expect(excluded.files.map((f) => f.path)).toEqual([
-      'CRM/Contact/BAO/Contact.php',
-    ]);
-    expect(excluded.droppedNoiseFiles).toContain(
-      'CRM/Upgrade/Incremental/php/SixZero.php',
-    );
+    expect(excluded.files.map((f) => f.path)).toEqual(['CRM/Contact/BAO/Contact.php']);
+    expect(excluded.droppedNoiseFiles).toContain('CRM/Upgrade/Incremental/php/SixZero.php');
 
     const included = filterAndTruncateDiff(SAMPLE_DIFF, 100_000, {
       include: ['**/Upgrade/**/*.php'],
     });
-    expect(included.files.map((f) => f.path)).toEqual([
-      'CRM/Upgrade/Incremental/php/SixZero.php',
-    ]);
+    expect(included.files.map((f) => f.path)).toEqual(['CRM/Upgrade/Incremental/php/SixZero.php']);
   });
 
   test('extractAddedTestMethods tracks right-side line numbers and filters non-test/deleted/helper methods', () => {

@@ -83,7 +83,8 @@ new file mode 100644
   });
 
   test('falls back to civicrm/dashboard?reset=1 when frontend assets changed with no explicit route', () => {
-    const diff = parseUnifiedDiff(`diff --git a/templates/CRM/Contact/Page/View.tpl b/templates/CRM/Contact/Page/View.tpl
+    const diff =
+      parseUnifiedDiff(`diff --git a/templates/CRM/Contact/Page/View.tpl b/templates/CRM/Contact/Page/View.tpl
 --- a/templates/CRM/Contact/Page/View.tpl
 +++ b/templates/CRM/Contact/Page/View.tpl
 @@ -1,2 +1,3 @@
@@ -105,8 +106,7 @@ new file mode 100644
   test('caps auto-discovered pages at maxAutoPages while always preserving explicit pages', () => {
     const res = discoverStandaloneRoutes({
       diffFiles: [],
-      prBody:
-        'Check civicrm/r1 civicrm/r2 civicrm/r3 civicrm/r4 civicrm/r5',
+      prBody: 'Check civicrm/r1 civicrm/r2 civicrm/r3 civicrm/r4 civicrm/r5',
       config: {
         browser: BrowserConfigSchema.parse({
           pages: ['civicrm/explicit-one', 'civicrm/explicit-two'],

@@ -18,9 +18,7 @@ export interface ConnectedMcpHandle {
  * Connects to `civicrm-knowledge` over Streamable HTTP when `scope.enabled` is true.
  * Degrades cleanly (empty tools, no-op close) if disabled or unreachable.
  */
-export async function connectMcpClient(
-  scope: McpScopeResult,
-): Promise<ConnectedMcpHandle> {
+export async function connectMcpClient(scope: McpScopeResult): Promise<ConnectedMcpHandle> {
   if (!scope.enabled || !scope.url) {
     return {
       client: null,
@@ -109,9 +107,7 @@ export async function connectStdioMcpClient(
  * Writes a temporary `0600` `--mcp-config` JSON file for CLI runners
  * (`claude-cli`, etc.) and returns a cleanup callback.
  */
-export function writeMcpConfigFile(
-  scope: McpScopeResult,
-): TempMcpConfigFile | null {
+export function writeMcpConfigFile(scope: McpScopeResult): TempMcpConfigFile | null {
   if (!scope.enabled || !scope.url) {
     return null;
   }

@@ -14,11 +14,7 @@ import {
   type ToolSet,
   type UserModelMessage,
 } from 'ai';
-import {
-  connectMcpClient,
-  connectStdioMcpClient,
-  type ConnectedMcpHandle,
-} from '../mcp/client.ts';
+import { connectMcpClient, connectStdioMcpClient, type ConnectedMcpHandle } from '../mcp/client.ts';
 import { extractJsonFromCliText } from './claude-cli.ts';
 import { estimateStageCostUsd } from './pricing.ts';
 import { createRepoTools } from './repo-tools.ts';
@@ -41,9 +37,7 @@ function buildMultimodalUserMessage(
 ): UserModelMessage | null {
   if (!images || images.length === 0) return null;
 
-  const parts: Array<TextPart | ImagePart> = [
-    { type: 'text', text: userPrompt },
-  ];
+  const parts: Array<TextPart | ImagePart> = [{ type: 'text', text: userPrompt }];
   let totalBytes = 0;
   let attachedCount = 0;
 
@@ -89,17 +83,14 @@ function resolveLanguageModel(parsed: ParsedModelSpec): LanguageModel {
     }
     case 'google': {
       const google = createGoogleGenerativeAI({
-        apiKey:
-          process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
-          process.env.GEMINI_API_KEY,
+        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY,
       });
       return google(parsed.modelId);
     }
     case 'openrouter': {
       const openrouter = createOpenAICompatible({
         name: 'openrouter',
-        baseURL:
-          process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
+        baseURL: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
         apiKey: process.env.OPENROUTER_API_KEY,
         headers: {
           'HTTP-Referer': 'https://github.com/civico-de/civireview',
@@ -112,28 +103,19 @@ function resolveLanguageModel(parsed: ParsedModelSpec): LanguageModel {
     case 'openai-compat': {
       const compat = createOpenAICompatible({
         name: 'openai-compat',
-        baseURL:
-          process.env.OPENAI_COMPAT_BASE_URL ?? 'http://127.0.0.1:11434/v1',
+        baseURL: process.env.OPENAI_COMPAT_BASE_URL ?? 'http://127.0.0.1:11434/v1',
         apiKey: process.env.OPENAI_COMPAT_API_KEY ?? 'local',
         supportsStructuredOutputs: true,
       });
       return compat.chatModel(parsed.modelId);
     }
     default:
-      throw new Error(
-        `AiSdkRunner does not support provider "${parsed.provider}"`,
-      );
+      throw new Error(`AiSdkRunner does not support provider "${parsed.provider}"`);
   }
 }
 
 export class AiSdkRunner implements StageRunner {
-  readonly providers = [
-    'anthropic',
-    'openai',
-    'google',
-    'openrouter',
-    'openai-compat',
-  ] as const;
+  readonly providers = ['anthropic', 'openai', 'google', 'openrouter', 'openai-compat'] as const;
 
   async run<T>(req: StageRequest<T>): Promise<StageResult<T>> {
     const start = Date.now();
@@ -151,15 +133,12 @@ export class AiSdkRunner implements StageRunner {
     }
 
     try {
-      const extraMcpTools: ToolSet = Object.assign(
-        {},
-        ...extraMcpHandles.map((h) => h.tools),
-      );
+      const extraMcpTools: ToolSet = Object.assign({}, ...extraMcpHandles.map((h) => h.tools));
       const tools: ToolSet = {
         ...repoTools,
         ...mcpHandle.tools,
         ...extraMcpTools,
-        ...(req.extraTools ?? {}),
+        ...req.extraTools,
       };
 
       const instructions: SystemModelMessage[] = [
@@ -194,14 +173,9 @@ export class AiSdkRunner implements StageRunner {
         });
       }
 
-      const multimodalUserMsg = buildMultimodalUserMessage(
-        req.userPrompt,
-        req.images,
-      );
+      const multimodalUserMsg = buildMultimodalUserMessage(req.userPrompt, req.images);
 
-      let providerOptions:
-        | Record<string, Record<string, string | { type: string }>>
-        | undefined;
+      let providerOptions: Record<string, Record<string, string | { type: string }>> | undefined;
       if (parsed.provider === 'anthropic') {
         // Top-level automatic cacheControl caches the growing multi-turn tool-result
         // history on every step ($0.10/M cache read instead of $2.00/M uncached input).
@@ -271,10 +245,10 @@ export class AiSdkRunner implements StageRunner {
         if (rawOutput === undefined) {
           const stepsCount = result.steps?.length ?? 0;
           const finishReason = result.finishReason ?? 'unknown';
-          const msg =
-            outputErr instanceof Error ? outputErr.message : String(outputErr);
+          const msg = outputErr instanceof Error ? outputErr.message : String(outputErr);
           throw new Error(
             `Stage "${req.stage}" (${parsed.raw}) produced no structured output after ${stepsCount}/${maxSteps} step(s) (finishReason=${finishReason}, textLen=${result.text?.length ?? 0}): ${msg}`,
+            { cause: outputErr },
           );
         }
       }
@@ -282,18 +256,11 @@ export class AiSdkRunner implements StageRunner {
       const validated = req.schema.parse(rawOutput);
       const rawInputTokens = result.usage.inputTokens ?? 0;
       const outputTokens = result.usage.outputTokens ?? 0;
-      const cachedInputTokens =
-        result.usage.inputTokenDetails?.cacheReadTokens ?? undefined;
-      const cacheWriteInputTokens =
-        result.usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
+      const cachedInputTokens = result.usage.inputTokenDetails?.cacheReadTokens ?? undefined;
+      const cacheWriteInputTokens = result.usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
       const uncachedInputTokens =
         result.usage.inputTokenDetails?.noCacheTokens ??
-        Math.max(
-          0,
-          rawInputTokens -
-            (cachedInputTokens ?? 0) -
-            (cacheWriteInputTokens ?? 0),
-        );
+        Math.max(0, rawInputTokens - (cachedInputTokens ?? 0) - (cacheWriteInputTokens ?? 0));
 
       const baseUsage: StageUsage = {
         inputTokens: uncachedInputTokens,

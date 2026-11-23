@@ -1,8 +1,5 @@
 import { mapFindingsToDiff, type MappedInlineFinding } from '../engine/line-mapper.ts';
-import {
-  buildShortSummary,
-  computeConfidenceScore,
-} from '../engine/pipeline.ts';
+import { buildShortSummary, computeConfidenceScore } from '../engine/pipeline.ts';
 import { formatUsd } from '../runners/pricing.ts';
 import type {
   ConfidenceScore,
@@ -149,9 +146,7 @@ export function formatReviewMarkdown(
   const inlineComments: GitHubReviewCommentInput[] = keptInline.map((m) => ({
     path: m.path,
     line: m.line,
-    ...(m.startLine !== undefined
-      ? { start_line: m.startLine, start_side: m.side }
-      : {}),
+    ...(m.startLine !== undefined ? { start_line: m.startLine, start_side: m.side } : {}),
     side: m.side,
     body: formatInlineCommentBody(m),
   }));
@@ -214,9 +209,7 @@ export function formatReviewMarkdown(
     });
     sections.push(`### Key Findings (${review.findings.length})\n${bullets.join('\n')}`);
   } else {
-    sections.push(
-      `### Findings\nNo verified high-signal issues found above the confidence gate.`,
-    );
+    sections.push(`### Findings\nNo verified high-signal issues found above the confidence gate.`);
   }
 
   // Empirical Verification Matrix (always visible, compact table)
@@ -235,8 +228,7 @@ export function formatReviewMarkdown(
 
   if (review.notVerified.length > 0) {
     matrixSection +=
-      `\n\n**Not Verified:**\n` +
-      review.notVerified.map((item) => `- ${item}`).join('\n');
+      `\n\n**Not Verified:**\n` + review.notVerified.map((item) => `- ${item}`).join('\n');
   }
   sections.push(matrixSection);
 
@@ -360,9 +352,7 @@ export function formatReviewMarkdown(
   }
 
   const triggerAttr =
-    options.triggerCommentId !== undefined
-      ? ` trigger_comment=${options.triggerCommentId}`
-      : '';
+    options.triggerCommentId !== undefined ? ` trigger_comment=${options.triggerCommentId}` : '';
   sections.push(
     `---\n` +
       `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +

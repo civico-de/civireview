@@ -136,10 +136,7 @@ export function parseMentionCommand(
   const escapedTrigger = escapeRegExp(trigger);
   // Require boundary before trigger (no word char or dot before @, preventing email matches)
   // and boundary after trigger (no word char or hyphen immediately after).
-  const triggerRe = new RegExp(
-    `(?:^|[\\s(\\[{"'])${escapedTrigger}(?=$|[\\s:,;.!?\\])}"'])`,
-    'i',
-  );
+  const triggerRe = new RegExp(`(?:^|[\\s(\\[{"'])${escapedTrigger}(?=$|[\\s:,;.!?\\])}"'])`, 'i');
 
   const match = triggerRe.exec(cleaned);
   if (!match) {
@@ -248,9 +245,7 @@ export function parseMentionCommand(
       const { value, nextIndex } = readFlagValue(token, i, '--page');
       const cleanedPage = value.trim().replace(/^\/+/, '');
       if (!cleanedPage.toLowerCase().startsWith('civicrm/')) {
-        throw new Error(
-          `Invalid --page route "${value}". Expected a "civicrm/..." route.`,
-        );
+        throw new Error(`Invalid --page route "${value}". Expected a "civicrm/..." route.`);
       }
       flags.pages = [...(flags.pages ?? []), cleanedPage];
       i = nextIndex;
@@ -284,9 +279,7 @@ export function parseMentionCommand(
       const { value, nextIndex } = readFlagValue(token, i, '--model');
       const parsed = ModelSpecSchema.safeParse(value);
       if (!parsed.success) {
-        throw new Error(
-          `Invalid model spec "${value}". Expected "<provider>:<modelId>"`,
-        );
+        throw new Error(`Invalid model spec "${value}". Expected "<provider>:<modelId>"`);
       }
       flags.model = parsed.data;
       i = nextIndex;
@@ -296,9 +289,7 @@ export function parseMentionCommand(
       const { value, nextIndex } = readFlagValue(token, i, '--verifier');
       const parsed = ModelSpecSchema.safeParse(value);
       if (!parsed.success) {
-        throw new Error(
-          `Invalid verifier model spec "${value}". Expected "<provider>:<modelId>"`,
-        );
+        throw new Error(`Invalid verifier model spec "${value}". Expected "<provider>:<modelId>"`);
       }
       flags.verifier = parsed.data;
       i = nextIndex;

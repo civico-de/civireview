@@ -23,11 +23,7 @@ function normalizePath(p: string): string {
   return p.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-function getHunkIndexForLine(
-  hunks: DiffHunk[],
-  line: number,
-  side: 'RIGHT' | 'LEFT',
-): number {
+function getHunkIndexForLine(hunks: DiffHunk[], line: number, side: 'RIGHT' | 'LEFT'): number {
   for (let i = 0; i < hunks.length; i++) {
     const h = hunks[i];
     if (!h) continue;
@@ -83,9 +79,7 @@ export function sanitizeSuggestionCode(
 
   let cleaned = rawCode.replace(/\r\n/g, '\n');
   // Strip accidental outer ```suggestion or ``` fences from LLM output
-  const fenceMatch = cleaned.match(
-    /^\s*```(?:suggestion|[A-Za-z0-9_-]*)\n([\s\S]*?)\n```\s*$/,
-  );
+  const fenceMatch = cleaned.match(/^\s*```(?:suggestion|[A-Za-z0-9_-]*)\n([\s\S]*?)\n```\s*$/);
   if (fenceMatch?.[1] !== undefined) {
     cleaned = fenceMatch[1];
   }
@@ -129,9 +123,7 @@ export function mapFindingsToDiff(
     }
 
     const side = finding.side;
-    const validSet = new Set(
-      side === 'RIGHT' ? file.validRightLines : file.validLeftLines,
-    );
+    const validSet = new Set(side === 'RIGHT' ? file.validRightLines : file.validLeftLines);
     if (validSet.size === 0) {
       summaryOnlyFindings.push(finding);
       continue;
@@ -152,13 +144,7 @@ export function mapFindingsToDiff(
     let collapsedRange = false;
 
     if (rawLo < rawHi) {
-      const loSnap = snapToValidLine(
-        rawLo,
-        validSet,
-        file.hunks,
-        side,
-        hiSnap.hunkIdx,
-      );
+      const loSnap = snapToValidLine(rawLo, validSet, file.hunks, side, hiSnap.hunkIdx);
       if (loSnap && loSnap.line < finalEndLine) {
         finalStartLine = loSnap.line;
         if (loSnap.offset !== 0) snapped = true;
@@ -177,8 +163,7 @@ export function mapFindingsToDiff(
       }
     }
 
-    const lineSpan =
-      finalStartLine !== undefined ? finalEndLine - finalStartLine + 1 : 1;
+    const lineSpan = finalStartLine !== undefined ? finalEndLine - finalStartLine + 1 : 1;
 
     const suggestionBlock = sanitizeSuggestionCode(finding.suggestionCode, {
       side,

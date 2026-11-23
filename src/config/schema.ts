@@ -14,9 +14,7 @@ export const MODEL_PROVIDERS = [
 export const ModelProviderSchema = z.enum(MODEL_PROVIDERS);
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
 
-const MODEL_SPEC_REGEX = new RegExp(
-  `^(${MODEL_PROVIDERS.join('|')}):([A-Za-z0-9._:/@-]+)$`,
-);
+const MODEL_SPEC_REGEX = new RegExp(`^(${MODEL_PROVIDERS.join('|')}):([A-Za-z0-9._:/@-]+)$`);
 
 export const ModelSpecSchema = z
   .string()
@@ -205,11 +203,7 @@ export const McpConfigSchema = z
 
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
-export const ReviewEventSchema = z.enum([
-  'COMMENT',
-  'REQUEST_CHANGES',
-  'APPROVE',
-]);
+export const ReviewEventSchema = z.enum(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 export type ReviewEvent = z.infer<typeof ReviewEventSchema>;
 
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -252,12 +246,7 @@ export type ReviewSettings = z.infer<typeof ReviewSettingsSchema>;
 export const WatchModeSchema = z.enum(['search', 'notifications']);
 export type WatchMode = z.infer<typeof WatchModeSchema>;
 
-export const AUTHOR_ASSOCIATIONS = [
-  'OWNER',
-  'MEMBER',
-  'COLLABORATOR',
-  'CONTRIBUTOR',
-] as const;
+export const AUTHOR_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR'] as const;
 export const AuthorAssociationSchema = z.enum(AUTHOR_ASSOCIATIONS);
 export type AuthorAssociation = z.infer<typeof AuthorAssociationSchema>;
 

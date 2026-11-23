@@ -4,19 +4,10 @@ import { ModelSpecSchema } from '../config/schema.ts';
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low']);
 export type Severity = z.infer<typeof SeveritySchema>;
 
-export const EvidenceLevelSchema = z.enum([
-  'PROVEN',
-  'CONFIRMED',
-  'NEEDS_QUESTION',
-]);
+export const EvidenceLevelSchema = z.enum(['PROVEN', 'CONFIRMED', 'NEEDS_QUESTION']);
 export type EvidenceLevel = z.infer<typeof EvidenceLevelSchema>;
 
-export const SpecialistLensSchema = z.enum([
-  'correctness',
-  'security',
-  'tests',
-  'ui',
-]);
+export const SpecialistLensSchema = z.enum(['correctness', 'security', 'tests', 'ui']);
 export type SpecialistLens = z.infer<typeof SpecialistLensSchema>;
 
 export const StandardVerdictSchema = z.object({
@@ -84,12 +75,7 @@ export const SpecialistOutputSchema = z.object({
 });
 export type SpecialistOutput = z.infer<typeof SpecialistOutputSchema>;
 
-export const FindingVerdictSchema = z.enum([
-  'PROVEN',
-  'CONFIRMED',
-  'NEEDS_QUESTION',
-  'REJECTED',
-]);
+export const FindingVerdictSchema = z.enum(['PROVEN', 'CONFIRMED', 'NEEDS_QUESTION', 'REJECTED']);
 export type FindingVerdict = z.infer<typeof FindingVerdictSchema>;
 
 export const VerifiedFindingSchema = CandidateFindingSchema.extend({
@@ -109,13 +95,7 @@ export const VerifierOutputSchema = z.object({
 });
 export type VerifierOutput = z.infer<typeof VerifierOutputSchema>;
 
-export const VerificationStatusSchema = z.enum([
-  'PASS',
-  'FAIL',
-  'WARN',
-  'SKIPPED',
-  'NOT_VERIFIED',
-]);
+export const VerificationStatusSchema = z.enum(['PASS', 'FAIL', 'WARN', 'SKIPPED', 'NOT_VERIFIED']);
 export type VerificationStatus = z.infer<typeof VerificationStatusSchema>;
 
 export const VerificationMatrixEntrySchema = z.object({
@@ -123,9 +103,7 @@ export const VerificationMatrixEntrySchema = z.object({
   status: VerificationStatusSchema,
   detail: z.string(),
 });
-export type VerificationMatrixEntry = z.infer<
-  typeof VerificationMatrixEntrySchema
->;
+export type VerificationMatrixEntry = z.infer<typeof VerificationMatrixEntrySchema>;
 
 export const StageTokenUsageSchema = z.object({
   stage: z.string().min(1),
@@ -150,11 +128,7 @@ export const TokenUsageTotalsSchema = z.object({
 });
 export type TokenUsageTotals = z.infer<typeof TokenUsageTotalsSchema>;
 
-export const FinalVerdictSchema = z.enum([
-  'READY',
-  'NEEDS_CHANGES',
-  'QUESTIONS_ONLY',
-]);
+export const FinalVerdictSchema = z.enum(['READY', 'NEEDS_CHANGES', 'QUESTIONS_ONLY']);
 export type FinalVerdict = z.infer<typeof FinalVerdictSchema>;
 
 export const ConfidenceScoreSchema = z.union([

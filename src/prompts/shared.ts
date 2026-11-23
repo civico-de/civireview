@@ -65,12 +65,9 @@ export function buildSharedEvidencePrefix(
   if (bundle.linkedIssues.length > 0) {
     const issueText = bundle.linkedIssues
       .map((iss) => {
-        const sourceTag =
-          iss.source === 'gitlab' ? '[GitLab]' : '[GitHub]';
+        const sourceTag = iss.source === 'gitlab' ? '[GitLab]' : '[GitHub]';
         const labelStr =
-          iss.labels && iss.labels.length > 0
-            ? ` · labels: ${iss.labels.join(', ')}`
-            : '';
+          iss.labels && iss.labels.length > 0 ? ` · labels: ${iss.labels.join(', ')}` : '';
         const header = `${sourceTag} Issue ${iss.repo}#${iss.number} [${iss.state}]${labelStr}: ${iss.title}\nURL: ${iss.url}\n\n${iss.body}`;
         if (!iss.comments || iss.comments.length === 0) {
           return header;
@@ -89,8 +86,7 @@ export function buildSharedEvidencePrefix(
     const commentText = bundle.comments
       .slice(-25)
       .map(
-        (c) =>
-          `[${c.kind}] @${c.author}${c.path ? ` (${c.path}:${c.line ?? ''})` : ''}: ${c.body}`,
+        (c) => `[${c.kind}] @${c.author}${c.path ? ` (${c.path}:${c.line ?? ''})` : ''}: ${c.body}`,
       )
       .join('\n\n');
     sections.push(wrapUntrustedData('pr_comments', commentText));
@@ -161,7 +157,9 @@ ${bundle.notVerified.map((n) => `- ${n}`).join('\n') || '- none'}`);
     )
     .join('\n');
 
-  sections.push(`# Changed Files (${bundle.diffFiles.length}, dropped noise: ${bundle.droppedNoiseFiles.length}, truncated: ${bundle.diffTruncated})\n${fileSummary}`);
+  sections.push(
+    `# Changed Files (${bundle.diffFiles.length}, dropped noise: ${bundle.droppedNoiseFiles.length}, truncated: ${bundle.diffTruncated})\n${fileSummary}`,
+  );
   sections.push(wrapUntrustedData('unified_diff', filteredPatch));
 
   return sections.join('\n\n');

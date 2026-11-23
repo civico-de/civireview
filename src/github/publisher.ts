@@ -3,10 +3,7 @@ import type { ReviewEvent } from '../config/schema.ts';
 import type { FinalReview } from '../engine/schemas.ts';
 import { resolveGitHubToken } from '../evidence/github.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
-import {
-  formatReviewMarkdown,
-  type GitHubReviewCommentInput,
-} from './formatter.ts';
+import { formatReviewMarkdown, type GitHubReviewCommentInput } from './formatter.ts';
 
 export interface PublisherOctokit {
   rest: {
@@ -129,12 +126,7 @@ async function addCompletionReaction(
   verdict: FinalReview['verdict'],
 ): Promise<void> {
   if (!octokit.rest.reactions) return;
-  const content =
-    verdict === 'READY'
-      ? 'rocket'
-      : verdict === 'NEEDS_CHANGES'
-        ? 'confused'
-        : '+1';
+  const content = verdict === 'READY' ? 'rocket' : verdict === 'NEEDS_CHANGES' ? 'confused' : '+1';
 
   try {
     await octokit.rest.reactions.createForIssueComment({
@@ -159,10 +151,7 @@ async function addCompletionReaction(
   }
 }
 
-async function getOctokit(
-  injected?: PublisherOctokit,
-  token?: string,
-): Promise<PublisherOctokit> {
+async function getOctokit(injected?: PublisherOctokit, token?: string): Promise<PublisherOctokit> {
   if (injected) return injected;
   const resolvedToken = await resolveGitHubToken(token);
   if (!resolvedToken) {
@@ -177,9 +166,7 @@ async function getOctokit(
  * Formats and posts a complete PR review (summary + batched inline comments) in a
  * single `pulls.createReview` API call, with automatic HTTP 422 fallback.
  */
-export async function publishReview(
-  options: PublishReviewOptions,
-): Promise<PublishReviewResult> {
+export async function publishReview(options: PublishReviewOptions): Promise<PublishReviewResult> {
   const { owner, repo, prNumber, review, bundle, dryRun, force, commentId } = options;
 
   const formatted = formatReviewMarkdown(review, bundle, {
@@ -198,11 +185,7 @@ export async function publishReview(
   }
 
   // Prevent duplicate reviews for the exact same head SHA unless `--full` / `force: true` is requested.
-  if (
-    !force &&
-    bundle.pr.lastReviewedHeadSha &&
-    bundle.pr.lastReviewedHeadSha === review.headSha
-  ) {
+  if (!force && bundle.pr.lastReviewedHeadSha && bundle.pr.lastReviewedHeadSha === review.headSha) {
     return {
       posted: false,
       skippedDuplicate: true,
@@ -214,8 +197,7 @@ export async function publishReview(
 
   const octokit = await getOctokit(options.octokit, options.token);
   // Closed/merged PRs only accept COMMENT reviews (GitHub returns 422 for REQUEST_CHANGES/APPROVE)
-  const isClosedOrMerged =
-    bundle.pr.state === 'closed' || Boolean(bundle.pr.merged);
+  const isClosedOrMerged = bundle.pr.state === 'closed' || Boolean(bundle.pr.merged);
   const event = isClosedOrMerged
     ? 'COMMENT'
     : resolveReviewEvent(review.verdict, options.reviewEvent);
@@ -256,13 +238,7 @@ export async function publishReview(
   }
 
   if (commentId !== undefined) {
-    await addCompletionReaction(
-      octokit,
-      owner,
-      repo,
-      commentId,
-      review.verdict,
-    );
+    await addCompletionReaction(octokit, owner, repo, commentId, review.verdict);
   }
 
   return {

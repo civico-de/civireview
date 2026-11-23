@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  estimateStageCostUsd,
-  formatUsd,
-  lookupModelPricing,
-} from '../src/runners/pricing.ts';
+import { estimateStageCostUsd, formatUsd, lookupModelPricing } from '../src/runners/pricing.ts';
 
 describe('model pricing & cost estimation', () => {
   test('computes Anthropic Claude 5.5 (Sonnet 5.5, Opus 5.5, Haiku 5.5 tiered, Fable 5.2) costs accurately', () => {

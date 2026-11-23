@@ -7,10 +7,7 @@ import {
 } from './shared.ts';
 import type { StagePromptPair } from './triage.ts';
 
-export function buildSecurityPrompt(
-  bundle: EvidenceBundle,
-  triage: TriageOutput,
-): StagePromptPair {
+export function buildSecurityPrompt(bundle: EvidenceBundle, triage: TriageOutput): StagePromptPair {
   const systemPrompt = `You are the CiviCRM Security specialist reviewer (lens: 'security').
 
 ${ANTI_INJECTION_RULES}

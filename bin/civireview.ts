@@ -21,10 +21,7 @@ import { EvidenceBundleSchema } from '../src/evidence/types.ts';
 import { parseMentionCommand } from '../src/github/commands.ts';
 import { formatReviewMarkdown } from '../src/github/formatter.ts';
 import { publishReview, publishThreadReply } from '../src/github/publisher.ts';
-import {
-  buildThreadContextFromBundle,
-  formatThreadReplyBody,
-} from '../src/github/thread-reply.ts';
+import { buildThreadContextFromBundle, formatThreadReplyBody } from '../src/github/thread-reply.ts';
 import { runWatcher } from '../src/github/watcher.ts';
 
 const HELP_TEXT = `civireview — CiviCRM-native multi-model AI PR reviewer
@@ -116,9 +113,7 @@ function parsePrTarget(
   target: string,
   repoFlag?: string,
 ): { owner: string; repo: string; prNumber: number } {
-  const urlMatch = target.match(
-    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i,
-  );
+  const urlMatch = target.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
   if (urlMatch?.[1] && urlMatch[2] && urlMatch[3]) {
     return {
       owner: urlMatch[1],
@@ -172,9 +167,7 @@ async function resolveGitLocalRefs(
     const verified = await runGit(['rev-parse', '--verify', ref]);
     if (!verified) continue;
     const mergeBase =
-      ref === 'HEAD~1'
-        ? verified
-        : (await runGit(['merge-base', verified, headSha])) ?? verified;
+      ref === 'HEAD~1' ? verified : ((await runGit(['merge-base', verified, headSha])) ?? verified);
     return {
       baseSha: mergeBase,
       headSha,
@@ -182,9 +175,7 @@ async function resolveGitLocalRefs(
     };
   }
 
-  throw new Error(
-    'Could not resolve a base git ref. Pass --base <ref> explicitly.',
-  );
+  throw new Error('Could not resolve a base git ref. Pass --base <ref> explicitly.');
 }
 
 function buildConfigOverrides(opts: {
@@ -225,9 +216,7 @@ function buildConfigOverrides(opts: {
       !process.env.ANTHROPIC_API_KEY &&
       /^(?:claude-cli|codex-cli|opencode-cli):/.test(spec)
     ) {
-      models.triage = spec.startsWith('claude-cli:')
-        ? 'claude-cli:haiku'
-        : spec;
+      models.triage = spec.startsWith('claude-cli:') ? 'claude-cli:haiku' : spec;
     }
   }
   if (opts.triage !== undefined) {
@@ -261,23 +250,31 @@ function buildConfigOverrides(opts: {
           }
         : undefined,
     checks: Object.keys(checks).length > 0 ? checks : undefined,
-    browser:
-      opts.pages && opts.pages.length > 0 ? { pages: opts.pages } : undefined,
+    browser: opts.pages && opts.pages.length > 0 ? { pages: opts.pages } : undefined,
     review: Object.keys(review).length > 0 ? review : undefined,
   };
 }
 
-function parseBoolPairFlag(
-  argv: string[],
-  posFlag: string,
-  negFlag: string,
-): boolean | undefined {
+function parseBoolPairFlag(argv: string[], posFlag: string, negFlag: string): boolean | undefined {
   let result: boolean | undefined;
   for (const arg of argv) {
     if (arg === posFlag) result = true;
     if (arg === negFlag) result = false;
   }
   return result;
+}
+
+function parseOptionalPositiveNumber(
+  raw: string | undefined,
+  flagName: string,
+  integer = false,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0 || (integer && !Number.isInteger(num))) {
+    throw new Error(`Invalid ${flagName} value "${raw}"`);
+  }
+  return num;
 }
 
 async function main(): Promise<void> {
@@ -297,11 +294,7 @@ async function main(): Promise<void> {
   const abFlag = parseBoolPairFlag(subArgv, '--ab', '--no-ab');
   const browserFlag = parseBoolPairFlag(subArgv, '--browser', '--no-browser');
   const sanitizedSubArgv = subArgv.filter(
-    (a) =>
-      a !== '--no-ab' &&
-      a !== '--ab' &&
-      a !== '--no-browser' &&
-      a !== '--browser',
+    (a) => a !== '--no-ab' && a !== '--ab' && a !== '--no-browser' && a !== '--browser',
   );
 
   const { values, positionals } = parseArgs({
@@ -374,9 +367,7 @@ async function main(): Promise<void> {
 
   if (subcommand === 'evidence') {
     if (!values.repo || !values.pr || !values.out) {
-      throw new Error(
-        'civireview evidence requires --repo <owner/name> --pr <num> --out <dir>',
-      );
+      throw new Error('civireview evidence requires --repo <owner/name> --pr <num> --out <dir>');
     }
     const { owner, repo } = splitOwnerRepo(values.repo);
     const prNumber = Number(values.pr);
@@ -430,9 +421,7 @@ async function main(): Promise<void> {
 
   if (subcommand === 'review') {
     if (!values.evidence || !values.out) {
-      throw new Error(
-        'civireview review requires --evidence <dir> --out <review.json>',
-      );
+      throw new Error('civireview review requires --evidence <dir> --out <review.json>');
     }
     const evidenceDir = resolve(values.evidence);
     const bundle = EvidenceBundleSchema.parse(
@@ -507,11 +496,7 @@ async function main(): Promise<void> {
       }),
     );
 
-    const threadContext = buildThreadContextFromBundle(
-      bundle,
-      commentId,
-      values.question ?? '',
-    );
+    const threadContext = buildThreadContextFromBundle(bundle, commentId, values.question ?? '');
 
     const replyOutput = await runThreadReply({
       bundle,
@@ -528,11 +513,7 @@ async function main(): Promise<void> {
     if (values.out) {
       const outPath = resolve(values.out);
       mkdirSync(dirname(outPath), { recursive: true });
-      writeFileSync(
-        outPath,
-        JSON.stringify({ ...replyOutput, body: replyBody }, null, 2),
-        'utf8',
-      );
+      writeFileSync(outPath, JSON.stringify({ ...replyOutput, body: replyBody }, null, 2), 'utf8');
       console.error(`Reply written to ${outPath}`);
     }
 
@@ -567,9 +548,7 @@ async function main(): Promise<void> {
 
     if (values.reply) {
       if (!values['comment-id']) {
-        throw new Error(
-          'civireview publish --reply requires --comment-id <id>',
-        );
+        throw new Error('civireview publish --reply requires --comment-id <id>');
       }
       const commentId = Number(values['comment-id']);
       const rawReply = JSON.parse(readFileSync(resolve(values.reply), 'utf8'));
@@ -599,21 +578,18 @@ async function main(): Promise<void> {
     }
 
     if (!values.review) {
-      throw new Error(
-        'civireview publish requires --review <review.json> --evidence <dir>',
-      );
+      throw new Error('civireview publish requires --review <review.json> --evidence <dir>');
     }
     const review = FinalReviewSchema.parse(
       JSON.parse(readFileSync(resolve(values.review), 'utf8')),
     );
     const { owner, repo } = splitOwnerRepo(review.repo);
-    const config = loadConfig(cwd, {
-      ...(values.preset ? { preset: PresetNameSchema.parse(values.preset) } : {}),
-    });
+    const config = loadConfig(
+      cwd,
+      values.preset ? { preset: PresetNameSchema.parse(values.preset) } : {},
+    );
 
-    const commentId = values['comment-id']
-      ? Number(values['comment-id'])
-      : undefined;
+    const commentId = values['comment-id'] ? Number(values['comment-id']) : undefined;
 
     const result = await publishReview({
       owner,
@@ -631,9 +607,7 @@ async function main(): Promise<void> {
 
     if (values['dry-run']) {
       console.log(result.summaryBody);
-      console.error(
-        `[dry-run] Would post ${result.inlineComments.length} inline comment(s).`,
-      );
+      console.error(`[dry-run] Would post ${result.inlineComments.length} inline comment(s).`);
     } else if (result.skippedDuplicate) {
       console.error(
         `Skipped duplicate review for ${review.repo}#${review.prNumber} (${review.headSha.slice(0, 7)} already reviewed; pass --full to force).`,
@@ -674,21 +648,18 @@ async function main(): Promise<void> {
     );
 
     const outDir = values.out ? resolve(values.out) : undefined;
-    const tempScreenshotDir = outDir
-      ? undefined
-      : mkdtempSync(join(tmpdir(), 'civireview-pr-'));
+    const tempScreenshotDir = outDir ? undefined : mkdtempSync(join(tmpdir(), 'civireview-pr-'));
     const effectiveOutDir = outDir ?? tempScreenshotDir;
 
-    const { bundle, filteredPatch, urls, composeFiles, cleanup } =
-      await collectEvidence({
-        repoRoot: cwd,
-        config,
-        outputDir: effectiveOutDir,
-        owner,
-        repo,
-        prNumber,
-        incremental: !values.full,
-      });
+    const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidence({
+      repoRoot: cwd,
+      config,
+      outputDir: effectiveOutDir,
+      owner,
+      repo,
+      prNumber,
+      incremental: !values.full,
+    });
 
     try {
       const dryRun = values['dry-run'] || !config.review.autoPost;
@@ -732,16 +703,8 @@ async function main(): Promise<void> {
 
       if (outDir) {
         mkdirSync(outDir, { recursive: true });
-        writeFileSync(
-          join(outDir, 'review.json'),
-          JSON.stringify(review, null, 2),
-          'utf8',
-        );
-        writeFileSync(
-          join(outDir, 'review.md'),
-          published.summaryBody,
-          'utf8',
-        );
+        writeFileSync(join(outDir, 'review.json'), JSON.stringify(review, null, 2), 'utf8');
+        writeFileSync(join(outDir, 'review.md'), published.summaryBody, 'utf8');
       }
 
       if (dryRun) {
@@ -785,19 +748,16 @@ async function main(): Promise<void> {
 
     const refs = await resolveGitLocalRefs(cwd, values.base);
     const outDir = values.out ? resolve(values.out) : undefined;
-    const tempOutDir = outDir
-      ? undefined
-      : mkdtempSync(join(tmpdir(), 'civireview-local-'));
+    const tempOutDir = outDir ? undefined : mkdtempSync(join(tmpdir(), 'civireview-local-'));
 
-    const { bundle, filteredPatch, urls, composeFiles, cleanup } =
-      await collectEvidence({
-        repoRoot: cwd,
-        config,
-        outputDir: outDir ?? tempOutDir,
-        baseSha: refs.baseSha,
-        headSha: refs.headSha,
-        baseBranch: refs.baseBranch,
-      });
+    const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidence({
+      repoRoot: cwd,
+      config,
+      outputDir: outDir ?? tempOutDir,
+      baseSha: refs.baseSha,
+      headSha: refs.headSha,
+      baseBranch: refs.baseBranch,
+    });
 
     try {
       const review = await runReviewPipeline({
@@ -854,46 +814,24 @@ async function main(): Promise<void> {
       }),
     );
 
-    const mode = WatchModeSchema.parse(
-      values.mode ?? config.watch?.mode ?? 'search',
-    );
+    const mode = WatchModeSchema.parse(values.mode ?? config.watch?.mode ?? 'search');
     const repos = (values.repos ?? [])
       .flatMap((r) => r.split(','))
       .map((s) => s.trim())
       .filter(Boolean);
-    const effectiveRepos =
-      repos.length > 0 ? repos : (config.watch?.repos ?? []);
+    const effectiveRepos = repos.length > 0 ? repos : (config.watch?.repos ?? []);
 
     const allow = parseCsvList(values.allow) ?? [];
-    const effectiveAllow =
-      allow.length > 0 ? allow : (config.watch?.allowedAuthors ?? []);
+    const effectiveAllow = allow.length > 0 ? allow : (config.watch?.allowedAuthors ?? []);
 
     const allowOrgs = parseCsvList(values['allow-orgs']) ?? [];
-    const effectiveAllowOrgs =
-      allowOrgs.length > 0 ? allowOrgs : (config.watch?.allowedOrgs ?? []);
+    const effectiveAllowOrgs = allowOrgs.length > 0 ? allowOrgs : (config.watch?.allowedOrgs ?? []);
 
     const rawAssoc = parseCsvList(values['allow-associations']) ?? [];
     const effectiveAllowAssociations: AuthorAssociation[] =
       rawAssoc.length > 0
         ? rawAssoc.map((a) => AuthorAssociationSchema.parse(a.toUpperCase()))
         : (config.watch?.allowedAssociations ?? []);
-
-    const parseOptionalPositiveNumber = (
-      raw: string | undefined,
-      flagName: string,
-      integer = false,
-    ): number | undefined => {
-      if (raw === undefined) return undefined;
-      const num = Number(raw);
-      if (
-        !Number.isFinite(num) ||
-        num <= 0 ||
-        (integer && !Number.isInteger(num))
-      ) {
-        throw new Error(`Invalid ${flagName} value "${raw}"`);
-      }
-      return num;
-    };
 
     const maxReviewsPerHour =
       parseOptionalPositiveNumber(values['max-per-hour'], '--max-per-hour', true) ??
@@ -902,17 +840,14 @@ async function main(): Promise<void> {
       parseOptionalPositiveNumber(values['max-daily-usd'], '--max-daily-usd', false) ??
       config.watch?.maxDailyUsd;
     const maxCommentAgeMinutes =
-      parseOptionalPositiveNumber(
-        values['max-age-minutes'],
-        '--max-age-minutes',
-        true,
-      ) ?? config.watch?.maxCommentAgeMinutes;
+      parseOptionalPositiveNumber(values['max-age-minutes'], '--max-age-minutes', true) ??
+      config.watch?.maxCommentAgeMinutes;
 
     const intervalSec = values.interval
       ? Number(values.interval)
       : (config.watch?.intervalSec ?? 60);
 
-    const includeClosedPrs = values['open-only'] ? false : true;
+    const includeClosedPrs = !values['open-only'];
     const checkOnly = Boolean(values['check-only']);
 
     const passResult = await runWatcher({
@@ -964,14 +899,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  throw new Error(
-    `Unknown subcommand "${subcommand}". Run "civireview --help" for usage.`,
-  );
+  throw new Error(`Unknown subcommand "${subcommand}". Run "civireview --help" for usage.`);
 }
 
 main().catch((err) => {
-  console.error(
-    `Error: ${err instanceof Error ? err.message : String(err)}`,
-  );
+  console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

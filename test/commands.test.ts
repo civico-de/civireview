@@ -48,17 +48,15 @@ describe('parseMentionCommand', () => {
   });
 
   test('rejects invalid preset and invalid model specs', () => {
-    expect(() =>
-      parseMentionCommand('@civireview --preset nonexistent'),
-    ).toThrow(/Invalid preset/);
+    expect(() => parseMentionCommand('@civireview --preset nonexistent')).toThrow(/Invalid preset/);
 
-    expect(() =>
-      parseMentionCommand('@civireview --model badprovider:foo'),
-    ).toThrow(/Invalid model spec/);
+    expect(() => parseMentionCommand('@civireview --model badprovider:foo')).toThrow(
+      /Invalid model spec/,
+    );
 
-    expect(() =>
-      parseMentionCommand('@civireview --verifier missing-colon'),
-    ).toThrow(/Invalid verifier model spec/);
+    expect(() => parseMentionCommand('@civireview --verifier missing-colon')).toThrow(
+      /Invalid verifier model spec/,
+    );
   });
 
   test('parses --include, --exclude, repeatable --page, --no-browser, --interactive-browser, and --live-prove', () => {
@@ -84,14 +82,10 @@ describe('parseMentionCommand', () => {
     expect(parsed.flags.effort).toBe('high');
     expect(parsed.flags.full).toBe(true);
 
-    expect(() =>
-      parseMentionCommand('@civireview --effort max'),
-    ).toThrow(/Allowed in comments/);
-    expect(() =>
-      parseMentionCommand('@civireview --effort xhigh'),
-    ).toThrow(/Allowed in comments/);
-    expect(() =>
-      parseMentionCommand('@civireview --effort turbo'),
-    ).toThrow(/Invalid PR comment effort/);
+    expect(() => parseMentionCommand('@civireview --effort max')).toThrow(/Allowed in comments/);
+    expect(() => parseMentionCommand('@civireview --effort xhigh')).toThrow(/Allowed in comments/);
+    expect(() => parseMentionCommand('@civireview --effort turbo')).toThrow(
+      /Invalid PR comment effort/,
+    );
   });
 });

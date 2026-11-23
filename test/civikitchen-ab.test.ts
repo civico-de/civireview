@@ -84,7 +84,8 @@ describe('civikitchen-ab Phase 1 JSON & surface support', () => {
       root: repoDir,
       recommendedImage: 'standalone-master',
     };
-    const diffFiles = parseUnifiedDiff(`diff --git a/CRM/Contact/BAO/Contact.php b/CRM/Contact/BAO/Contact.php
+    const diffFiles =
+      parseUnifiedDiff(`diff --git a/CRM/Contact/BAO/Contact.php b/CRM/Contact/BAO/Contact.php
 --- a/CRM/Contact/BAO/Contact.php
 +++ b/CRM/Contact/BAO/Contact.php
 @@ -1,2 +1,3 @@
@@ -169,9 +170,7 @@ diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Conta
     expect(outcome.abReport.executed).toBe(true);
     expect(outcome.abReport.checks[0]?.fixed).toEqual(['ContactTest::testFix']);
     expect(outcome.abReport.surfaceDiff.liveSurfaceDiff?.risk_flags).toHaveLength(1);
-    expect(
-      outcome.abReport.surfaceDiff.changes.some((c) => c.path === 'civicrm/foo'),
-    ).toBe(true);
+    expect(outcome.abReport.surfaceDiff.changes.some((c) => c.path === 'civicrm/foo')).toBe(true);
   });
 
   test('falls back cleanly to stdout parsing when older ck ab rejects --json/--surface', async () => {
@@ -181,7 +180,8 @@ diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Conta
       root: repoDir,
       recommendedImage: 'standalone-master',
     };
-    const diffFiles = parseUnifiedDiff(`diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Contact/ContactTest.php
+    const diffFiles =
+      parseUnifiedDiff(`diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Contact/ContactTest.php
 --- a/tests/phpunit/CRM/Contact/ContactTest.php
 +++ b/tests/phpunit/CRM/Contact/ContactTest.php
 @@ -1,2 +1,3 @@
@@ -230,9 +230,7 @@ diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Conta
     });
 
     expect(abCalls).toBe(2);
-    expect(outcome.abReport.checks[0]?.fixed).toEqual([
-      'ContactTest::testLegacyFallback',
-    ]);
+    expect(outcome.abReport.checks[0]?.fixed).toEqual(['ContactTest::testLegacyFallback']);
   });
 
   test('extension proof-of-fix mounts B test file into A, computes ck taint A-vs-B delta, and runs Standalone browser A/B + screenshot copy', async () => {
@@ -246,7 +244,8 @@ diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Conta
       recommendedImage: 'standalone',
     };
 
-    const diffFiles = parseUnifiedDiff(`diff --git a/tests/phpunit/CRM/MyExt/FixTest.php b/tests/phpunit/CRM/MyExt/FixTest.php
+    const diffFiles =
+      parseUnifiedDiff(`diff --git a/tests/phpunit/CRM/MyExt/FixTest.php b/tests/phpunit/CRM/MyExt/FixTest.php
 new file mode 100644
 --- /dev/null
 +++ b/tests/phpunit/CRM/MyExt/FixTest.php
@@ -332,7 +331,11 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
               },
             }),
           );
-          return { exitCode: 0, stdout: 'A_URL=http://127.0.0.1:41001\nB_URL=http://127.0.0.1:41002\n', stderr: '' };
+          return {
+            exitCode: 0,
+            stdout: 'A_URL=http://127.0.0.1:41001\nB_URL=http://127.0.0.1:41002\n',
+            stderr: '',
+          };
         }
 
         writeFileSync(
@@ -477,10 +480,7 @@ diff --git a/tests/phpunit/CRM/Contact/BAO/QueryTest.php b/tests/phpunit/CRM/Con
         mkdirSync(join(target, 'tests/phpunit/CRM/Contact/BAO'), {
           recursive: true,
         });
-        writeFileSync(
-          join(target, 'tests/phpunit/CRM/Contact/BAO/QueryTest.php'),
-          '<?php\n',
-        );
+        writeFileSync(join(target, 'tests/phpunit/CRM/Contact/BAO/QueryTest.php'), '<?php\n');
         return { exitCode: 0, stdout: '', stderr: '' };
       }
       if (args[0] === 'ck' && args[1] === 'ab') {
@@ -692,7 +692,10 @@ diff --git a/tests/phpunit/CRM/MyExt/FooTest.php b/tests/phpunit/CRM/MyExt/FooTe
     ]);
 
     const multi = buildMultiTargetTestCommand('ckcoretest', [
-      { path: 'ext/afform/mock/tests/phpunit/A.php', filterArgs: ['--filter', '/(^|::)(testA)(\\s|$)/'] },
+      {
+        path: 'ext/afform/mock/tests/phpunit/A.php',
+        filterArgs: ['--filter', '/(^|::)(testA)(\\s|$)/'],
+      },
       { path: 'ext/civi_contribute/tests/phpunit/B.php', filterArgs: [] },
     ]);
     expect(multi[0]).toBe('sh');
@@ -712,7 +715,8 @@ diff --git a/tests/phpunit/CRM/MyExt/FooTest.php b/tests/phpunit/CRM/MyExt/FooTe
       root: repoDir,
       recommendedImage: 'standalone-master',
     };
-    const diffFiles = parseUnifiedDiff(`diff --git a/CRM/Contact/BAO/Query.php b/CRM/Contact/BAO/Query.php
+    const diffFiles =
+      parseUnifiedDiff(`diff --git a/CRM/Contact/BAO/Query.php b/CRM/Contact/BAO/Query.php
 --- a/CRM/Contact/BAO/Query.php
 +++ b/CRM/Contact/BAO/Query.php
 @@ -1,2 +1,2 @@
@@ -788,9 +792,15 @@ diff --git a/tests/phpunit/CRM/Contact/BAO/QueryTest.php b/tests/phpunit/CRM/Con
     });
 
     const proofArgs = abCalls[0]!;
-    expect(proofArgs.some((a) => a.endsWith(':/var/www/html/core/CRM/Contact/BAO/Query.php:ro'))).toBe(true);
+    expect(
+      proofArgs.some((a) => a.endsWith(':/var/www/html/core/CRM/Contact/BAO/Query.php:ro')),
+    ).toBe(true);
     expect(proofArgs.some((a) => a.endsWith(':/var/www/html/core/CRM:ro'))).toBe(false);
-    expect(proofArgs.some((a) => a.endsWith(':/var/www/html/core/tests/phpunit/CRM/Contact/BAO/QueryTest.php:ro'))).toBe(true);
+    expect(
+      proofArgs.some((a) =>
+        a.endsWith(':/var/www/html/core/tests/phpunit/CRM/Contact/BAO/QueryTest.php:ro'),
+      ),
+    ).toBe(true);
 
     const proofCheck = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
     expect(proofCheck?.status).toBe('ERROR');
@@ -884,8 +894,6 @@ diff --git a/tests/phpunit/api/v3/ReportTemplateTest.php b/tests/phpunit/api/v3/
     const proofArgs = abCalls[0]!;
     const filterIdx = proofArgs.indexOf('--filter');
     expect(filterIdx).toBeGreaterThan(-1);
-    expect(proofArgs[filterIdx + 1]).toBe(
-      '/(^|::)(testLybuntReportWithFYData)(\\s|$)/',
-    );
+    expect(proofArgs[filterIdx + 1]).toBe('/(^|::)(testLybuntReportWithFYData)(\\s|$)/');
   });
 });

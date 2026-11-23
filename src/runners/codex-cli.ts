@@ -1,21 +1,9 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { z } from 'zod';
 import { extractJsonFromCliText, toCliJsonSchema } from './claude-cli.ts';
-import {
-  parseModelSpec,
-  type StageRequest,
-  type StageResult,
-  type StageRunner,
-} from './types.ts';
+import { parseModelSpec, type StageRequest, type StageResult, type StageRunner } from './types.ts';
 
 function makeOpenAiStrictSchema(node: unknown): unknown {
   if (Array.isArray(node)) {
@@ -116,11 +104,9 @@ export class CodexCliRunner implements StageRunner {
     const schemaPath = join(tmpDir, 'output-schema.json');
     const outPath = join(tmpDir, 'last-message.json');
 
-    writeFileSync(
-      schemaPath,
-      JSON.stringify(toCodexStrictJsonSchema(req.schema), null, 2),
-      { mode: 0o600 },
-    );
+    writeFileSync(schemaPath, JSON.stringify(toCodexStrictJsonSchema(req.schema), null, 2), {
+      mode: 0o600,
+    });
 
     const fullPrompt = [
       req.systemPrompt,
@@ -139,15 +125,12 @@ export class CodexCliRunner implements StageRunner {
       }
     }
 
-    const codexEffort =
-      req.effort === 'max' ? 'xhigh' : req.effort;
+    const codexEffort = req.effort === 'max' ? 'xhigh' : req.effort;
     const args = [
       codexBin,
       'exec',
       ...(parsed.modelId !== 'default' ? ['--model', parsed.modelId] : []),
-      ...(codexEffort
-        ? ['-c', `model_reasoning_effort=${JSON.stringify(codexEffort)}`]
-        : []),
+      ...(codexEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(codexEffort)}`] : []),
       '--sandbox',
       'read-only',
       '--output-schema',
@@ -156,10 +139,7 @@ export class CodexCliRunner implements StageRunner {
       outPath,
       ...imageFlags,
       ...(req.mcpScope?.enabled && req.mcpScope.url
-        ? [
-            '-c',
-            `mcp_servers.civicrm-knowledge.url=${JSON.stringify(req.mcpScope.url)}`,
-          ]
+        ? ['-c', `mcp_servers.civicrm-knowledge.url=${JSON.stringify(req.mcpScope.url)}`]
         : []),
       '-',
     ];

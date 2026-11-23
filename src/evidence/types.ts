@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-export const RepoKindSchema = z.enum([
-  'civicrm-core',
-  'civicrm-extension',
-  'generic',
-]);
+export const RepoKindSchema = z.enum(['civicrm-core', 'civicrm-extension', 'generic']);
 export type RepoKind = z.infer<typeof RepoKindSchema>;
 
 export const FileSurfaceFlagsSchema = z.object({
@@ -32,12 +28,7 @@ export const DiffHunkSchema = z.object({
 });
 export type DiffHunk = z.infer<typeof DiffHunkSchema>;
 
-export const DiffFileStatusSchema = z.enum([
-  'added',
-  'modified',
-  'deleted',
-  'renamed',
-]);
+export const DiffFileStatusSchema = z.enum(['added', 'modified', 'deleted', 'renamed']);
 export type DiffFileStatus = z.infer<typeof DiffFileStatusSchema>;
 
 export const DiffFileSchema = z.object({

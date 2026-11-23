@@ -77,14 +77,9 @@ describe('GitLab (lab.civicrm.org) & GitHub linked issue extraction', () => {
       );
     }) as unknown as typeof fetch;
 
-    const issue = await fetchGitLabIssue(
-      { projectPath: 'dev/core', iid: 5842 },
-      mockFetch,
-    );
+    const issue = await fetchGitLabIssue({ projectPath: 'dev/core', iid: 5842 }, mockFetch);
 
-    expect(calls[0]).toBe(
-      'https://lab.civicrm.org/api/v4/projects/dev%2Fcore/issues/5842',
-    );
+    expect(calls[0]).toBe('https://lab.civicrm.org/api/v4/projects/dev%2Fcore/issues/5842');
     expect(issue).toEqual({
       number: 5842,
       repo: 'lab.civicrm.org/dev/core',
@@ -183,9 +178,7 @@ describe('GitLab (lab.civicrm.org) & GitHub linked issue extraction', () => {
       projectPath: 'dev/core',
       iid: 5000,
     });
-    expect(parsedMd?.title).toBe(
-      'SearchKit: Allow formatting of the totals in the footer',
-    );
+    expect(parsedMd?.title).toBe('SearchKit: Allow formatting of the totals in the footer');
     expect(parsedMd?.state).toBe('closed');
     expect(parsedMd?.comments).toEqual([
       { author: 'colemanw', body: 'Formatting works now, PR #31649.' },

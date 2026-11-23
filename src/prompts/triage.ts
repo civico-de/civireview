@@ -1,8 +1,5 @@
 import type { EvidenceBundle } from '../evidence/types.ts';
-import {
-  ANTI_INJECTION_RULES,
-  EVIDENCE_DISCIPLINE_RULES,
-} from './shared.ts';
+import { ANTI_INJECTION_RULES, EVIDENCE_DISCIPLINE_RULES } from './shared.ts';
 
 export interface StagePromptPair {
   systemPrompt: string;
@@ -21,7 +18,7 @@ CLASSIFICATION RULES:
 - prKind:
   - 'docs-only': only markdown/rst/txt/docs files changed. Active lenses should be [].
   - 'core-ref-nfc': CiviCRM core PR marked (REF) or (NFC) in title/labels; verify label honesty (NFC must not alter runtime logic or tests; REF must preserve behaviour).
-  - 'security-sensitive': touches xml/Menu/*.xml permissions, APIv4 permissions()/checkPermissions, SQL queries, auth/tokens, webhooks, file uploads, eval/unserialize, or Smarty/JS HTML rendering.
+  - 'security-sensitive': ONLY for PRs that change authentication, authorization/ACL/permissions (\`xml/Menu/*.xml\`, APIv4 \`permissions()\`/\`checkPermissions\`), raw SQL construction with user/external input, HTML/XSS escaping or purification, CSRF/session/token/webhook auth handling, or file path/upload handling (including \`eval\`/\`unserialize\`). Do NOT classify routine Afform/APIv4 performance refactors, JS expression parsing fixes, or database transaction/error-handling bugfixes as \`security-sensitive\` — use \`core-bugfix\`, \`ui-change\`, or \`core-ref-nfc\` for those.
   - 'ui-change': touches Smarty .tpl, Afform .aff.html/.aff.json, SearchKit, JS/TS/CSS UI assets.
   - 'extension-pr': repoKind is 'civicrm-extension'.
   - 'core-bugfix' or 'core-feature': standard CiviCRM core fix or feature.

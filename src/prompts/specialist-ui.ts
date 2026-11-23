@@ -7,10 +7,7 @@ import {
 } from './shared.ts';
 import type { StagePromptPair } from './triage.ts';
 
-export function buildUiPrompt(
-  bundle: EvidenceBundle,
-  triage: TriageOutput,
-): StagePromptPair {
+export function buildUiPrompt(bundle: EvidenceBundle, triage: TriageOutput): StagePromptPair {
   const systemPrompt = `You are the CiviCRM UI, Templates & Accessibility specialist reviewer (lens: 'ui').
 
 ${ANTI_INJECTION_RULES}

@@ -21,9 +21,7 @@ index 1111111..2222222 100644
  }
 `;
 
-function makeFinding(
-  overrides: Partial<VerifiedFinding> = {},
-): VerifiedFinding {
+function makeFinding(overrides: Partial<VerifiedFinding> = {}): VerifiedFinding {
   return {
     id: 'f-1',
     lens: 'security',
@@ -115,24 +113,16 @@ describe('line-mapper', () => {
       endLine: 52,
     });
 
-    const mapped = mapFindingsToDiff(
-      [outOfHunk, untouchedFile, crossHunk],
-      diffFiles,
-    );
+    const mapped = mapFindingsToDiff([outOfHunk, untouchedFile, crossHunk], diffFiles);
     // outOfHunk and untouchedFile demoted; crossHunk has exact endLine 52 so collapses safely to line 52 without suggestion
-    expect(mapped.summaryOnlyFindings.map((f) => f.id)).toEqual([
-      'out-hunk',
-      'untouched',
-    ]);
+    expect(mapped.summaryOnlyFindings.map((f) => f.id)).toEqual(['out-hunk', 'untouched']);
     expect(mapped.inlineFindings).toHaveLength(1);
     expect(mapped.inlineFindings[0]!.line).toBe(52);
     expect(mapped.inlineFindings[0]!.suggestionBlock).toBeUndefined();
   });
 
   test('suppresses >15-line suggestionCode and LEFT-side suggestions', () => {
-    const longSuggestion = Array.from({ length: 16 }, (_, i) => `// line ${i}`).join(
-      '\n',
-    );
+    const longSuggestion = Array.from({ length: 16 }, (_, i) => `// line ${i}`).join('\n');
     const fLong = makeFinding({
       id: 'long-sug',
       startLine: 12,
