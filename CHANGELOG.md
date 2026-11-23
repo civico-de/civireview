@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-23
+
+### Changed
+- **`review.mentionUsers` option (default `false`) — never ping PR commenters by default**: Reviewer usernames in `Reviewer Thread`, `Action Items`, `Reviewer Questions & Thread Resolution`, and any LLM prose (`summaryBody` and `inlineComments`) now render in backticks (`` `username` ``) by default via `sanitizeGitHubMentions` (while preserving `@param`/`@return`/`@todo` code annotations) so posted reviews never send unsolicited GitHub mention notifications unless `review.mentionUsers: true` is explicitly configured.
+
 ## [0.3.1] - 2026-11-23
 
 ### Fixed

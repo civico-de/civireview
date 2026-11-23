@@ -11,6 +11,7 @@ import {
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import type { EvidenceBundle } from '../src/evidence/types.ts';
 import { createRunnerRegistry } from '../src/runners/registry.ts';
+import { sanitizeGitHubMentions } from '../src/github/formatter.ts';
 import type { StageRunner } from '../src/runners/types.ts';
 
 const SAMPLE_PATCH = `diff --git a/CRM/Contact/BAO/Contact.php b/CRM/Contact/BAO/Contact.php
@@ -753,7 +754,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     ]);
     const threadRow = withOpen.find((m) => m.check === 'Reviewer Thread');
     expect(threadRow?.status).toBe('WARN');
-    expect(threadRow?.detail).toContain('1 open question/request(s) (@ufundo)');
+    expect(threadRow?.detail).toContain('1 open question/request(s) (`ufundo`)');
     expect(computeFinalVerdict([], withOpen)).toBe('QUESTIONS_ONLY');
     const scoreRes = computeConfidenceScore({
       verdict: 'QUESTIONS_ONLY',
@@ -762,6 +763,11 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     });
     expect(scoreRes.score).toBe(4);
     expect(scoreRes.rationale).toContain('Unaddressed reviewer feedback');
+
+    expect(
+      sanitizeGitHubMentions('Address @mattwire and @elisseck, keep @param and `@totten`', false),
+    ).toBe('Address `mattwire` and `elisseck`, keep @param and `@totten`');
+    expect(sanitizeGitHubMentions('Address @mattwire', true)).toBe('Address @mattwire');
 
     const allResolved = applyThreadResolutionsToMatrix(baseMatrix, [
       {

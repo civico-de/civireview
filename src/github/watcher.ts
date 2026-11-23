@@ -634,6 +634,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
             preset: effectiveConfig.preset,
             maxInlineComments: effectiveConfig.review.maxInlineComments,
             reviewEvent: effectiveConfig.review.reviewEvent,
+            mentionUsers: effectiveConfig.review.mentionUsers,
           });
           options.logger?.info(
             `Finished ${mention.repoFullName}#${mention.prNumber}: verdict=${review.verdict}${review.score ? ` (${review.score}/5)` : ''}${estimatedUsd !== undefined ? `, est=$${estimatedUsd.toFixed(2)}` : ''}${published.htmlUrl ? ` -> ${published.htmlUrl}` : ''}`,

@@ -56,6 +56,7 @@ export interface PublishReviewOptions {
   preset?: string;
   maxInlineComments?: number;
   reviewEvent?: ReviewEvent;
+  mentionUsers?: boolean;
 }
 
 export interface PublishReviewResult {
@@ -173,6 +174,7 @@ export async function publishReview(options: PublishReviewOptions): Promise<Publ
     preset: options.preset,
     maxInlineComments: options.maxInlineComments,
     triggerCommentId: commentId,
+    mentionUsers: options.mentionUsers,
   });
 
   if (dryRun) {

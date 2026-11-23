@@ -534,17 +534,22 @@ export function reconcileMatrixForTriage(
 export function applyThreadResolutionsToMatrix(
   matrix: VerificationMatrixEntry[],
   threadResolutions: ThreadResolution[] | undefined,
+  mentionUsers = false,
 ): VerificationMatrixEntry[] {
   if (!threadResolutions || threadResolutions.length === 0) return matrix;
   const openItems = threadResolutions.filter((t) => t.status === 'open');
   const resolvedCount = threadResolutions.length - openItems.length;
+  const formatHandle = (author: string) => {
+    const clean = author.replace(/^@/, '');
+    return mentionUsers ? `@${clean}` : `\`${clean}\``;
+  };
   const row: VerificationMatrixEntry =
     openItems.length > 0
       ? {
           check: 'Reviewer Thread',
           status: 'WARN',
           detail: `${openItems.length} open question/request(s) (${Array.from(
-            new Set(openItems.map((t) => `@${t.author.replace(/^@/, '')}`)),
+            new Set(openItems.map((t) => formatHandle(t.author))),
           ).join(', ')})${resolvedCount > 0 ? ` · ${resolvedCount} addressed/answered` : ''}`,
         }
       : {

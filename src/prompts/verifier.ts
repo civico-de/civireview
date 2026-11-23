@@ -51,7 +51,7 @@ export function buildVerifierPrompt(
     ? `\n11. Reviewer Questions & Thread Resolution (\`threadResolutions\`):
    - Check every substantive question, concern, or change request raised by a HUMAN reviewer in \`pr_comments\` (ignore bots such as \`civibot\`, \`civireview\`, \`greptile\`, \`coderabbit\`, and ignore the PR author's own comments or \`@civireview\` trigger comments).
    - Return one \`threadResolutions\` entry per distinct human reviewer question/request:
-     - \`author\`: reviewer's GitHub username (without \`@\`).
+     - \`author\`: reviewer's GitHub username (without \`@\`). In prose (\`detail\`, \`notes\`, etc.), always write usernames in backticks (e.g. \`\` \`username\` \`\`) rather than \`@username\` to avoid pinging users.
      - \`topic\`: concise summary of what the reviewer asked or requested.
      - \`status\`:
        - \`'addressed'\`: the requested code, test, or doc change was actually implemented in \`headSha\`.

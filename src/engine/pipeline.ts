@@ -861,7 +861,11 @@ async function executeReviewPipeline(
       `[stage] verifier verdicts: total=${rawVerified.length} PROVEN=${counts.PROVEN} CONFIRMED=${counts.CONFIRMED} NEEDS_QUESTION=${counts.NEEDS_QUESTION} REJECTED=${counts.REJECTED} surviving=${survivingFindings.length} dropped=${droppedCount} (threshold=${config.review.confidenceThreshold})`,
     );
   }
-  verificationMatrix = applyThreadResolutionsToMatrix(verificationMatrix, threadResolutions);
+  verificationMatrix = applyThreadResolutionsToMatrix(
+    verificationMatrix,
+    threadResolutions,
+    config.review.mentionUsers,
+  );
   const verdict = computeFinalVerdict(survivingFindings, verificationMatrix);
   const { score, rationale: scoreRationale } = computeConfidenceScore({
     verdict,

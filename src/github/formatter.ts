@@ -23,6 +23,73 @@ export interface FormatReviewOptions {
   preset?: string;
   maxInlineComments?: number;
   triggerCommentId?: number;
+  mentionUsers?: boolean;
+}
+
+const CODE_ANNOTATION_TAGS = new Set([
+  'param',
+  'return',
+  'returns',
+  'var',
+  'type',
+  'throws',
+  'todo',
+  'deprecated',
+  'internal',
+  'see',
+  'link',
+  'covers',
+  'dataprovider',
+  'depends',
+  'before',
+  'after',
+  'test',
+  'group',
+  'runinseparateprocess',
+  'preserveglobalstate',
+  'suppresswarnings',
+  'psalm',
+  'phpstan',
+  'template',
+  'extends',
+  'implements',
+  'property',
+  'method',
+  'mixin',
+  'author',
+  'license',
+  'since',
+  'version',
+  'package',
+  'subpackage',
+  'category',
+  'copyright',
+  'inheritdoc',
+]);
+
+/**
+ * Replaces raw `@username` GitHub mentions outside backticks/code blocks with
+ * `` `username` `` when `mentionUsers` is `false` (default) so posted reviews
+ * never send unsolicited GitHub notifications to PR commenters.
+ */
+export function sanitizeGitHubMentions(markdown: string, mentionUsers = false): string {
+  if (mentionUsers) return markdown;
+  // Split preserving fenced code blocks and inline code spans so we never touch code
+  const segments = markdown.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return segments
+    .map((seg, idx) => {
+      if (idx % 2 === 1) return seg;
+      return seg.replace(
+        /(^|[^A-Za-z0-9_/`])@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})\b/g,
+        (full, prefix: string, handle: string) => {
+          if (CODE_ANNOTATION_TAGS.has(handle.toLowerCase())) {
+            return full;
+          }
+          return `${prefix}\`${handle}\``;
+        },
+      );
+    })
+    .join('');
 }
 
 export interface FormattedReviewOutput {
@@ -146,7 +213,7 @@ function truncateOneLine(text: string, maxLen = 140): string {
   return `${cut.replace(/[,;:\-–—]+$/, '').trimEnd()}…`;
 }
 
-function buildActionItems(review: FinalReview): string[] {
+function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   const items: string[] = [];
 
   for (const f of review.findings) {
@@ -192,7 +259,8 @@ function buildActionItems(review: FinalReview): string[] {
       if (findingFileBasenames.some((base) => combined.includes(base))) {
         continue;
       }
-      const handle = `@${tr.author.replace(/^@/, '')}`;
+      const cleanAuthor = tr.author.replace(/^@/, '');
+      const handle = mentionUsers ? `@${cleanAuthor}` : `\`${cleanAuthor}\``;
       items.push(
         `- [ ] **[OPEN REVIEWER FEEDBACK]** Address ${handle}: ${tr.topic} — ${truncateOneLine(tr.detail, 220)}`,
       );
@@ -209,6 +277,7 @@ export function formatReviewMarkdown(
 ): FormattedReviewOutput {
   const preset = options.preset ?? 'custom';
   const maxInline = options.maxInlineComments ?? 10;
+  const mentionUsers = options.mentionUsers ?? false;
 
   const { inlineFindings, summaryOnlyFindings } = mapFindingsToDiff(
     review.findings,
@@ -224,7 +293,7 @@ export function formatReviewMarkdown(
     line: m.line,
     ...(m.startLine !== undefined ? { start_line: m.startLine, start_side: m.side } : {}),
     side: m.side,
-    body: formatInlineCommentBody(m),
+    body: sanitizeGitHubMentions(formatInlineCommentBody(m), mentionUsers),
   }));
 
   const sections: string[] = [];
@@ -276,7 +345,7 @@ export function formatReviewMarkdown(
   );
 
   // Zone 1 (Top — always visible): Action Items + Summary-Only Findings + Verification Matrix + Related PRs
-  const actionItems = buildActionItems(review);
+  const actionItems = buildActionItems(review, mentionUsers);
   if (actionItems.length > 0) {
     sections.push(`### Action Items (${actionItems.length})\n${actionItems.join('\n')}`);
   } else {
@@ -391,7 +460,8 @@ export function formatReviewMarkdown(
             : t.status === 'answered'
               ? '💬 Answered'
               : '⏳ Open';
-        const handle = `@${t.author.replace(/^@/, '')}`;
+        const cleanAuthor = t.author.replace(/^@/, '');
+        const handle = mentionUsers ? `@${cleanAuthor}` : `\`${cleanAuthor}\``;
         return `| ${escapeTableCell(handle)} | ${escapeTableCell(t.topic)} | ${badge} | ${escapeTableCell(t.detail)} |`;
       })
       .join('\n');
@@ -487,7 +557,7 @@ export function formatReviewMarkdown(
   );
 
   return {
-    summaryBody: sections.join('\n\n'),
+    summaryBody: sanitizeGitHubMentions(sections.join('\n\n'), mentionUsers),
     inlineComments,
     overflowFindings: allSummaryFindings,
   };

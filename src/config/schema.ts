@@ -276,6 +276,7 @@ export const ReviewSettingsSchema = z
     effort: EffortModeSchema.default('auto'),
     stageEffort: StageEffortOverridesSchema.optional(),
     autoPost: z.boolean().default(true),
+    mentionUsers: z.boolean().default(false),
     reviewEvent: ReviewEventSchema.default('COMMENT'),
     include: z.array(z.string()).default([]),
     exclude: z.array(z.string()).default([]),

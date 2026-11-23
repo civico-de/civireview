@@ -616,6 +616,7 @@ async function main(): Promise<void> {
       preset: values.preset ?? config.preset,
       maxInlineComments: config.review.maxInlineComments,
       reviewEvent: config.review.reviewEvent,
+      mentionUsers: config.review.mentionUsers,
     });
 
     if (values['dry-run']) {
@@ -713,6 +714,7 @@ async function main(): Promise<void> {
         preset: config.preset,
         maxInlineComments: config.review.maxInlineComments,
         reviewEvent: config.review.reviewEvent,
+        mentionUsers: config.review.mentionUsers,
       });
 
       if (outDir) {
@@ -791,6 +793,7 @@ async function main(): Promise<void> {
       const formatted = formatReviewMarkdown(review, bundle, {
         preset: config.preset,
         maxInlineComments: config.review.maxInlineComments,
+        mentionUsers: config.review.mentionUsers,
       });
       console.log(formatted.summaryBody);
       if (formatted.inlineComments.length > 0) {
