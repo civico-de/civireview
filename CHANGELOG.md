@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-23
+
+### Changed
+- **Upfront AI-assisted alpha disclosure & feedback link**: Added a clear alpha notice right below the review title explaining that `civireview` is an experimental AI-assisted tool under active development, with a direct link to open an issue for feedback or false positives, plus an alpha feedback link in the footer.
+- **Documentation**: Documented the 1–5 Merge Confidence Scale in `README.md`.
+
 ## [0.2.6] - 2026-11-23
 
 ### Added
