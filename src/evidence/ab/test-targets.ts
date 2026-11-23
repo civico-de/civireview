@@ -353,16 +353,24 @@ export interface CoreMountPlan {
   useFileMounts: boolean;
 }
 
+const MAX_STALE_OVERLAY_FILES = 50;
+
 /**
  * Computes Docker bind-mount arguments for a `civicrm-core` PR, preferring
  * surgical per-file mounts (<= 40 files, no deletes/renames) to avoid
  * clobbering image-generated GenCode files.
+ *
+ * Optional `extraBaseFiles` (e.g. files merged to `baseSha` after the Docker
+ * image was built) are mounted from `worktreeA` into both A and B so a PR
+ * depending on a recently-merged class/method still runs cleanly without
+ * rebuilding the Docker image.
  */
 export function buildCoreMountPlan(
   diffFiles: DiffFile[],
   touchedComponents: string[],
   worktreeA: string,
   worktreeB: string,
+  extraBaseFiles: string[] = [],
 ): CoreMountPlan {
   const abMounts: string[] = [];
   const mountsAOnly: string[] = [];
@@ -388,6 +396,24 @@ export function buildCoreMountPlan(
     allFilesMaterialized;
 
   if (useFileMounts) {
+    const prPaths = new Set(diffFiles.map((f) => f.path));
+    const overlayFiles = Array.from(new Set(extraBaseFiles))
+      .filter(
+        (p) =>
+          isMountableCorePath(p) &&
+          !isE2eMinkTestPath(p) &&
+          !prPaths.has(p) &&
+          !/^CRM\/[^/]+\/DAO\//.test(p) &&
+          existsSync(join(worktreeA, p)),
+      )
+      .slice(0, MAX_STALE_OVERLAY_FILES);
+    for (const p of overlayFiles) {
+      const mountSpec = `${join(worktreeA, p)}:/var/www/html/core/${p}:ro`;
+      abMounts.push('--mount', mountSpec);
+      mountsAOnly.push('--mount', mountSpec);
+      mountsBOnly.push('--mount', mountSpec);
+    }
+
     for (const f of coreProdFiles) {
       if (existsSync(join(worktreeA, f.path))) {
         abMounts.push('--mount-a', `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`);

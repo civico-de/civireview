@@ -197,6 +197,68 @@ export interface CiviKitchenAbOutcome {
  * and cleaning them up in a guaranteed `finally` block (or via `cleanup()` when kept alive).
  */
 const CIVIKITCHEN_IMAGE_REPO = 'ghcr.io/civico-de/civikitchen';
+const DEFAULT_STALE_OVERLAY_HOURS = 36;
+const IMAGE_CREATED_BUFFER_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Collects files merged into `baseSha` after the CiviKitchen Docker image was
+ * built (using the local image's `.Created` timestamp when cached, or a 36-hour
+ * fallback window for fresh CI runners). Mounting these into both A and B keeps
+ * per-file A/B runs working when a PR depends on a recently-merged class/method.
+ */
+export async function collectRecentBaseFilesSinceImageBuild(params: {
+  repoRoot: string;
+  baseSha: string;
+  imageTag: string;
+  execFn?: ExecFn;
+  nowMs?: number;
+}): Promise<string[]> {
+  const execFn = params.execFn ?? defaultExec;
+  const nowMs = params.nowMs ?? Date.now();
+  const ref =
+    params.imageTag.includes('/') || params.imageTag.includes(':')
+      ? params.imageTag
+      : `${CIVIKITCHEN_IMAGE_REPO}:${params.imageTag}`;
+
+  let sinceMs = nowMs - DEFAULT_STALE_OVERLAY_HOURS * 60 * 60 * 1000;
+  const inspectRes = await execFn(['docker', 'image', 'inspect', '--format', '{{.Created}}', ref], {
+    timeoutMs: 5_000,
+  });
+  if (inspectRes.exitCode === 0 && inspectRes.stdout.trim()) {
+    const parsed = Date.parse(inspectRes.stdout.trim());
+    if (Number.isFinite(parsed)) {
+      sinceMs = parsed - IMAGE_CREATED_BUFFER_MS;
+    }
+  }
+
+  const sinceIso = new Date(sinceMs).toISOString();
+  const logRes = await execFn(
+    [
+      'git',
+      '-C',
+      params.repoRoot,
+      'log',
+      `--since=${sinceIso}`,
+      '--name-only',
+      '--pretty=format:',
+      '-n',
+      '40',
+      params.baseSha,
+    ],
+    { timeoutMs: 10_000 },
+  );
+  if (logRes.exitCode !== 0 || !logRes.stdout.trim()) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      logRes.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    ),
+  );
+}
 
 /**
  * Verifies that the preferred CiviKitchen image tag exists (locally or in GHCR)
@@ -600,11 +662,23 @@ export async function runCiviKitchenAb(
     let mountsBOnly: string[] = [];
 
     if (repoInfo.kind === 'civicrm-core') {
+      const recentBaseFiles = await collectRecentBaseFilesSinceImageBuild({
+        repoRoot,
+        baseSha,
+        imageTag: imageA,
+        execFn,
+      });
+      if (recentBaseFiles.length > 0) {
+        console.error(
+          `[civireview:ab] Overlaying ${Math.min(recentBaseFiles.length, 50)} recently-merged base file(s) onto ${imageA} to bridge nightly image lag.`,
+        );
+      }
       const mountPlan = buildCoreMountPlan(
         diffFiles,
         surfaceDiff.touchedComponents,
         worktreeA,
         worktreeB,
+        recentBaseFiles,
       );
       abMounts = mountPlan.abMounts;
       mountsAOnly = mountPlan.mountsAOnly;

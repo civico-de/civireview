@@ -5,11 +5,13 @@ import { join } from 'node:path';
 import { AbConfigSchema } from '../src/config/schema.ts';
 import { formatAbDiagnosticTail } from '../src/evidence/ab/parsers.ts';
 import {
+  buildCoreMountPlan,
   buildMultiTargetTestCommand,
   deriveRegressionTargets,
   isE2eMinkTestPath,
 } from '../src/evidence/ab/test-targets.ts';
 import {
+  collectRecentBaseFilesSinceImageBuild,
   resolveAvailableCivikitchenImage,
   runCiviKitchenAb,
   type ExecFn,
@@ -412,5 +414,67 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     ]);
     expect(merged).toHaveLength(1);
     expect(merged[0]?.impact).toContain('Much richer impact');
+  });
+
+  test('collectRecentBaseFilesSinceImageBuild uses local image Created timestamp and buildCoreMountPlan overlays them', async () => {
+    let seenSinceArg = '';
+    const execFn: ExecFn = async (args) => {
+      if (args[0] === 'docker' && args[1] === 'image' && args[2] === 'inspect') {
+        return { exitCode: 0, stdout: '2026-11-23T03:00:00Z\n', stderr: '' };
+      }
+      if (args[0] === 'git' && args.includes('log')) {
+        seenSinceArg = args.find((a) => a.startsWith('--since=')) ?? '';
+        return {
+          exitCode: 0,
+          stdout: 'CRM/Core/RecentHelper.php\nCRM/Core/DAO/Contact.php\nCRM/Queue/Sql.php\n',
+          stderr: '',
+        };
+      }
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
+
+    const recent = await collectRecentBaseFilesSinceImageBuild({
+      repoRoot: '/tmp/fake-repo',
+      baseSha: 'aaaaaaa',
+      imageTag: 'standalone-master',
+      execFn,
+    });
+    expect(seenSinceArg).toBe('--since=2026-11-23T01:00:00.000Z');
+    expect(recent).toEqual([
+      'CRM/Core/RecentHelper.php',
+      'CRM/Core/DAO/Contact.php',
+      'CRM/Queue/Sql.php',
+    ]);
+
+    const root = makeTempDir();
+    const wtA = join(root, 'A');
+    const wtB = join(root, 'B');
+    mkdirSync(join(wtA, 'CRM/Core/DAO'), { recursive: true });
+    mkdirSync(join(wtA, 'CRM/Queue'), { recursive: true });
+    mkdirSync(join(wtB, 'CRM/Queue'), { recursive: true });
+    writeFileSync(join(wtA, 'CRM/Core/RecentHelper.php'), '<?php\n');
+    writeFileSync(join(wtA, 'CRM/Core/DAO/Contact.php'), '<?php\n');
+    writeFileSync(join(wtA, 'CRM/Queue/Sql.php'), '<?php\n');
+    writeFileSync(join(wtB, 'CRM/Queue/Sql.php'), '<?php\n');
+
+    const diffFiles = parseUnifiedDiff(
+      [
+        'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
+        '--- a/CRM/Queue/Sql.php',
+        '+++ b/CRM/Queue/Sql.php',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n'),
+    );
+
+    const plan = buildCoreMountPlan(diffFiles, ['CRM'], wtA, wtB, recent);
+    expect(plan.useFileMounts).toBe(true);
+    // RecentHelper.php overlaid into both A and B; DAO skipped; PR-modified Sql.php not duplicated
+    expect(plan.abMounts).toContain(
+      `${join(wtA, 'CRM/Core/RecentHelper.php')}:/var/www/html/core/CRM/Core/RecentHelper.php:ro`,
+    );
+    expect(plan.abMounts.some((m) => m.includes('DAO/Contact.php'))).toBe(false);
+    expect(plan.abMounts.filter((m) => m.includes('CRM/Queue/Sql.php'))).toHaveLength(2);
   });
 });

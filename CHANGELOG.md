@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-23
+
+### Added
+- **Fast git-delta staleness overlay for `civicrm-core` A/B runs**: Before running `ck ab` on `civicrm-core`, `civireview` now inspects the Docker image's `.Created` timestamp (or uses a 36-hour fallback window on fresh CI runners), queries `git log --since=... --name-only <baseSha>`, and bind-mounts up to 50 recently-merged base files from `worktreeA` into both A and B (skipping `DAO/` and PR-modified paths). PRs depending on classes/methods merged after the last nightly image build now run cleanly without waiting for a full Docker image rebuild.
+
 ## [0.2.4] - 2026-11-23
 
 ### Fixed
