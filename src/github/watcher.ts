@@ -101,7 +101,11 @@ export interface WatcherPassResult {
   throttled: WatcherMention[];
   skippedDuplicate: WatcherMention[];
   waitingForCi: WatcherMention[];
+  failed: WatcherMention[];
 }
+
+/** A mention whose processing keeps failing is marked seen after this many attempts. */
+export const MAX_MENTION_ATTEMPTS = 3;
 
 function applyMentionFlagsToConfig(
   baseConfig: ResolvedCiviReviewConfig,
@@ -329,6 +333,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
   const throttled: WatcherMention[] = [];
   const skippedDuplicate: WatcherMention[] = [];
   const waitingForCi: WatcherMention[] = [];
+  const failed: WatcherMention[] = [];
   const prCiPendingCache = new Map<string, boolean>();
   const waitForCiMaxMinutes = options.waitForCiMaxMinutes ?? 90;
 
@@ -516,133 +521,163 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
     let estimatedUsd: number | undefined;
     let actuallyRan = true;
 
-    if (options.onProcessMention) {
-      const res = await options.onProcessMention(mention);
-      if (res && typeof res.estimatedUsd === 'number') {
-        estimatedUsd = res.estimatedUsd;
-      }
-    } else if (isThreadReply) {
-      const effectiveConfig = buildLightweightReplyConfig(
-        applyMentionFlagsToConfig(options.config, mention.flags, {
+    try {
+      if (options.onProcessMention) {
+        const res = await options.onProcessMention(mention);
+        if (res && typeof res.estimatedUsd === 'number') {
+          estimatedUsd = res.estimatedUsd;
+        }
+      } else if (isThreadReply) {
+        const effectiveConfig = buildLightweightReplyConfig(
+          applyMentionFlagsToConfig(options.config, mention.flags, {
+            lockModels,
+          }),
+        );
+        const { bundle, filteredPatch, cleanup } = await collectEvidenceFn({
+          repoRoot: options.repoRoot,
+          config: effectiveConfig,
+          owner: mention.owner,
+          repo: mention.repo,
+          prNumber: mention.prNumber,
+          githubToken: token,
+          incremental: false,
+        });
+
+        try {
+          if (hasExistingThreadReplyMarker(bundle.comments, mention.commentId)) {
+            options.logger?.info(
+              `Skipping duplicate inline reply for ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}).`,
+            );
+            skippedDuplicate.push(mention);
+            actuallyRan = false;
+          } else {
+            const threadContext = buildThreadContextFromBundle(
+              bundle,
+              mention.commentId,
+              mention.question,
+            );
+            const replyOutput = await runThreadReplyFn({
+              bundle,
+              filteredPatch,
+              threadContext,
+              config: effectiveConfig,
+              cwd: options.repoRoot,
+            });
+            const replyBody = formatThreadReplyBody(replyOutput, {
+              triggerCommentId: mention.commentId,
+            });
+            await publishThreadReplyFn({
+              owner: mention.owner,
+              repo: mention.repo,
+              prNumber: mention.prNumber,
+              commentId: mention.commentId,
+              replyBody,
+              token,
+              dryRun: options.dryRun,
+              octokit,
+            });
+          }
+        } finally {
+          await cleanup();
+        }
+      } else {
+        const effectiveConfig = applyMentionFlagsToConfig(options.config, mention.flags, {
           lockModels,
-        }),
-      );
-      const { bundle, filteredPatch, cleanup } = await collectEvidenceFn({
-        repoRoot: options.repoRoot,
-        config: effectiveConfig,
-        owner: mention.owner,
-        repo: mention.repo,
-        prNumber: mention.prNumber,
-        githubToken: token,
-        incremental: false,
-      });
+        });
+        const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidenceFn({
+          repoRoot: options.repoRoot,
+          config: effectiveConfig,
+          owner: mention.owner,
+          repo: mention.repo,
+          prNumber: mention.prNumber,
+          githubToken: token,
+          incremental: !mention.flags.full,
+        });
+        options.logger?.info(
+          `Collected evidence for ${mention.repoFullName}#${mention.prNumber}: ${bundle.diffFiles.length} file(s), A/B=${bundle.abReport.executed ? `executed (${bundle.abReport.checks.length} check(s))` : 'skipped'}`,
+        );
 
-      try {
-        if (hasExistingThreadReplyMarker(bundle.comments, mention.commentId)) {
-          options.logger?.info(
-            `Skipping duplicate inline reply for ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}).`,
-          );
-          skippedDuplicate.push(mention);
-          actuallyRan = false;
-        } else {
-          const threadContext = buildThreadContextFromBundle(
-            bundle,
-            mention.commentId,
-            mention.question,
-          );
-          const replyOutput = await runThreadReplyFn({
-            bundle,
-            filteredPatch,
-            threadContext,
-            config: effectiveConfig,
-            cwd: options.repoRoot,
-          });
-          const replyBody = formatThreadReplyBody(replyOutput, {
-            triggerCommentId: mention.commentId,
-          });
-          await publishThreadReplyFn({
-            owner: mention.owner,
-            repo: mention.repo,
-            prNumber: mention.prNumber,
-            commentId: mention.commentId,
-            replyBody,
-            token,
-            dryRun: options.dryRun,
-            octokit,
-          });
+        try {
+          // Idempotency guard even if local seen.json was deleted or watcher moved hosts:
+          // skip if this exact comment already triggered a posted review, or if the
+          // current head SHA was already reviewed and `--full` was not explicitly requested.
+          const markers = extractAllReviewedMarkers(bundle.comments);
+          const alreadyTriggered = markers.some((m) => m.triggerCommentId === mention.commentId);
+          const sameHeadAlreadyReviewed =
+            !mention.flags.full &&
+            Boolean(bundle.pr.lastReviewedHeadSha) &&
+            bundle.pr.lastReviewedHeadSha === bundle.pr.headSha;
+
+          if (alreadyTriggered || sameHeadAlreadyReviewed) {
+            options.logger?.info(
+              `Skipping duplicate review for ${mention.repoFullName}#${mention.prNumber} (head ${bundle.pr.headSha.slice(0, 7)} already reviewed; use --full to force re-review).`,
+            );
+            skippedDuplicate.push(mention);
+            actuallyRan = false;
+          } else {
+            const review = await runReviewPipelineFn({
+              bundle,
+              filteredPatch,
+              config: effectiveConfig,
+              cwd: options.repoRoot,
+              liveUrls: urls,
+              composeFiles,
+              logger: options.logger,
+            });
+            estimatedUsd = review.tokenUsage?.estimatedUsd;
+
+            const published = await publishReviewFn({
+              owner: mention.owner,
+              repo: mention.repo,
+              prNumber: mention.prNumber,
+              review,
+              bundle,
+              token,
+              dryRun: options.dryRun,
+              force: Boolean(mention.flags.full),
+              commentId: mention.commentId,
+              octokit,
+              preset: effectiveConfig.preset,
+              maxInlineComments: effectiveConfig.review.maxInlineComments,
+              reviewEvent: effectiveConfig.review.reviewEvent,
+              mentionUsers: effectiveConfig.review.mentionUsers,
+            });
+            options.logger?.info(
+              `Finished ${mention.repoFullName}#${mention.prNumber}: verdict=${review.verdict}${review.score ? ` (${review.score}/5)` : ''}${estimatedUsd !== undefined ? `, est=$${estimatedUsd.toFixed(2)}` : ''}${published.htmlUrl ? ` -> ${published.htmlUrl}` : ''}`,
+            );
+          }
+        } finally {
+          await cleanup();
         }
-      } finally {
-        await cleanup();
       }
-    } else {
-      const effectiveConfig = applyMentionFlagsToConfig(options.config, mention.flags, {
-        lockModels,
-      });
-      const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidenceFn({
-        repoRoot: options.repoRoot,
-        config: effectiveConfig,
-        owner: mention.owner,
-        repo: mention.repo,
-        prNumber: mention.prNumber,
-        githubToken: token,
-        incremental: !mention.flags.full,
-      });
-      options.logger?.info(
-        `Collected evidence for ${mention.repoFullName}#${mention.prNumber}: ${bundle.diffFiles.length} file(s), A/B=${bundle.abReport.executed ? `executed (${bundle.abReport.checks.length} check(s))` : 'skipped'}`,
+    } catch (err) {
+      // Count the attempt against the rate/budget caps (the models may already have run) and
+      // keep going, so one failing mention neither loops forever nor blocks the others.
+      const message = err instanceof Error ? err.message : String(err);
+      failed.push(mention);
+      const attempts = (state.failedAttempts?.[key] ?? 0) + 1;
+      const giveUp = attempts >= MAX_MENTION_ATTEMPTS;
+      options.logger?.warn(
+        `Failed ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}, attempt ${attempts}/${MAX_MENTION_ATTEMPTS})${giveUp ? '; giving up on this mention' : ''}: ${message}`,
       );
-
-      try {
-        // Idempotency guard even if local seen.json was deleted or watcher moved hosts:
-        // skip if this exact comment already triggered a posted review, or if the
-        // current head SHA was already reviewed and `--full` was not explicitly requested.
-        const markers = extractAllReviewedMarkers(bundle.comments);
-        const alreadyTriggered = markers.some((m) => m.triggerCommentId === mention.commentId);
-        const sameHeadAlreadyReviewed =
-          !mention.flags.full &&
-          Boolean(bundle.pr.lastReviewedHeadSha) &&
-          bundle.pr.lastReviewedHeadSha === bundle.pr.headSha;
-
-        if (alreadyTriggered || sameHeadAlreadyReviewed) {
-          options.logger?.info(
-            `Skipping duplicate review for ${mention.repoFullName}#${mention.prNumber} (head ${bundle.pr.headSha.slice(0, 7)} already reviewed; use --full to force re-review).`,
-          );
-          skippedDuplicate.push(mention);
-          actuallyRan = false;
-        } else {
-          const review = await runReviewPipelineFn({
-            bundle,
-            filteredPatch,
-            config: effectiveConfig,
-            cwd: options.repoRoot,
-            liveUrls: urls,
-            composeFiles,
-            logger: options.logger,
-          });
-          estimatedUsd = review.tokenUsage?.estimatedUsd;
-
-          const published = await publishReviewFn({
-            owner: mention.owner,
-            repo: mention.repo,
-            prNumber: mention.prNumber,
-            review,
-            bundle,
-            token,
-            dryRun: options.dryRun,
-            force: Boolean(mention.flags.full),
-            commentId: mention.commentId,
-            octokit,
-            preset: effectiveConfig.preset,
-            maxInlineComments: effectiveConfig.review.maxInlineComments,
-            reviewEvent: effectiveConfig.review.reviewEvent,
-            mentionUsers: effectiveConfig.review.mentionUsers,
-          });
-          options.logger?.info(
-            `Finished ${mention.repoFullName}#${mention.prNumber}: verdict=${review.verdict}${review.score ? ` (${review.score}/5)` : ''}${estimatedUsd !== undefined ? `, est=$${estimatedUsd.toFixed(2)}` : ''}${published.htmlUrl ? ` -> ${published.htmlUrl}` : ''}`,
-          );
+      state.recentRuns.push({
+        at: new Date(nowFn()).toISOString(),
+        repo: mention.repoFullName,
+        prNumber: mention.prNumber,
+        commentId: mention.commentId,
+        kind: isThreadReply ? 'reply' : 'review',
+        ...(estimatedUsd !== undefined ? { estimatedUsd } : {}),
+      });
+      if (!options.dryRun) {
+        state.failedAttempts = { ...state.failedAttempts, [key]: attempts };
+        if (giveUp) {
+          seenKeys.add(key);
+          state.seenCommentKeys.push(key);
+          delete state.failedAttempts[key];
         }
-      } finally {
-        await cleanup();
+        saveSeenState(statePath, state, nowFn());
       }
+      continue;
     }
 
     if (mention.threadId && !options.dryRun) {
@@ -658,6 +693,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
     seenKeys.add(key);
     if (!options.dryRun) {
       state.seenCommentKeys.push(key);
+      if (state.failedAttempts) delete state.failedAttempts[key];
       if (actuallyRan) {
         state.recentRuns.push({
           at: new Date(nowFn()).toISOString(),
@@ -694,7 +730,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
     }
     saveSeenState(statePath, state, nowFn());
   }
-  return { processed, pending, throttled, skippedDuplicate, waitingForCi };
+  return { processed, pending, throttled, skippedDuplicate, waitingForCi, failed };
 }
 
 /**

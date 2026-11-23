@@ -923,6 +923,9 @@ async function main(): Promise<void> {
         ),
       );
     }
+    if (passResult && passResult.failed.length > 0) {
+      throw new Error(`${passResult.failed.length} mention(s) failed; see warnings above.`);
+    }
     return;
   }
 

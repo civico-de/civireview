@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AuthorAssociation } from '../config/schema.ts';
 import type { ParsedMentionFlags } from './commands.ts';
@@ -139,34 +139,48 @@ export interface SeenState {
   seenCommentKeys: string[];
   lastModified?: string;
   recentRuns?: WatcherRunRecord[];
+  /** Failed processing attempts per comment key; a mention is given up after a few. */
+  failedAttempts?: Record<string, number>;
 }
 
 export function loadSeenState(statePath: string): SeenState {
   if (!existsSync(statePath)) {
     return { seenCommentKeys: [], recentRuns: [] };
   }
+  let raw: Partial<SeenState>;
   try {
-    const raw = JSON.parse(readFileSync(statePath, 'utf8')) as Partial<SeenState>;
-    const recentRuns: WatcherRunRecord[] = Array.isArray(raw.recentRuns)
-      ? raw.recentRuns.filter(
-          (r): r is WatcherRunRecord =>
-            Boolean(r) &&
-            typeof r === 'object' &&
-            typeof r.at === 'string' &&
-            typeof r.repo === 'string' &&
-            typeof r.prNumber === 'number' &&
-            typeof r.commentId === 'number' &&
-            (r.kind === 'review' || r.kind === 'reply'),
-        )
-      : [];
-    return {
-      seenCommentKeys: Array.isArray(raw.seenCommentKeys) ? raw.seenCommentKeys.map(String) : [],
-      lastModified: typeof raw.lastModified === 'string' ? raw.lastModified : undefined,
-      recentRuns,
-    };
-  } catch {
-    return { seenCommentKeys: [], recentRuns: [] };
+    raw = JSON.parse(readFileSync(statePath, 'utf8')) as Partial<SeenState>;
+  } catch (err) {
+    // An empty state would re-process every old mention, so a broken file is an error.
+    throw new Error(
+      `Watcher state file ${statePath} is unreadable (${err instanceof Error ? err.message : String(err)}); fix or delete it to start from scratch.`,
+      { cause: err },
+    );
   }
+  const recentRuns: WatcherRunRecord[] = Array.isArray(raw.recentRuns)
+    ? raw.recentRuns.filter(
+        (r): r is WatcherRunRecord =>
+          Boolean(r) &&
+          typeof r === 'object' &&
+          typeof r.at === 'string' &&
+          typeof r.repo === 'string' &&
+          typeof r.prNumber === 'number' &&
+          typeof r.commentId === 'number' &&
+          (r.kind === 'review' || r.kind === 'reply'),
+      )
+    : [];
+  const failedAttempts: Record<string, number> = {};
+  if (raw.failedAttempts && typeof raw.failedAttempts === 'object') {
+    for (const [key, n] of Object.entries(raw.failedAttempts)) {
+      if (typeof n === 'number' && Number.isFinite(n) && n > 0) failedAttempts[key] = n;
+    }
+  }
+  return {
+    seenCommentKeys: Array.isArray(raw.seenCommentKeys) ? raw.seenCommentKeys.map(String) : [],
+    lastModified: typeof raw.lastModified === 'string' ? raw.lastModified : undefined,
+    recentRuns,
+    failedAttempts,
+  };
 }
 
 export function saveSeenState(
@@ -188,8 +202,14 @@ export function saveSeenState(
     seenCommentKeys: state.seenCommentKeys.slice(-5000),
     ...(state.lastModified ? { lastModified: state.lastModified } : {}),
     ...(recentRuns.length > 0 ? { recentRuns } : {}),
+    ...(state.failedAttempts && Object.keys(state.failedAttempts).length > 0
+      ? { failedAttempts: state.failedAttempts }
+      : {}),
   };
-  writeFileSync(statePath, JSON.stringify(bounded, null, 2), 'utf8');
+  // Write-then-rename so an interrupted write never leaves a truncated state file.
+  const tmpPath = `${statePath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(bounded, null, 2), 'utf8');
+  renameSync(tmpPath, statePath);
 }
 
 export function makeCommentKey(repoFullName: string, commentId: number): string {
