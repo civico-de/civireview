@@ -176,6 +176,18 @@ Every stage accepts `<provider>:<modelId>` (`anthropic`, `openai`, `google`, `op
 
 Override effort globally with `--effort <low|medium|high|xhigh|max>` or per stage via `review.stageEffort` in `civireview.yaml`.
 
+### Merge Confidence Scale (1–5)
+
+Every review assigns a deterministic 1–5 merge-confidence score based on verified findings and the Empirical Verification Matrix:
+
+| Score | Meaning | Triggered by |
+| --- | --- | --- |
+| **5/5** | Safe to merge | 0 verified findings above the confidence gate and empirical checks passed |
+| **4/5** | Minor follow-up | `LOW` confirmed findings, `NEEDS_QUESTION` findings, or a minor verification gap/warning (e.g. A/B skipped) |
+| **3/5** | Moderate risk | Confirmed `MEDIUM` finding, base-test regression, or tautological A/B test |
+| **2/5** | High risk | Confirmed `HIGH` finding or failing CI / taint / browser / proof check |
+| **1/5** | Critical blocker | Confirmed `CRITICAL` finding or 2+ confirmed `HIGH` findings |
+
 ---
 
 ## Security Model & Private/Public Isolation

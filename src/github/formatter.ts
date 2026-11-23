@@ -441,7 +441,7 @@ export function formatReviewMarkdown(
     options.triggerCommentId !== undefined ? ` trigger_comment=${options.triggerCommentId}` : '';
   sections.push(
     `---\n` +
-      `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +
+      `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine} · Alpha — [feedback / open an issue](https://github.com/civico-de/civireview/issues/new)</sub>\n` +
       `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5${triggerAttr} -->`,
   );
 
