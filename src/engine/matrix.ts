@@ -269,6 +269,12 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         status: 'WARN',
         detail: `${pairPrefix}${proofCheck.bothFail.length} test(s) fail on both base and PR`,
       });
+    } else if (proofCheck.status === 'ERROR') {
+      matrix.push({
+        check: proofCheckLabel,
+        status: 'NOT_VERIFIED',
+        detail: `${pairPrefix}${proofCheck.summary} (A/B runner error; no test regression observed)`,
+      });
     } else {
       matrix.push({
         check: proofCheckLabel,
@@ -451,6 +457,53 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
   return { verificationMatrix: matrix, notVerified };
 }
 
+/**
+ * Refines deterministic matrix entries using Stage 0 Triage context:
+ * - On `core-ref-nfc` (refactor/NFC) PRs, tests passing on both base & PR prove
+ *   behavior preservation (`PASS`) rather than a missing bugfix transition (`WARN`).
+ * - When Jenkins failed with concrete failed test details that Triage assessed as
+ *   `likely-flaky` (unrelated to the PR), downgrades `CI / Jenkins` from `FAIL`
+ *   to `WARN` so a flaky CI job does not falsely force `NEEDS_CHANGES`.
+ */
+export function reconcileMatrixForTriage(
+  matrix: VerificationMatrixEntry[],
+  triage: TriageOutput,
+): VerificationMatrixEntry[] {
+  return matrix.map((row) => {
+    if (
+      triage.prKind === 'core-ref-nfc' &&
+      (row.check === 'A/B Proof-of-Fix' || row.check === 'CiviKitchen A/B Proof-of-Fix') &&
+      row.status === 'WARN' &&
+      /passed on A and B|passed on both/i.test(row.detail) &&
+      !/tautological/i.test(row.detail)
+    ) {
+      return {
+        ...row,
+        status: 'PASS',
+        detail: row.detail.replace(
+          /\s*\(no fail-to-pass transition observed\)/i,
+          ' (NFC/refactor: behavior preserved)',
+        ),
+      };
+    }
+    if (
+      row.check === 'CI / Jenkins' &&
+      row.status === 'FAIL' &&
+      triage.ciFailureAssessment === 'likely-flaky'
+    ) {
+      const reason = triage.ciFailureReason?.trim()
+        ? ` — likely unrelated flake: ${triage.ciFailureReason.trim()}`
+        : ' — likely unrelated flake';
+      return {
+        ...row,
+        status: 'WARN',
+        detail: `${row.detail}${reason}`,
+      };
+    }
+    return row;
+  });
+}
+
 export interface ConfidenceScoreResult {
   score: ConfidenceScore;
   rationale: string;
@@ -546,6 +599,8 @@ export function computeConfidenceScore(params: {
 
   if (ci?.status === 'FAIL') {
     capAt(2, 'CI / Jenkins failed');
+  } else if (ci?.status === 'WARN' && /flake/i.test(ci.detail)) {
+    capAt(4, 'CI / Jenkins failed (likely unrelated flake)');
   }
   if (staticDelta?.status === 'FAIL') {
     capAt(2, 'Static / Taint delta introduced new errors');

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Native Duderino → Jenkins `/testReport/api/json` + `CiviCRM-Style` CI evidence & flaky-CI assessment**: Parses failing jobs from `test.civicrm.org/duderino/batch/.../tasks?filter=failed`, reads public `CiviCRM-Style` bad-style files, fetches exact failed test names + stack traces when `CIVICRM_JENKINS_USER` + `CIVICRM_JENKINS_TOKEN` are configured (wired in `watch-core.yml`), and lets Stage 0 Triage distinguish PR-related CI failures from unrelated flaky CI runs.
 - **Interactive Action Items (`- [ ] ...`) checklist in PR reviews**: Replaces static bullet lists with checkable GitHub task items for verified findings (with concise fix hints), failing empirical checks, and conflicting/duplicate open PRs (omitted on clean PRs).
 - **Related Open PRs & Possible GitLab Issues discovery (fixes #1)**: Deterministically pre-filters open PRs (by overlapping files, shared issue refs, and component/title keywords) and searches open `lab.civicrm.org` `dev/*` issues in parallel with Layer 1 A/B runs; Stage 0 Triage classifies grounded candidates as `duplicate`, `conflicts`, or `related` with calibrated confidence (`>= 60%`) and renders a compact `### Related Open PRs & Issues` table when matches are found.
 - **Bounded Verifier follow-up loop (`review.maxFollowUpRounds`, `0`–`2`, default `1`)**: The Stage 2 Verifier can now emit up to 2 targeted `followUpLeads` when it uncovers an uninvestigated adjacent defect, broken caller/hook contract, or edge case; each lead runs a focused follow-up specialist against the warm shared KV cache and is verified by a follow-up Verifier pass.
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tuned review prompts**: Tightened `prKind: security-sensitive` in triage and added DDL/schema atomicity, hook/JS data-shape contract checks, and unresolved maintainer comment checks to the correctness specialist.
 
 ### Fixed
+- **Prevented false `NEEDS_CHANGES` on `ck ab` runner errors and NFC/refactor PRs**: Marks `proof-of-fix` runner `ERROR`s as `NOT_VERIFIED` instead of `FAIL`, upgrades passed-both `A/B Proof-of-Fix` checks to `PASS` on `core-ref-nfc` PRs, and clarifies that `ext/*` inside `civicrm/civicrm-core` is not a standalone `extension-pr`.
 - **Never report `READY` when empirical checks fail**: `computeFinalVerdict` now upgrades `READY` to `NEEDS_CHANGES` whenever `CI / Jenkins`, `A/B Proof-of-Fix`, `Base-Test Regression`, `Browser A/B (Standalone)`, or `Static / Taint Delta` fails.
 - **Eliminated false `Base-Test Regression` failures on PR-modified tests**: `deriveRegressionTargets` excludes test files modified in the PR diff and runs unmodified sibling tests instead.
 - **Excluded `tests/phpunit/E2E/` Mink tests from headless PHPUnit proof-of-fix**: Prevents Selenium-dependent E2E tests from failing on both base and PR in headless PHPUnit runs.

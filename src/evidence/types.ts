@@ -221,6 +221,7 @@ export const CiStatusReportSchema = z.object({
   checks: z.array(CiCheckItemSchema),
   jenkinsBatchUrl: z.string().optional(),
   jenkinsFailedTests: z.array(z.string()),
+  jenkinsFailureDetails: z.array(z.string()).optional(),
   summary: z.string(),
 });
 export type CiStatusReport = z.infer<typeof CiStatusReportSchema>;

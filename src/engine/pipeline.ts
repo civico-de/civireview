@@ -35,6 +35,7 @@ import {
   CANONICAL_STANDARD_CODES,
   computeConfidenceScore,
   mergeStandards,
+  reconcileMatrixForTriage,
   reconcileStandardsDeterministically,
   resolveStageEffort,
   type ConfidenceScoreResult,
@@ -388,7 +389,8 @@ async function executeReviewPipeline(
   };
   let hasUsage = false;
 
-  const { verificationMatrix, notVerified } = buildVerificationMatrix(bundle);
+  const { verificationMatrix: initialMatrix, notVerified } = buildVerificationMatrix(bundle);
+  let verificationMatrix = initialMatrix;
 
   // Stage 0: Triage
   const triageEffort = resolveStageEffort({
@@ -432,6 +434,7 @@ async function executeReviewPipeline(
   );
 
   const triage = triageResult.output;
+  verificationMatrix = reconcileMatrixForTriage(verificationMatrix, triage);
   const relatedItems = filterGroundedRelatedItems(triage.relatedItems, bundle);
   const browserSignal = hasBrowserSignal(bundle);
   const candidateLenses = Array.from(

@@ -138,6 +138,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          CIVICRM_JENKINS_USER: ${{ secrets.CIVICRM_JENKINS_USER }}
+          CIVICRM_JENKINS_TOKEN: ${{ secrets.CIVICRM_JENKINS_TOKEN }}
           # SECURITY INVARIANT: civicrm/civicrm-core is public; never inject team MCP credentials.
           CIVICRM_MCP_URL: ''
           CIVICRM_MCP_TOKEN: ''

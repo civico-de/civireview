@@ -57,6 +57,9 @@ export const RelatedItemSchema = z.object({
 });
 export type RelatedItem = z.infer<typeof RelatedItemSchema>;
 
+export const CiFailureAssessmentSchema = z.enum(['related', 'likely-flaky', 'unknown']);
+export type CiFailureAssessment = z.infer<typeof CiFailureAssessmentSchema>;
+
 export const TriageOutputSchema = z.object({
   prKind: PrKindSchema,
   riskLevel: z.enum(['low', 'medium', 'high']),
@@ -65,6 +68,8 @@ export const TriageOutputSchema = z.object({
   summaryBullets: z.array(z.string()),
   recommendedAbTests: z.array(z.string()),
   relatedItems: z.array(RelatedItemSchema).max(6).optional(),
+  ciFailureAssessment: CiFailureAssessmentSchema.optional(),
+  ciFailureReason: z.string().max(300).optional(),
   skipReason: z.string().optional(),
 });
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;

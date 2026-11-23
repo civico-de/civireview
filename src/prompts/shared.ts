@@ -130,6 +130,7 @@ ${bundle.abReport.surfaceDiff.changes.map((c) => `- [${c.kind}/${c.change}] ${c.
 ${bundle.ciStatus.summary}
 ${bundle.ciStatus.jenkinsBatchUrl ? `Duderino batch: ${bundle.ciStatus.jenkinsBatchUrl}` : ''}
 ${bundle.ciStatus.jenkinsFailedTests.length > 0 ? `Failed tests:\n${bundle.ciStatus.jenkinsFailedTests.map((t) => `- ${t}`).join('\n')}` : ''}
+${bundle.ciStatus.jenkinsFailureDetails && bundle.ciStatus.jenkinsFailureDetails.length > 0 ? `Jenkins failure details:\n${bundle.ciStatus.jenkinsFailureDetails.map((d) => `- ${d}`).join('\n')}` : ''}
 
 ## CiviKitchen A/B Results
 Executed: ${bundle.abReport.executed} (images: ${bundle.abReport.imageA} vs ${bundle.abReport.imageB})
