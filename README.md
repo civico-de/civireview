@@ -142,6 +142,12 @@ civireview publish  --review ./review.json --evidence ./evidence
 
 See [`civireview.example.yaml`](civireview.example.yaml) for the full configuration schema.
 
+### CiviKitchen A/B Resilience (Image Fallback, Staleness Overlay, Timeouts & Retries)
+
+- **Pre-flight image tag check & fallback:** Before launching `ck ab`, `civireview` checks `docker image inspect` (local cache) and `docker manifest inspect` (GHCR) for the target branch's image tag. If a newly-cut release branch (e.g. `standalone-6.21`) has not been published yet, it automatically falls back (`standalone-X.Y` → `standalone-beta` → `standalone-master` → `standalone-latest` → `standalone`) instead of failing.
+- **Fast git-delta staleness overlay (`civicrm-core`):** Prebuilt nightly images (`standalone-master`, `standalone-beta`) can lag upstream `master` by up to 24 hours. Before mounting PR files, `civireview` reads the local image's `.Created` timestamp (or falls back to a 36-hour window on fresh CI runners), runs `git log --since=... --name-only <baseSha>`, and bind-mounts up to 50 recently-merged base files from `worktreeA` into both A and B (skipping `DAO/` and PR-modified paths). This bridges nightly image lag in `< 0.1s` with zero Docker rebuilds; rare Composer/schema-only mismatches still degrade gracefully to `NOT_VERIFIED` and defer to Jenkins CI.
+- **Per-target timeouts, transient retry & diagnostic tail:** Multi-target container runs wrap each test file in a `120s` `timeout` so a table-lock hang on unfixed Base A exits `124` cleanly instead of killing the outer `ck ab` run at `600s`. Transient non-timeout runner errors retry once (deterministic missing-image and mount errors are never retried), and failures log exit code, duration, timeout flag, and the last 10 non-progress lines of container output.
+
 ---
 
 ## Model Mixing & Presets
@@ -150,22 +156,25 @@ Every stage accepts `<provider>:<modelId>` (`anthropic`, `openai`, `google`, `op
 
 | Preset | Triage | Specialists | Verifier |
 | --- | --- | --- | --- |
-| `sonnet` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-sonnet-5-5` |
-| `sonnet-opus` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-opus-5-5` |
+| `sonnet` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-sonnet-5-5` |
+| `sonnet-opus` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-sonnet-5-5` | `anthropic:claude-opus-5-5` |
 | `cross-model` | `anthropic:claude-haiku-5-5` | `anthropic:claude-sonnet-5-5` | `openai:gpt-5.2` |
 | `subscription` | `claude-cli:haiku` | `claude-cli:sonnet` | `claude-cli:opus` |
 | `local-gpu` | `openai-compat:local` | `opencode-cli:local` | `opencode-cli:local` |
 
-### Dynamic Reasoning Effort (`effort: auto`)
+### Review Depth, Dynamic Effort (`effort: auto`) & Confidence Gate
 
-By default (`--effort auto`), `civireview` tunes Anthropic `effort` / OpenAI `reasoningEffort` / Claude CLI `--effort` per stage and PR complexity:
+- **Depth profiles (`--depth fast|balanced|deep`, default `deep`):**
+  - `deep`: `maxSteps: 35`, `triageMaxSteps: 10`, `maxOutputTokens: 16384`, `stageTimeoutMs: 360s`, `maxFollowUpRounds: 2`, with Triage, all active Specialists (`correctness`, `security`, `tests`, `ui`), and Verifier running at `effort: high`. Stage 2 Verifier **always runs** in `deep` mode (even when Stage 1 reports 0 candidates) to audit the PR, emit targeted `followUpLeads`, and produce `reconciledWalkthrough` bullets.
+  - `balanced`: `maxSteps: 18`, `triageMaxSteps: 6`, `maxOutputTokens: 12288`, `stageTimeoutMs: 240s`, `maxFollowUpRounds: 1` (`triage: low`, `specialists: medium`, `verifier: medium/high`).
+  - `fast`: `maxSteps: 12`, `triageMaxSteps: 4`, `maxOutputTokens: 8192`, `stageTimeoutMs: 180s`, `maxFollowUpRounds: 0`.
+- **Confidence gate & collapsed `Lower-Confidence Notes`:**
+  - Non-`REJECTED` findings with `confidence >= 80` (configurable via `review.confidenceThreshold`) are posted as inline/summary findings and drive the verdict and 1–5 merge confidence score.
+  - Non-`REJECTED` findings scoring **50%–79%** are preserved in a collapsed-by-default `<details>` section (`Lower-Confidence Notes`) so reviewers can optionally inspect borderline observations without adding inline noise.
+  - Disproved `REJECTED` findings are dropped completely.
+- **External 1-minute watcher trigger:** For instant mention pickup without burning GitHub Actions cron minutes while idle, see [`scripts/external-cron-trigger.sh`](scripts/external-cron-trigger.sh).
 
-- **Stage 0 (Triage):** `low` (fast routing + walkthrough)
-- **Stage 1 (Specialists):** `medium` on small/routine PRs; `high` on large diffs (>250 lines or >6 non-test files), `security-sensitive` PRs, security surface risks, or failing empirical A/B checks
-- **Stage 2 (Verifier):** skipped when Stage 1 produces 0 candidates; `medium` for low/medium candidates; `high` whenever verifying `high`/`critical` candidates, ≥4 candidates, `security-sensitive` PRs, or failing empirical checks
-- **Inline replies:** `medium`
-
-Override globally with `--effort <low|medium|high|xhigh|max>` or per stage via `review.stageEffort` in `civireview.yaml`.
+Override effort globally with `--effort <low|medium|high|xhigh|max>` or per stage via `review.stageEffort` in `civireview.yaml`.
 
 ---
 
