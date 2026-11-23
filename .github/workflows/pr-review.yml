@@ -103,8 +103,10 @@ on:
 # Least-privilege root: every job explicitly declares only the permissions it needs.
 permissions: {}
 
+# Inline thread questions run in their own group per comment, so they neither cancel a
+# running full review nor each other; a newer full-review request still supersedes an older one.
 concurrency:
-  group: civireview-${{ github.repository }}-${{ inputs.pr_number || github.event.issue.number || github.event.pull_request.number || github.ref }}
+  group: civireview-${{ github.repository }}-${{ github.event_name == 'pull_request_review_comment' && format('thread-{0}', github.event.comment.id) || inputs.pr_number || github.event.issue.number || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

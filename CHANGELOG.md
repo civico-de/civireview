@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Watcher**: a mention whose processing fails (e.g. publishing returns 403 after the models ran) counts against `maxReviewsPerHour`/`maxDailyUsd`, no longer aborts the pass, and is given up after 3 attempts. `watch --once` exits non-zero when a mention failed.
+- **Watcher state**: `seen.json` is written atomically, and an unreadable file is an error instead of an empty state that re-processes every old mention.
+- **`@civireview` parser**: apostrophes in the question (`doesn't`) no longer swallow the flags that follow.
+- **Suggestions**: no `suggestion` block when the finding's lines were snapped, shortened or collapsed, since applying it would replace the wrong lines.
+- **Evidence**: all PR comments, review comments and reviews are fetched (previously only the first 100, dropping the newest). The "already reviewed" marker is only read from the last line of a comment, so a quote-reply or marker text in prose no longer suppresses a review, and Windows line endings are accepted.
+- **Dirty checkout**: when the checked-out HEAD equals the PR head but has uncommitted changes to tracked files, the review reads a clean detached worktree instead of those edits.
+- **Model CLIs**: `claude`, `codex` and `opencode` runs are killed after `review.stageTimeoutMs` instead of hanging the pass; `OPENCODE_BIN` overrides the binary like `CLAUDE_BIN`/`CODEX_BIN`.
+- **MCP**: an unreachable `civicrm-knowledge` or stdio MCP server logs a warning before the stage continues without its tools.
+- **API runner**: a model answer wrapped in prose or a code fence is recovered instead of failing the stage, and unparseable answers report stage, model and finish reason.
+- **Merge confidence**: the rationale names the strictest cap first, so a red CI is no longer hidden behind weaker findings when it decides the score.
+- **Image selection**: an unquoted `policy.civicrm: 6.10` in `civikitchen.yaml` is read as `6.10`, not `6.1`.
+- **CI**: inline thread replies run in their own concurrency group per comment, so a reply no longer cancels a running full review of the same PR, nor another reply.
+- **Inline cap**: findings beyond `maxInlineComments` are moved to the summary instead of being dropped.
+- **Repo tools**: `read_file` can no longer read `.git/` (remote URLs may carry credentials); `grep_repo` reports an invalid pattern instead of an empty result.
+- **Publishing**: a refused `REQUEST_CHANGES`/`APPROVE` is retried as `COMMENT` before inline comments are folded into the summary; review and comment bodies are kept below GitHub's size limit; proof output with backticks no longer breaks the markdown.
+- **Triage**: no active lens without a skip reason is an error, and a PR whose selected lenses are all disabled by config says so instead of reporting a plain READY.
+
 ## [0.3.2] - 2026-11-23
 
 ### Changed
