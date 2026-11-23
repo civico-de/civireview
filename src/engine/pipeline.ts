@@ -640,6 +640,7 @@ async function executeReviewPipeline(
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
       allowFollowUpLeads: maxFollowUpRounds > 0,
       triageBullets: walkthrough,
+      blastRadius,
       confidenceThreshold: config.review.confidenceThreshold,
     });
     const liveProveEnabled =
@@ -705,6 +706,9 @@ async function executeReviewPipeline(
       verifierResult.output.reconciledWalkthrough.length > 0
     ) {
       walkthrough = verifierResult.output.reconciledWalkthrough;
+    }
+    if (verifierResult.output.reconciledBlastRadius) {
+      blastRadius = mergeBlastRadius([verifierResult.output.reconciledBlastRadius]);
     }
 
     // Bounded Verifier -> Follow-up Specialist -> Verifier loop (at most maxFollowUpRounds)
@@ -802,6 +806,7 @@ async function executeReviewPipeline(
       const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
         allowFollowUpLeads: round < maxFollowUpRounds,
         triageBullets: walkthrough,
+        blastRadius,
         confidenceThreshold: config.review.confidenceThreshold,
       });
       const fuVerifierResult = await runStage(
@@ -853,6 +858,9 @@ async function executeReviewPipeline(
         fuVerifierResult.output.reconciledWalkthrough.length > 0
       ) {
         walkthrough = fuVerifierResult.output.reconciledWalkthrough;
+      }
+      if (fuVerifierResult.output.reconciledBlastRadius) {
+        blastRadius = mergeBlastRadius([fuVerifierResult.output.reconciledBlastRadius]);
       }
       pendingLeads = round < maxFollowUpRounds ? (fuVerifierResult.output.followUpLeads ?? []) : [];
     }

@@ -33,7 +33,10 @@ EVIDENCE DISCIPLINE:
 1. NEVER invent or fabricate command executions, test runs, stack traces, or MCP results you did not observe.
 2. Separate PROVEN (observed failing/passing in A/B test output or deterministic static check), CONFIRMED (verified in code/MCP against exact lines), and NEEDS_QUESTION (plausible risk requiring author confirmation or runtime check).
 3. Explicitly note what could NOT be verified (e.g., schema rebuilds, upgrades, composer changes, skipped A/B checks).
-4. Account for PR discussion (\`pr_comments\`) and linked GitHub/GitLab issues (\`linked_issues\`): check whether reviewer concerns raised in comments were actually addressed in the current head SHA, avoid repeating questions already answered in the thread, and check whether the PR resolves the linked issue's stated repro steps.
+4. Account for PR discussion (\`pr_comments\`) and linked GitHub/GitLab issues (\`linked_issues\`):
+   - Check whether reviewer concerns or change requests raised in comments were actually addressed in the current \`headSha\`.
+   - IMPORTANT DISTINCTION: If a human reviewer requested a concrete code or design change (e.g. method visibility, moving logic to a shared helper, fixing an edge case) and it is STILL unaddressed in \`headSha\` — even if the author replied "I will look into it" / "TODO" without pushing the fix — treat that as an OPEN, UNADDRESSED concern (report it as \`CONFIRMED\` or \`NEEDS_QUESTION\` citing \`@reviewer\`), NOT as resolved. Only skip questions that were already genuinely answered or resolved in the code.
+   - Check whether the PR resolves the linked issue's stated repro steps.
 `.trim();
 
 /**

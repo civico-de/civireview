@@ -711,7 +711,7 @@ export async function runCiviKitchenAb(
             proofCmd,
           );
           checks.push(check);
-        } else {
+        } else if (skippedE2eTests.length === 0) {
           notVerified.push('No added/modified PHPUnit tests in PR; Proof-of-Fix A/B test skipped.');
         }
 
@@ -792,7 +792,7 @@ export async function runCiviKitchenAb(
             extProofCmd,
           );
           checks.push(check);
-        } else {
+        } else if (skippedE2eTests.length === 0) {
           notVerified.push('No added/modified PHPUnit tests in PR; Proof-of-Fix A/B test skipped.');
         }
 

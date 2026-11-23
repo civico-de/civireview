@@ -117,6 +117,7 @@ export const VerifierOutputSchema = z.object({
   verifiedFindings: z.array(VerifiedFindingSchema),
   reconciledStandards: z.array(StandardVerdictSchema).optional(),
   reconciledWalkthrough: z.array(z.string().min(1)).max(10).optional(),
+  reconciledBlastRadius: z.array(BlastRadiusItemSchema).max(12).optional(),
   followUpLeads: z.array(FollowUpLeadSchema).max(3).default([]),
   notes: z.string(),
 });

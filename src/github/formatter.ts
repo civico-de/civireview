@@ -158,7 +158,7 @@ function buildActionItems(review: FinalReview): string[] {
       f.verdict === 'NEEDS_QUESTION'
         ? ''
         : f.suggestedFix.trim()
-          ? ` — ${truncateOneLine(f.suggestedFix, 120)}`
+          ? ` — ${truncateOneLine(f.suggestedFix, 220)}`
           : '';
     items.push(
       `- [ ] **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]** ${loc} — ${f.title}${fixHint}`,
@@ -168,7 +168,7 @@ function buildActionItems(review: FinalReview): string[] {
   for (const row of review.verificationMatrix) {
     if (row.status === 'FAIL') {
       items.push(
-        `- [ ] **[CHECK FAILED]** Resolve \`${row.check}\`: ${truncateOneLine(row.detail, 140)}`,
+        `- [ ] **[CHECK FAILED]** Resolve \`${row.check}\`: ${truncateOneLine(row.detail, 220)}`,
       );
     }
   }
@@ -177,7 +177,7 @@ function buildActionItems(review: FinalReview): string[] {
     if (rel.relationship === 'conflicts' || rel.relationship === 'duplicate') {
       const label = rel.kind === 'pr' ? `PR ${rel.ref}` : rel.ref;
       items.push(
-        `- [ ] **[${rel.relationship.toUpperCase()}]** Coordinate with [${label}](${rel.url}): ${truncateOneLine(rel.reason, 120)}`,
+        `- [ ] **[${rel.relationship.toUpperCase()}]** Coordinate with [${label}](${rel.url}): ${truncateOneLine(rel.reason, 220)}`,
       );
     }
   }
@@ -258,12 +258,20 @@ export function formatReviewMarkdown(
       `- **PR:** \`${review.repo}#${review.prNumber}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
   );
 
-  // Interactive Action Items checklist right at the top when there are findings, failed checks, or conflicts
+  // Zone 1 (Top — always visible): Action Items + Summary-Only Findings + Verification Matrix + Related PRs
   const actionItems = buildActionItems(review);
   if (actionItems.length > 0) {
     sections.push(`### Action Items (${actionItems.length})\n${actionItems.join('\n')}`);
   } else {
     sections.push(`### Findings\nNo verified high-signal issues found above the confidence gate.`);
+  }
+
+  // Render out-of-diff / summary-only findings right below Action Items (not buried below reference tables)
+  if (allSummaryFindings.length > 0) {
+    sections.push(
+      `### Findings (Out-of-Diff / Summary)\n\n` +
+        allSummaryFindings.map(formatSummaryFinding).join('\n\n'),
+    );
   }
 
   // Empirical Verification Matrix (always visible, compact table)
@@ -286,8 +294,9 @@ export function formatReviewMarkdown(
   }
   sections.push(matrixSection);
 
-  // Standalone Browser A/B details (expanded when regressions exist, collapsible when clean)
+  // Standalone Browser A/B: only expand in Zone 1 when regressions exist; otherwise group in Zone 2 <details>
   const bd = bundle.abReport.browserDiff;
+  let cleanBrowserDetailsSection: string | undefined;
   if (bd) {
     const routesList = Array.from(
       new Set([
@@ -331,9 +340,7 @@ export function formatReviewMarkdown(
     if (hasBrowserRegressions) {
       sections.push(`### Standalone Browser A/B\n\n${browserLines.join('\n')}`);
     } else {
-      sections.push(
-        `<details>\n<summary>Standalone Browser A/B (${routesList.length} route(s), 0 regressions)</summary>\n\n${browserLines.join('\n')}\n</details>`,
-      );
+      cleanBrowserDetailsSection = `<details>\n<summary>Standalone Browser A/B (${routesList.length} route(s), 0 regressions)</summary>\n\n${browserLines.join('\n')}\n</details>`;
     }
   }
 
@@ -351,7 +358,7 @@ export function formatReviewMarkdown(
     );
   }
 
-  // Detailed Walkthrough (collapsible so reviewers aren't forced to read everything)
+  // Zone 2 (Bottom — all reference details consistently in collapsed <details> blocks)
   if (review.walkthrough.length > 0) {
     const noteLabel = review.walkthrough.length === 1 ? 'note' : 'notes';
     sections.push(
@@ -359,7 +366,6 @@ export function formatReviewMarkdown(
     );
   }
 
-  // CiviCRM Core Standards (expanded if any ISSUE, collapsible if all PASS/N/A)
   if (review.standards && review.standards.length > 0) {
     const stdRows = review.standards
       .map(
@@ -367,18 +373,14 @@ export function formatReviewMarkdown(
           `| \`${escapeTableCell(s.code)}\` | ${escapeTableCell(s.status)} | ${escapeTableCell(s.note)} |`,
       )
       .join('\n');
-    const hasStdIssue = review.standards.some((s) => s.status === 'ISSUE');
+    const issueCount = review.standards.filter((s) => s.status === 'ISSUE').length;
+    const statusLabel = issueCount > 0 ? `${issueCount} ISSUE` : 'all PASS/N/A';
     const stdTable = `| Code | Status | Note |\n| --- | --- | --- |\n${stdRows}`;
-    if (hasStdIssue) {
-      sections.push(`### CiviCRM Core Standards\n\n${stdTable}`);
-    } else {
-      sections.push(
-        `<details>\n<summary>CiviCRM Core Standards (${review.standards.length} checks — all PASS/N/A)</summary>\n\n${stdTable}\n</details>`,
-      );
-    }
+    sections.push(
+      `<details>\n<summary>CiviCRM Core Standards (${review.standards.length} checks — ${statusLabel})</summary>\n\n${stdTable}\n</details>`,
+    );
   }
 
-  // Ecosystem Blast Radius
   if (review.blastRadius.length > 0) {
     const blastRows = review.blastRadius
       .map(
@@ -386,17 +388,14 @@ export function formatReviewMarkdown(
           `| ${escapeTableCell(b.repo)} | \`${escapeTableCell(b.path)}\` | \`${escapeTableCell(b.symbol)}\` | ${escapeTableCell(b.impact)} |`,
       )
       .join('\n');
+    const itemLabel = review.blastRadius.length === 1 ? 'item' : 'items';
     sections.push(
-      `### Ecosystem Blast Radius\n\n| Repo | Path | Symbol | Impact |\n| --- | --- | --- | --- |\n${blastRows}`,
+      `<details>\n<summary>Ecosystem Blast Radius (${review.blastRadius.length} ${itemLabel})</summary>\n\n| Repo | Path | Symbol | Impact |\n| --- | --- | --- | --- |\n${blastRows}\n</details>`,
     );
   }
 
-  // Summary-only / overflow findings
-  if (allSummaryFindings.length > 0) {
-    sections.push(
-      `### Additional Findings (Summary-Only)\n\n` +
-        allSummaryFindings.map(formatSummaryFinding).join('\n\n'),
-    );
+  if (cleanBrowserDetailsSection) {
+    sections.push(cleanBrowserDetailsSection);
   }
 
   if (review.uncertainFindings && review.uncertainFindings.length > 0) {

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-23
+
+### Changed
+- **Consistent 2-zone review layout**:
+  - **Zone 1 (Top — always visible, actionable)**: Header + alpha notice + Summary + Merge Confidence, `Action Items` (with 220-char word-boundary hints), full `Findings (Out-of-Diff / Summary)` rendered right below Action Items (no longer buried at the bottom below reference tables), `Empirical Verification Matrix`, and `Related Open PRs & Issues`.
+  - **Zone 2 (Bottom — all reference details consistently in collapsed `<details>` blocks)**: `Detailed Walkthrough (N notes)`, `CiviCRM Core Standards (N checks — M ISSUE | all PASS/N/A)`, `Ecosystem Blast Radius (N items)`, `Standalone Browser A/B (N route(s), 0 regressions)`, and `Lower-Confidence Notes`.
+- **Unaddressed human reviewer requests preserved as active findings**: Updated `EVIDENCE_DISCIPLINE_RULES` and the Stage 2 Verifier prompt so concrete code/design change requests from human reviewers in `pr_comments` that are still unaddressed in `headSha` (even when the author replied *"I will look into it"*) are preserved as `CONFIRMED` (`confidence >= threshold`) rather than rejected as "already acknowledged".
+- **Stage 2 `reconciledBlastRadius`**: Stage 2 Verifier now reconciles Stage 1 `blastRadius` rows so disproved Stage 1 claims cannot leak into `Ecosystem Blast Radius`.
+- **Suppressed duplicate `No added/modified PHPUnit tests` note on E2E-only PRs**: When `skippedE2eTests.length > 0`, `notVerified` no longer appends a redundant `No added/modified PHPUnit tests in PR` bullet.
+
 ## [0.2.8] - 2026-11-23
 
 ### Fixed
