@@ -49,7 +49,7 @@ export interface PresetModels {
 
 export const PRESETS: Record<PresetName, PresetModels> = {
   sonnet: {
-    triage: 'anthropic:claude-haiku-5-5',
+    triage: 'anthropic:claude-sonnet-5-5',
     specialists: {
       correctness: 'anthropic:claude-sonnet-5-5',
       security: 'anthropic:claude-sonnet-5-5',
@@ -60,7 +60,7 @@ export const PRESETS: Record<PresetName, PresetModels> = {
     threadReply: 'anthropic:claude-sonnet-5-5',
   },
   'sonnet-opus': {
-    triage: 'anthropic:claude-haiku-5-5',
+    triage: 'anthropic:claude-sonnet-5-5',
     specialists: {
       correctness: 'anthropic:claude-sonnet-5-5',
       security: 'anthropic:claude-sonnet-5-5',

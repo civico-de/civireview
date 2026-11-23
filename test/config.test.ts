@@ -41,6 +41,8 @@ describe('config schema and loader', () => {
   });
 
   test('resolves all named presets cleanly', () => {
+    expect(resolveModels('sonnet').triage).toBe('anthropic:claude-sonnet-5-5');
+    expect(resolveModels('sonnet-opus').triage).toBe('anthropic:claude-sonnet-5-5');
     expect(resolveModels('sonnet-opus').verifier).toBe('anthropic:claude-opus-5-5');
     expect(resolveModels('cross-model').verifier).toBe('openai:gpt-5.2');
     expect(resolveModels('subscription').triage).toBe('claude-cli:haiku');

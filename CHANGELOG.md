@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CiviReview branding**: Added `assets/logo.png` and updated `README.md`.
 
 ### Changed
+- **Switched Stage 0 Triage to `claude-sonnet-5-5` in `sonnet` and `sonnet-opus` presets**: Warms the Sonnet KV cache before Stage 1 specialists start, improves TL;DR summaries and related PR/issue classification, and avoids `security-sensitive` over-classification.
 - **Improved prompt caching across Stage 1 specialists**: Placed `sharedPrefix` ahead of lens-specific `systemPrompt` in Anthropic `instructions` and switched Stage 1 specialists to sequential execution so specialist #1 writes the KV cache once and specialists #2..N reuse it via warm `cache_read` hits.
 - **Enabled top-level Anthropic automatic prompt caching**: Added top-level `providerOptions.anthropic.cacheControl: { type: 'ephemeral' }` so multi-turn tool-call loops reuse cached history on every step.
 - **Cleaner `civicrm-core` review formatting**: Replaced verbose `CiviKitchen A/B Proof-of-Fix` / `standalone-master vs standalone-master` jargon with plain `A/B Proof-of-Fix` and `failed on base, passed on PR`, deduplicated `Summary` vs. `Merge Confidence`, and compacted the footer to a single line.
