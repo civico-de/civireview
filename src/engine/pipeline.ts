@@ -28,7 +28,6 @@ import {
   filterGroundedRelatedItems,
   mergeBlastRadius,
 } from './findings.ts';
-import { mapFindingsToDiff } from './line-mapper.ts';
 import {
   adoptReconciledStandards,
   applyThreadResolutionsToMatrix,
@@ -269,7 +268,10 @@ interface HeadWorktreeHandle {
  * Ensures Stage 0/1/2 file tools (`Read`/`Grep`/`Glob`) inspect the exact PR
  * `headSha` even when the local checkout is on a different branch.
  */
-async function materializeHeadWorktree(cwd: string, headSha: string): Promise<HeadWorktreeHandle> {
+export async function materializeHeadWorktree(
+  cwd: string,
+  headSha: string,
+): Promise<HeadWorktreeHandle> {
   const noop: HeadWorktreeHandle = {
     effectiveCwd: cwd,
     atHeadSha: false,
@@ -300,7 +302,12 @@ async function materializeHeadWorktree(cwd: string, headSha: string): Promise<He
     headRes.out.toLowerCase() === headSha.toLowerCase() ||
     headRes.out.toLowerCase().startsWith(headSha.toLowerCase())
   ) {
-    return { effectiveCwd: cwd, atHeadSha: true, cleanup: async () => {} };
+    // Uncommitted edits in the checkout would be read as if they were part of the PR head,
+    // so a dirty tree is reviewed from a clean worktree of the same commit instead.
+    const statusRes = await runGit(['status', '--porcelain', '--untracked-files=no']);
+    if (statusRes.code === 0 && statusRes.out === '') {
+      return { effectiveCwd: cwd, atHeadSha: true, cleanup: async () => {} };
+    }
   }
 
   const existsRes = await runGit(['cat-file', '-e', `${headSha}^{commit}`]);
@@ -432,8 +439,16 @@ async function executeReviewPipeline(
   );
   const activeLenses = candidateLenses.filter((lens) => isLensEnabled(config, lens));
 
+  if (!triage.skipReason && candidateLenses.length === 0) {
+    throw new Error(
+      'Triage returned no active lenses and no skipReason; refusing to report an unreviewed PR as ready.',
+    );
+  }
+
   if ((triage.skipReason && !browserSignal) || activeLenses.length === 0) {
-    logger?.info?.(`Triage skipped specialists: ${triage.skipReason ?? 'no active lenses'}`);
+    const skippedReason =
+      triage.skipReason ?? 'All specialist lenses selected by triage are disabled by config.';
+    logger?.info?.(`Triage skipped specialists: ${skippedReason}`);
     const skipVerdict = computeFinalVerdict([], verificationMatrix);
     const skipScore = computeConfidenceScore({
       verdict: skipVerdict,
@@ -463,12 +478,12 @@ async function executeReviewPipeline(
       score: skipScore.score,
       scoreRationale: skipScore.rationale,
       shortSummary: skipShortSummary,
+      // A reason the PR was not reviewed must be visible; triage's own skip reason is
+      // already implied by its summary.
       walkthrough:
         triage.summaryBullets.length > 0
-          ? triage.summaryBullets
-          : triage.skipReason
-            ? [triage.skipReason]
-            : ['No specialist lenses required for this change.'],
+          ? [...triage.summaryBullets, ...(triage.skipReason ? [] : [skippedReason])]
+          : [skippedReason],
       verificationMatrix,
       notVerified,
       blastRadius: [],
@@ -843,13 +858,8 @@ async function executeReviewPipeline(
   const deduped = deduplicateVerifiedFindings(gated);
   const sorted = deduped.toSorted(compareVerifiedFindings);
 
-  // Cap inline-mapped findings at config.review.maxInlineComments while preserving out-of-diff findings
-  const mapped = mapFindingsToDiff(sorted, bundle.diffFiles);
-  const maxInline = config.review.maxInlineComments;
-  const keptInlineIds = new Set(mapped.inlineFindings.slice(0, maxInline).map((m) => m.finding.id));
-  const summaryIds = new Set(mapped.summaryOnlyFindings.map((f) => f.id));
-
-  const survivingFindings = sorted.filter((f) => keptInlineIds.has(f.id) || summaryIds.has(f.id));
+  // The formatter caps inline comments and moves the overflow into the summary.
+  const survivingFindings = sorted;
 
   const droppedCount = Math.max(0, rawVerified.length - survivingFindings.length);
   if (rawVerified.length > 0) {

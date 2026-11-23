@@ -5,7 +5,9 @@ import { resolveMcpScope, type McpScopeResult } from '../mcp/scope.ts';
 import type { CommitStatusInput } from './jenkins.ts';
 import type { LinkedIssue, PrComment, PrMetadata } from './types.ts';
 
-const MARKER_RE = /<!--\s*civireview:v1\s+([^>]+?)\s*-->/;
+// The marker is its own last line of a posted review. Anchoring it to a line start ignores
+// quote-replies (`> <!-- … -->`), and taking the last match ignores marker text quoted in prose.
+const MARKER_RE = /^<!--[ \t]*civireview:v1[ \t]+([^>\n]+?)[ \t]*-->[ \t\r]*$/gm;
 const LINKED_ISSUE_RE =
   /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|ref(?:erence)?s?)\s+(?:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#(\d+)|https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/issues\/(\d+))/gi;
 const GITLAB_URL_RE =
@@ -31,7 +33,7 @@ export function extractAllReviewedMarkers(
   const markers: ParsedCivireviewMarker[] = [];
   for (const item of comments) {
     const body = item?.body ?? '';
-    const match = body.match(MARKER_RE);
+    const match = [...body.matchAll(MARKER_RE)].at(-1);
     if (!match?.[1]) continue;
     const attrs: ParsedCivireviewMarker = {};
     for (const pair of match[1].split(/\s+/)) {
@@ -97,6 +99,8 @@ export interface FetchGitHubPrOptions {
   token?: string;
   incremental?: boolean;
   config?: ResolvedCiviReviewConfig;
+  /** Injected client (tests); defaults to one authenticated with the resolved token. */
+  octokit?: Octokit;
 }
 
 export interface GitHubPrContext {
@@ -452,6 +456,22 @@ export async function fetchGitLabIssues(
   return results;
 }
 
+const MAX_LIST_PAGES = 20;
+
+/** Collects every page (100 items each, oldest first) so newer comments are never cut off. */
+export async function fetchAllPages<T>(
+  fetchPage: (page: number) => Promise<T[]>,
+  maxPages = MAX_LIST_PAGES,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const items = await fetchPage(page);
+    all.push(...items);
+    if (items.length < 100) return all;
+  }
+  throw new Error(`More than ${maxPages * 100} items; refusing to use a truncated list.`);
+}
+
 /**
  * Fetches PR metadata, diff (incremental delta if prior civireview marker exists),
  * comments/reviews, commit statuses, and linked GitHub issues.
@@ -459,8 +479,11 @@ export async function fetchGitLabIssues(
 export async function fetchGitHubPrContext(
   options: FetchGitHubPrOptions,
 ): Promise<GitHubPrContext> {
-  const token = await resolveGitHubToken(options.token);
-  const octokit = new Octokit(token ? { auth: token } : {});
+  let octokit = options.octokit;
+  if (!octokit) {
+    const token = await resolveGitHubToken(options.token);
+    octokit = new Octokit(token ? { auth: token } : {});
+  }
 
   const { owner, repo, prNumber } = options;
 
@@ -469,25 +492,22 @@ export async function fetchGitHubPrContext(
     octokit.pulls.get({ owner, repo, pull_number: prNumber }),
   ]);
 
-  const [{ data: issueComments }, { data: reviewComments }, { data: reviews }] = await Promise.all([
-    octokit.issues.listComments({
-      owner,
-      repo,
-      issue_number: prNumber,
-      per_page: 100,
-    }),
-    octokit.pulls.listReviewComments({
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-    }),
-    octokit.pulls.listReviews({
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-    }),
+  const [issueComments, reviewComments, reviews] = await Promise.all([
+    fetchAllPages((page) =>
+      octokit.issues
+        .listComments({ owner, repo, issue_number: prNumber, per_page: 100, page })
+        .then((r) => r.data),
+    ),
+    fetchAllPages((page) =>
+      octokit.pulls
+        .listReviewComments({ owner, repo, pull_number: prNumber, per_page: 100, page })
+        .then((r) => r.data),
+    ),
+    fetchAllPages((page) =>
+      octokit.pulls
+        .listReviews({ owner, repo, pull_number: prNumber, per_page: 100, page })
+        .then((r) => r.data),
+    ),
   ]);
 
   const comments: PrComment[] = [
