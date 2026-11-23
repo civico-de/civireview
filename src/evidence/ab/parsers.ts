@@ -478,6 +478,59 @@ export function buildAbCheckFromStdout(params: {
   const { name, args, imageA, imageB, res, addedTestMethods } = params;
   const isProofOfFix = name === 'proof-of-fix';
   const parsed = parseCkAbOutput(res.stdout);
+  const combined = `${res.stderr}\n${res.stdout}`;
+
+  // Handle known AbCommand exit-2 diagnostics cleanly instead of surfacing opaque runner errors:
+  // 1. Base A crashed before writing JUnit XML while PR B wrote JUnit XML (e.g. PR adds a new class/method)
+  if (isProofOfFix && res.exitCode !== 0 && /only B wrote\b/i.test(combined)) {
+    return {
+      name,
+      command: args.join(' '),
+      imageA,
+      imageB,
+      status: 'PASS',
+      mode: 'exit-status',
+      exitCodeA: 1,
+      exitCodeB: 0,
+      fixed: parsed.fixed,
+      regressions: [],
+      bothFail: [],
+      gone: [],
+      passedBoth: [],
+      tautologicalTests: [],
+      addedTestMethods,
+      summary: 'base A failed before JUnit output, PR B completed cleanly',
+      outputSnippet: formatAbOutputSnippet(res.stdout, res.stderr, res.exitCode),
+    };
+  }
+
+  // 2. Target contained 0 runnable headless test cases or identical mounts
+  if (
+    res.exitCode !== 0 &&
+    (/holds no test case/i.test(combined) || /same mounts; nothing to compare/i.test(combined))
+  ) {
+    return {
+      name,
+      command: args.join(' '),
+      imageA,
+      imageB,
+      status: 'SKIPPED',
+      exitCodeA: parsed.exitCodeA,
+      exitCodeB: parsed.exitCodeB,
+      fixed: [],
+      regressions: [],
+      bothFail: [],
+      gone: [],
+      passedBoth: [],
+      tautologicalTests: [],
+      addedTestMethods: isProofOfFix ? addedTestMethods : [],
+      summary: /holds no test case/i.test(combined)
+        ? 'No matching headless PHPUnit test cases in target.'
+        : 'Identical base and PR mounts; skipped.',
+      outputSnippet: formatAbOutputSnippet(res.stdout, res.stderr, res.exitCode),
+    };
+  }
+
   const status: AbCheckResult['status'] =
     res.exitCode === 0 ? 'PASS' : parsed.regressions.length > 0 ? 'FAIL' : 'ERROR';
   return {

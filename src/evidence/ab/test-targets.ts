@@ -11,15 +11,25 @@ export function isE2eMinkTestPath(filePath: string): boolean {
   return /(?:^|\/)tests\/phpunit\/E2E\//i.test(filePath);
 }
 
+function isLikelyHeadlessTestFile(absPath: string): boolean {
+  try {
+    const head = readFileSync(absPath, 'utf8').slice(0, 2000);
+    return /HeadlessInterface|@group\s+headless/i.test(head);
+  } catch {
+    return false;
+  }
+}
+
 function listUnmodifiedPhpUnitTests(
   dirRel: string,
   worktreeRoot: string,
   excludedPaths: Set<string>,
   limit: number,
 ): string[] {
-  const results: string[] = [];
+  const headless: string[] = [];
+  const fallback: string[] = [];
   const walk = (rel: string): void => {
-    if (results.length >= limit) return;
+    if (headless.length >= limit) return;
     const abs = join(worktreeRoot, rel);
     let entries;
     try {
@@ -29,7 +39,7 @@ function listUnmodifiedPhpUnitTests(
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (results.length >= limit) return;
+      if (headless.length >= limit) return;
       const childRel = `${rel}/${entry.name}`;
       if (entry.isDirectory()) {
         if (entry.name.toLowerCase() === 'e2e') continue;
@@ -40,12 +50,16 @@ function listUnmodifiedPhpUnitTests(
         !excludedPaths.has(childRel) &&
         !isE2eMinkTestPath(childRel)
       ) {
-        results.push(childRel);
+        if (isLikelyHeadlessTestFile(join(worktreeRoot, childRel))) {
+          headless.push(childRel);
+        } else if (fallback.length < limit) {
+          fallback.push(childRel);
+        }
       }
     }
   };
   walk(dirRel);
-  return results;
+  return headless.length > 0 ? headless.slice(0, limit) : fallback.slice(0, limit);
 }
 
 export function deriveRegressionTargets(diffFiles: DiffFile[], worktreeRoot?: string): string[] {
@@ -75,7 +89,7 @@ export function deriveRegressionTargets(diffFiles: DiffFile[], worktreeRoot?: st
       } catch {
         return false;
       }
-      if (isDir && hasModifiedInside) {
+      if (isDir) {
         const siblings = listUnmodifiedPhpUnitTests(candidate, worktreeRoot, prTouchedTestPaths, 3);
         for (const s of siblings) {
           targets.add(s);

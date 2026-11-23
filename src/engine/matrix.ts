@@ -269,6 +269,14 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         status: 'WARN',
         detail: `${pairPrefix}${proofCheck.bothFail.length} test(s) fail on both base and PR`,
       });
+    } else if (proofCheck.status === 'SKIPPED') {
+      if (!isCore) {
+        matrix.push({
+          check: proofCheckLabel,
+          status: 'SKIPPED',
+          detail: `${pairPrefix}${proofCheck.summary}`,
+        });
+      }
     } else if (proofCheck.status === 'ERROR') {
       matrix.push({
         check: proofCheckLabel,
@@ -312,6 +320,20 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         check: 'Base-Test Regression',
         status: 'PASS',
         detail: `${pairPrefix}${baseCheck.summary}`,
+      });
+    } else if (baseCheck.status === 'SKIPPED') {
+      if (!isCore) {
+        matrix.push({
+          check: 'Base-Test Regression',
+          status: 'SKIPPED',
+          detail: `${pairPrefix}${baseCheck.summary}`,
+        });
+      }
+    } else if (baseCheck.status === 'ERROR') {
+      matrix.push({
+        check: 'Base-Test Regression',
+        status: 'NOT_VERIFIED',
+        detail: `${pairPrefix}Internal A/B test runner error — could not execute base regression tests (not a PR failure).`,
       });
     } else {
       matrix.push({

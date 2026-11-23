@@ -497,18 +497,29 @@ export async function runCiviKitchenAb(
         }
       }
 
+      const check = buildAbCheckFromStdout({
+        name,
+        args,
+        imageA: imgA,
+        imageB: imgB,
+        res,
+        addedTestMethods,
+      });
+      if (check.status === 'ERROR') {
+        const firstErrLine =
+          `${res.stderr}\n${res.stdout}`
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .find((l) => l.length > 0) ?? 'no stderr';
+        console.error(
+          `[civireview:ab] ${name} runner error (exit ${res.exitCode}): ${firstErrLine.slice(0, 240)}`,
+        );
+      }
       return {
         subOut,
         stdout: res.stdout,
         stderr: res.stderr,
-        check: buildAbCheckFromStdout({
-          name,
-          args,
-          imageA: imgA,
-          imageB: imgB,
-          res,
-          addedTestMethods,
-        }),
+        check,
       };
     };
 
