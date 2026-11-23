@@ -76,7 +76,7 @@ export function computeSurfaceDiff(diffFiles: DiffFile[], repoInfo: RepoInfo): S
         detail: 'Upgrade handler changed; requires upgrade path verification.',
       });
       if (repoInfo.kind === 'civicrm-core') {
-        unverifiedSurfaces.add('upgrade path (CRM/Upgrade/*) not verified locally by ck ab mount');
+        unverifiedSurfaces.add('upgrade path (CRM/Upgrade/*) not verified locally');
       }
     }
     if (file.flags.isManaged) {

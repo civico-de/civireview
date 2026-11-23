@@ -405,10 +405,15 @@ export function buildAbCheckFromJson(params: {
     parsedJson.bothFail.length > 0 &&
     (parsedJson.counts?.a ?? 0) > parsedJson.bothFail.length;
 
+  const exitStatusBothNonZero =
+    parsedJson.mode === 'exit-status' &&
+    (parsedJson.exitCodeA ?? 0) !== 0 &&
+    (parsedJson.exitCodeB ?? 0) !== 0;
+
   const status: AbCheckResult['status'] =
     parsedJson.regressions.length > 0
       ? 'FAIL'
-      : bootstrapCrash
+      : bootstrapCrash || exitStatusBothNonZero
         ? 'ERROR'
         : effectiveExit === 0
           ? 'PASS'
