@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-23
+
 ### Fixed
 - **Watcher**: a mention whose processing fails (e.g. publishing returns 403 after the models ran) counts against `maxReviewsPerHour`/`maxDailyUsd`, no longer aborts the pass, and is given up after 3 attempts. `watch --once` exits non-zero when a mention failed.
 - **Watcher state**: `seen.json` is written atomically, and an unreadable file is an error instead of an empty state that re-processes every old mention.
