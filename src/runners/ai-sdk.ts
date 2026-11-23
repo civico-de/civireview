@@ -199,9 +199,18 @@ export class AiSdkRunner implements StageRunner {
         req.images,
       );
 
-      let providerOptions: Record<string, Record<string, string>> | undefined;
-      if (req.effort && parsed.provider === 'anthropic') {
-        providerOptions = { anthropic: { effort: req.effort } };
+      let providerOptions:
+        | Record<string, Record<string, string | { type: string }>>
+        | undefined;
+      if (parsed.provider === 'anthropic') {
+        // Top-level automatic cacheControl caches the growing multi-turn tool-result
+        // history on every step ($0.10/M cache read instead of $2.00/M uncached input).
+        providerOptions = {
+          anthropic: {
+            cacheControl: { type: 'ephemeral' },
+            ...(req.effort ? { effort: req.effort } : {}),
+          },
+        };
       } else if (req.effort && parsed.provider === 'openai') {
         providerOptions = { openai: { reasoningEffort: req.effort } };
       }

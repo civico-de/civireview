@@ -1085,33 +1085,9 @@ export function resolveStageEffort(params: {
   const isHighRiskPr = isSecurityPr || triage?.riskLevel === 'high';
 
   if (stage === 'specialist') {
-    const diffFiles = bundle?.diffFiles ?? [];
-    const totalChangedLines = diffFiles.reduce(
-      (sum, f) => sum + f.additions + f.deletions,
-      0,
-    );
-    const nonTestFiles = diffFiles.filter(
-      (f) => !f.flags.isTest && !f.flags.isDocsOnly,
-    ).length;
-    const hasSurfaceRisk = Boolean(
-      (bundle?.abReport.surfaceDiff.liveSurfaceDiff?.risk_flags.length ?? 0) > 0 ||
-        bundle?.abReport.surfaceDiff.changes.some(
-          (c) =>
-            c.kind === 'permission-check' ||
-            c.kind === 'schema' ||
-            c.kind === 'upgrade',
-        ),
-    );
-
-    if (
-      isHighRiskPr ||
-      hasEmpiricalFail ||
-      totalChangedLines > 250 ||
-      nonTestFiles > 6 ||
-      (lens === 'security' && hasSurfaceRisk)
-    ) {
-      return 'high';
-    }
+    // Keep parallel Stage 1 specialists at `medium` effort in `auto` mode so 4
+    // parallel lenses don't each burn 10-15k thinking tokens; reserve `high`
+    // effort for the single Stage 2 Opus Verifier when high-severity candidates exist.
     return 'medium';
   }
 
@@ -1210,7 +1186,7 @@ async function executeReviewPipeline(
       schemaName: 'TriageOutput',
       mcpScope,
       effort: triageEffort,
-      maxSteps: config.review.maxSteps,
+      maxSteps: Math.min(config.review.maxSteps, 3),
     },
     registry,
   );

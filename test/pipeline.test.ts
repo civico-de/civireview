@@ -1169,7 +1169,8 @@ describe('review pipeline', () => {
       }),
     ).toBe('medium');
 
-    // Escalates specialist & verifier to `high` on high/critical findings, security-sensitive PRs, or failing A/B
+    // Escalates verifier to `high` on high/critical findings, security-sensitive PRs, or failing A/B,
+    // while keeping parallel Stage 1 specialists at `medium` in `auto` mode to avoid 4x token burn
     expect(
       resolveStageEffort({
         stage: 'verifier',
@@ -1189,14 +1190,14 @@ describe('review pipeline', () => {
         triage: { ...smallTriage, prKind: 'security-sensitive' },
         verificationMatrix: cleanMatrix,
       }),
-    ).toBe('high');
+    ).toBe('medium');
     expect(
       resolveStageEffort({
-        stage: 'specialist',
-        lens: 'correctness',
+        stage: 'verifier',
         config: baseCfg,
         bundle: smallBundle,
         triage: smallTriage,
+        candidates: [medCandidate],
         verificationMatrix: [
           { check: 'Base-Test Regression', status: 'FAIL' as const, detail: '1 failed' },
         ],
