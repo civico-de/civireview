@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-23
+
 ### Fixed
 - **Ignored same-author multi-branch backport PRs in Related PR discovery**: Open PRs targeting a different base branch (e.g. `6.20` vs `6.21` vs `master` release-branch backports by the same author) are no longer flagged as `duplicate` or `conflicts` or turned into bogus `[DUPLICATE]` Action Items.
+- **Fixed both-non-zero `exit-status` A/B runs (`A=2, B=2`)**: Marked non-zero exit-status runs on both sides as `ERROR` → `NOT_VERIFIED` instead of `PASS`, and removed internal `ck ab mount` wording from `Not Verified` notes.
 
 ## [0.2.0] - 2026-11-23
 
@@ -51,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release of `civireview`: CiviCRM-native multi-model AI pull request reviewer with Layer 1 CiviKitchen A/B Proof-of-Fix, live surface diffing, Standalone Browser A/B screenshots & a11y checks, `civicrm-knowledge` MCP integration, GitHub Actions watcher (`watch-core.yml`), and inline thread replies.
 
-[Unreleased]: https://github.com/civico-de/civireview/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/civico-de/civireview/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/civico-de/civireview/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/civico-de/civireview/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/civico-de/civireview/releases/tag/v0.1.0
