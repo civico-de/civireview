@@ -5,6 +5,7 @@ import { runCiviKitchenAb, type ExecFn } from './civikitchen-ab.ts';
 import { filterAndTruncateDiff } from './diff-filter.ts';
 import { fetchGitHubPrContext } from './github.ts';
 import { fetchJenkinsStatus } from './jenkins.ts';
+import { collectRelatedGitLabIssues, collectRelatedOpenPrs } from './related.ts';
 import { detectRepoInfo } from './repo-detect.ts';
 import { EvidenceBundleSchema, type EvidenceBundle, type PrMetadata } from './types.ts';
 
@@ -113,22 +114,44 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     config.review.paths,
   );
 
-  const abOutcome = await runCiviKitchenAb({
-    repoRoot,
-    repoInfo,
-    baseSha: pr.baseSha,
-    headSha: pr.headSha,
-    prNumber: pr.prNumber > 0 ? pr.prNumber : undefined,
-    baseBranch: pr.baseBranch,
-    diffFiles: filtered.files,
-    abConfig: config.ab,
-    checksConfig: config.checks,
-    browserConfig: config.browser,
-    reviewConfig: config.review,
-    prBody: pr.body,
-    outputDir: options.outputDir,
-    execFn: options.execFn,
-  });
+  const [abOutcome, candidateRelatedPrs, candidateRelatedIssues] = await Promise.all([
+    runCiviKitchenAb({
+      repoRoot,
+      repoInfo,
+      baseSha: pr.baseSha,
+      headSha: pr.headSha,
+      prNumber: pr.prNumber > 0 ? pr.prNumber : undefined,
+      baseBranch: pr.baseBranch,
+      diffFiles: filtered.files,
+      abConfig: config.ab,
+      checksConfig: config.checks,
+      browserConfig: config.browser,
+      reviewConfig: config.review,
+      prBody: pr.body,
+      outputDir: options.outputDir,
+      execFn: options.execFn,
+    }),
+    options.owner && options.repo && options.prNumber !== undefined
+      ? collectRelatedOpenPrs({
+          owner: options.owner,
+          repo: options.repo,
+          prNumber: options.prNumber,
+          prTitle: pr.title,
+          prBody: pr.body,
+          diffFiles: filtered.files,
+          linkedIssues,
+          token: options.githubToken,
+        })
+      : Promise.resolve([]),
+    options.owner && options.repo && options.prNumber !== undefined
+      ? collectRelatedGitLabIssues({
+          prTitle: pr.title,
+          diffFiles: filtered.files,
+          linkedIssues,
+          repoKind: repoInfo.kind,
+        })
+      : Promise.resolve([]),
+  ]);
   const { abReport, staticDelta } = abOutcome;
 
   const notVerified = Array.from(
@@ -145,6 +168,8 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     pr,
     comments,
     linkedIssues,
+    ...(candidateRelatedPrs.length > 0 ? { candidateRelatedPrs } : {}),
+    ...(candidateRelatedIssues.length > 0 ? { candidateRelatedIssues } : {}),
     diffFiles: filtered.files,
     droppedNoiseFiles: filtered.droppedNoiseFiles,
     diffTruncated: filtered.truncated,

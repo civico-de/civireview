@@ -288,6 +288,27 @@ export const RepoInfoSchema = z.object({
 });
 export type RepoInfo = z.infer<typeof RepoInfoSchema>;
 
+export const CandidateRelatedPrSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  author: z.string(),
+  url: z.string(),
+  overlappingFiles: z.array(z.string()).default([]),
+  sharedIssueRefs: z.array(z.string()).default([]),
+  draft: z.boolean().optional(),
+});
+export type CandidateRelatedPr = z.infer<typeof CandidateRelatedPrSchema>;
+
+export const CandidateRelatedIssueSchema = z.object({
+  ref: z.string().min(1),
+  title: z.string(),
+  state: z.string(),
+  url: z.string(),
+  labels: z.array(z.string()).default([]),
+  snippet: z.string().default(''),
+});
+export type CandidateRelatedIssue = z.infer<typeof CandidateRelatedIssueSchema>;
+
 export const EvidenceBundleSchema = z.object({
   schemaVersion: z.literal('1'),
   collectedAt: z.string(),
@@ -295,6 +316,8 @@ export const EvidenceBundleSchema = z.object({
   pr: PrMetadataSchema,
   comments: z.array(PrCommentSchema),
   linkedIssues: z.array(LinkedIssueSchema),
+  candidateRelatedPrs: z.array(CandidateRelatedPrSchema).optional(),
+  candidateRelatedIssues: z.array(CandidateRelatedIssueSchema).optional(),
   diffFiles: z.array(DiffFileSchema),
   droppedNoiseFiles: z.array(z.string()),
   diffTruncated: z.boolean(),

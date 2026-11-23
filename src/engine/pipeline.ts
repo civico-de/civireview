@@ -49,6 +49,7 @@ import {
   type CandidateFinding,
   type FinalReview,
   type FollowUpLead,
+  type RelatedItem,
   type SpecialistLens,
   type StandardVerdict,
   type ThreadReplyOutput,
@@ -177,6 +178,30 @@ function accumulateUsage(
     ...(stageCost !== undefined ? { estimatedUsd: stageCost } : {}),
   });
   return { recorded: true, stageCost };
+}
+
+function filterGroundedRelatedItems(
+  items: RelatedItem[] | undefined,
+  bundle: EvidenceBundle,
+): RelatedItem[] {
+  if (!items || items.length === 0) return [];
+  const allowedUrls = new Set<string>([
+    ...(bundle.candidateRelatedPrs ?? []).map((p) => p.url.toLowerCase()),
+    ...(bundle.candidateRelatedIssues ?? []).map((i) => i.url.toLowerCase()),
+  ]);
+  if (allowedUrls.size === 0) return [];
+  const seen = new Set<string>();
+  return items
+    .filter((item) => {
+      const key = item.url.toLowerCase();
+      if (item.confidence < 60 || !allowedUrls.has(key) || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .toSorted((a, b) => b.confidence - a.confidence)
+    .slice(0, 5);
 }
 
 function buildSpecialistPrompt(
@@ -407,6 +432,7 @@ async function executeReviewPipeline(
   );
 
   const triage = triageResult.output;
+  const relatedItems = filterGroundedRelatedItems(triage.relatedItems, bundle);
   const browserSignal = hasBrowserSignal(bundle);
   const candidateLenses = Array.from(
     new Set([...triage.activeLenses, ...(browserSignal ? (['ui'] as const) : [])]),
@@ -453,6 +479,7 @@ async function executeReviewPipeline(
       verificationMatrix,
       notVerified,
       blastRadius: [],
+      ...(relatedItems.length > 0 ? { relatedItems } : {}),
       findings: [],
       droppedCount: 0,
       modelsUsed,
@@ -812,6 +839,7 @@ async function executeReviewPipeline(
     notVerified,
     standards,
     blastRadius,
+    ...(relatedItems.length > 0 ? { relatedItems } : {}),
     findings: survivingFindings,
     droppedCount,
     modelsUsed,

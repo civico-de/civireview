@@ -46,6 +46,17 @@ export const PrKindSchema = z.enum([
 ]);
 export type PrKind = z.infer<typeof PrKindSchema>;
 
+export const RelatedItemSchema = z.object({
+  kind: z.enum(['pr', 'gitlab-issue']),
+  ref: z.string().min(1),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  relationship: z.enum(['duplicate', 'conflicts', 'related']),
+  confidence: z.number().min(0).max(100),
+  reason: z.string().min(1),
+});
+export type RelatedItem = z.infer<typeof RelatedItemSchema>;
+
 export const TriageOutputSchema = z.object({
   prKind: PrKindSchema,
   riskLevel: z.enum(['low', 'medium', 'high']),
@@ -53,6 +64,7 @@ export const TriageOutputSchema = z.object({
   shortSummary: z.string().min(1).max(400).optional(),
   summaryBullets: z.array(z.string()),
   recommendedAbTests: z.array(z.string()),
+  relatedItems: z.array(RelatedItemSchema).max(6).optional(),
   skipReason: z.string().optional(),
 });
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;
@@ -165,6 +177,7 @@ export const FinalReviewSchema = z.object({
   notVerified: z.array(z.string()),
   standards: z.array(StandardVerdictSchema).optional(),
   blastRadius: z.array(BlastRadiusItemSchema),
+  relatedItems: z.array(RelatedItemSchema).optional(),
   findings: z.array(VerifiedFindingSchema),
   droppedCount: z.number().int().nonnegative(),
   modelsUsed: z.record(z.string(), ModelSpecSchema),

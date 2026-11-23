@@ -27,7 +27,12 @@ CLASSIFICATION RULES:
   - Activate 'security' whenever inputs, permissions, routes, APIv4, SQL, templates, webhooks, or auth are touched.
   - Activate 'correctness' and 'tests' for all non-docs PRs.
 - shortSummary: 1–2 crisp sentences (<= 240 chars) in plain English summarizing WHAT this PR changes so a busy reviewer can understand it in 5 seconds without reading the full walkthrough.
-- summaryBullets: 3–6 concise technical walkthrough bullets separating PROVEN, CONFIRMED, NEEDS_QUESTION, and NOT VERIFIED.`;
+- summaryBullets: 3–6 concise technical walkthrough bullets separating PROVEN, CONFIRMED, NEEDS_QUESTION, and NOT VERIFIED.
+- relatedItems (optional, default \`[]\`):
+  - ONLY if \`candidate_related_prs\` or \`candidate_related_gitlab_issues\` appear in the evidence, identify genuinely relevant open PRs or unlinked GitLab issues.
+  - Classify each as \`duplicate\` (solves the same bug/feature), \`conflicts\` (modifies overlapping files or competing logic), or \`related\` (same subsystem/bug area or likely unlinked GitLab issue for this PR).
+  - Assign a calibrated \`confidence\` (0–100) and ONLY include items with \`confidence >= 60\`. Give a concise 1-sentence \`reason\` citing overlapping files or shared behavior.
+  - NEVER invent PR numbers, GitLab refs, or URLs not present in the evidence; return \`[]\` if none are genuinely relevant.`;
 
   const userPrompt = `Classify PR #${bundle.pr.prNumber} in ${bundle.pr.repo} (${bundle.repoInfo.kind}).
 Return structured JSON matching TriageOutputSchema.`;

@@ -126,6 +126,17 @@ function formatSummaryFinding(f: VerifiedFinding): string {
  * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
  * and batched inline review comments.
  */
+function relatedBadge(rel: 'duplicate' | 'conflicts' | 'related'): string {
+  switch (rel) {
+    case 'duplicate':
+      return '♻️ `duplicate`';
+    case 'conflicts':
+      return '⚠️ `conflicts`';
+    case 'related':
+      return '🔗 `related`';
+  }
+}
+
 export function formatReviewMarkdown(
   review: FinalReview,
   bundle: EvidenceBundle,
@@ -281,6 +292,20 @@ export function formatReviewMarkdown(
         `<details>\n<summary>Standalone Browser A/B (${routesList.length} route(s), 0 regressions)</summary>\n\n${browserLines.join('\n')}\n</details>`,
       );
     }
+  }
+
+  // Related Open PRs & Possible Unlinked GitLab Issues (only when grounded items exist)
+  if (review.relatedItems && review.relatedItems.length > 0) {
+    const relRows = review.relatedItems
+      .map((item) => {
+        const label = item.kind === 'pr' ? `PR ${item.ref}` : item.ref;
+        const safeTitle = escapeTableCell(item.title);
+        return `| [${escapeTableCell(label)}](${item.url}) — ${safeTitle} | ${relatedBadge(item.relationship)} | **${Math.round(item.confidence)}%** | ${escapeTableCell(item.reason)} |`;
+      })
+      .join('\n');
+    sections.push(
+      `### Related Open PRs & Issues\n\n| Item | Relation | Confidence | Why |\n| --- | --- | --- | --- |\n${relRows}`,
+    );
   }
 
   // Detailed Walkthrough (collapsible so reviewers aren't forced to read everything)

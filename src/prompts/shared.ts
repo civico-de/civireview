@@ -82,6 +82,33 @@ export function buildSharedEvidencePrefix(
     sections.push(wrapUntrustedData('linked_issues', issueText));
   }
 
+  if (bundle.candidateRelatedPrs && bundle.candidateRelatedPrs.length > 0) {
+    const prLines = bundle.candidateRelatedPrs
+      .map((p) => {
+        const overlap =
+          p.overlappingFiles.length > 0
+            ? ` · overlapping_files: ${p.overlappingFiles.join(', ')}`
+            : '';
+        const shared =
+          p.sharedIssueRefs.length > 0 ? ` · shared_issues: ${p.sharedIssueRefs.join(', ')}` : '';
+        const draftTag = p.draft ? ' [DRAFT]' : '';
+        return `- PR #${p.number}${draftTag} (@${p.author}): ${p.title}\n  URL: ${p.url}${overlap}${shared}`;
+      })
+      .join('\n');
+    sections.push(wrapUntrustedData('candidate_related_prs', prLines));
+  }
+
+  if (bundle.candidateRelatedIssues && bundle.candidateRelatedIssues.length > 0) {
+    const glLines = bundle.candidateRelatedIssues
+      .map((iss) => {
+        const labels = iss.labels.length > 0 ? ` · labels: ${iss.labels.join(', ')}` : '';
+        const snippet = iss.snippet ? `\n  Snippet: ${iss.snippet}` : '';
+        return `- ${iss.ref} [${iss.state}]${labels}: ${iss.title}\n  URL: ${iss.url}${snippet}`;
+      })
+      .join('\n');
+    sections.push(wrapUntrustedData('candidate_related_gitlab_issues', glLines));
+  }
+
   if (bundle.comments.length > 0) {
     const commentText = bundle.comments
       .slice(-25)
