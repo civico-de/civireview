@@ -422,7 +422,7 @@ describe('review pipeline', () => {
     expect(review.tokenUsage?.totalTokens).toBe(140 + 280 + 310 + 200 + 420);
     expect(review.tokenUsage?.cachedInputTokens).toBe(50);
     expect(
-      review.verificationMatrix.find((m) => m.check === 'CiviKitchen A/B Proof-of-Fix')
+      review.verificationMatrix.find((m) => m.check === 'A/B Proof-of-Fix')
         ?.status,
     ).toBe('PASS');
   });
@@ -849,11 +849,12 @@ describe('review pipeline', () => {
 
     const { verificationMatrix } = buildVerificationMatrix(tautBundle);
     const proofRow = verificationMatrix.find(
-      (m) => m.check === 'CiviKitchen A/B Proof-of-Fix',
+      (m) => m.check === 'A/B Proof-of-Fix',
     );
     expect(proofRow).toBeDefined();
     expect(proofRow!.status).toBe('WARN');
     expect(proofRow!.detail).toContain('testOrderByAlwaysIncludesContactId');
+    expect(proofRow!.detail).not.toContain('standalone-master vs standalone-master');
 
     const config = loadConfig('/tmp/nonexistent-cfg-dir', {
       preset: 'sonnet',
@@ -1023,12 +1024,31 @@ describe('review pipeline', () => {
 
     const { verificationMatrix } = buildVerificationMatrix(guardedBundle);
     const proofRow = verificationMatrix.find(
-      (r) => r.check === 'CiviKitchen A/B Proof-of-Fix',
+      (r) => r.check === 'A/B Proof-of-Fix',
     );
     expect(proofRow?.status).toBe('PASS');
-    expect(proofRow?.detail).toContain('1 test(s) red on A, green on B');
+    expect(proofRow?.detail).toContain('1 test(s) failed on base, passed on PR');
     expect(proofRow?.detail).toContain('regression-guard');
     expect(proofRow?.detail).toContain('testGuard');
+    expect(proofRow?.detail).not.toContain('standalone-master vs standalone-master');
+    // Core matrix omits inapplicable Demo and skipped Browser rows
+    expect(verificationMatrix.find((r) => r.check === 'Demo')).toBeUndefined();
+    expect(verificationMatrix.find((r) => r.check === 'Browser A/B (Standalone)')).toBeUndefined();
+
+    // When staticDelta did not execute on civicrm-core (real core behavior), omit Static / Taint Delta
+    const coreNoStatic = buildVerificationMatrix(
+      makeBundle({
+        staticDelta: {
+          executed: false,
+          toolsRun: [],
+          findings: [],
+          summary: 'No static CiviKitchen gates executed.',
+        },
+      }),
+    );
+    expect(
+      coreNoStatic.verificationMatrix.find((r) => r.check === 'Static / Taint Delta'),
+    ).toBeUndefined();
   });
 
   test('computeConfidenceScore maps findings and empirical matrix cleanly across 1-5 scale', () => {

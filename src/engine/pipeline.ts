@@ -265,6 +265,7 @@ function isStandardBackedByMatrixFail(
     case 'r-run':
       return (
         failedChecks.has('CI / Jenkins') ||
+        failedChecks.has('A/B Proof-of-Fix') ||
         failedChecks.has('CiviKitchen A/B Proof-of-Fix') ||
         failedChecks.has('Base-Test Regression') ||
         failedChecks.has('Browser A/B (Standalone)') ||
@@ -277,6 +278,7 @@ function isStandardBackedByMatrixFail(
       );
     case 'r-maint':
       return (
+        failedChecks.has('A/B Proof-of-Fix') ||
         failedChecks.has('CiviKitchen A/B Proof-of-Fix') ||
         failedChecks.has('Base-Test Regression')
       );
@@ -418,37 +420,49 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     });
   }
 
-  // 2. CiviKitchen A/B Proof-of-Fix
+  const isCore = bundle.repoInfo.kind === 'civicrm-core';
+  const proofCheckLabel = isCore
+    ? 'A/B Proof-of-Fix'
+    : 'CiviKitchen A/B Proof-of-Fix';
+
+  // 2. A/B Proof-of-Fix
   const proofCheck = bundle.abReport.checks.find(
     (c) => c.name === 'proof-of-fix',
   );
   if (proofCheck) {
-    const pair = `${proofCheck.imageA} vs ${proofCheck.imageB}`;
+    const pairPrefix =
+      proofCheck.imageA !== proofCheck.imageB
+        ? `${proofCheck.imageA} vs ${proofCheck.imageB}: `
+        : '';
     const tautological = proofCheck.tautologicalTests ?? [];
     if (proofCheck.regressions.length > 0 || proofCheck.status === 'FAIL') {
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: 'FAIL',
-        detail: `${pair}: ${proofCheck.summary}`,
+        detail: `${pairPrefix}${proofCheck.summary}`,
       });
     } else if (proofCheck.fixed.length > 0 && proofCheck.status === 'PASS') {
       const guardSuffix =
         tautological.length > 0
-          ? ` (+${tautological.length} regression-guard test(s) passed on both A & B: ${tautological.map((t) => t.method).join(', ')})`
+          ? isCore
+            ? ` (+${tautological.length} regression-guard test(s) passed on both base & PR: ${tautological.map((t) => t.method).join(', ')})`
+            : ` (+${tautological.length} regression-guard test(s) passed on both A & B: ${tautological.map((t) => t.method).join(', ')})`
           : '';
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: 'PASS',
-        detail: `${pair}: ${proofCheck.fixed.length} test(s) red on A, green on B${guardSuffix}`,
+        detail: isCore
+          ? `${pairPrefix}${proofCheck.fixed.length} test(s) failed on base, passed on PR${guardSuffix}`
+          : `${pairPrefix}${proofCheck.fixed.length} test(s) red on A, green on B${guardSuffix}`,
       });
     } else if (tautological.length > 0) {
       const names = tautological
         .map((t) => `${t.method} (${t.file}:${t.line})`)
         .join(', ');
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: 'WARN',
-        detail: `${pair}: ${tautological.length} added test method(s) PASSED on unfixed base A (tautological: ${names})`,
+        detail: `${pairPrefix}${tautological.length} added test method(s) passed on unfixed base (tautological: ${names})`,
       });
     } else if (
       proofCheck.mode === 'exit-status' &&
@@ -457,30 +471,32 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       proofCheck.exitCodeB === 0
     ) {
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: 'PASS',
-        detail: `${pair}: red on A (exit ${proofCheck.exitCodeA}), green on B (exit 0)`,
+        detail: `${pairPrefix}failed on base (exit ${proofCheck.exitCodeA}), passed on PR (exit 0)`,
       });
     } else if (proofCheck.bothFail.length > 0) {
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: 'WARN',
-        detail: `${pair}: ${proofCheck.bothFail.length} test(s) fail on both base and head`,
+        detail: `${pairPrefix}${proofCheck.bothFail.length} test(s) fail on both base and PR`,
       });
     } else {
       matrix.push({
-        check: 'CiviKitchen A/B Proof-of-Fix',
+        check: proofCheckLabel,
         status: proofCheck.status === 'PASS' ? 'WARN' : 'FAIL',
-        detail: `${pair}: ${proofCheck.summary} (no red-on-A -> green-on-B transition observed)`,
+        detail: `${pairPrefix}${proofCheck.summary} (no fail-to-pass transition observed)`,
       });
     }
-  } else {
+  } else if (!bundle.abReport.executed || !isCore) {
     matrix.push({
-      check: 'CiviKitchen A/B Proof-of-Fix',
+      check: proofCheckLabel,
       status: bundle.abReport.executed ? 'SKIPPED' : 'NOT_VERIFIED',
       detail: bundle.abReport.executed
         ? 'No PR test file triggered proof-of-fix run.'
-        : 'CiviKitchen A/B did not run.',
+        : isCore
+          ? 'A/B test run did not execute.'
+          : 'CiviKitchen A/B did not run.',
     });
   }
 
@@ -489,27 +505,30 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     (c) => c.name === 'base-test-regression' || c.name === 'floor-vs-beta-matrix',
   );
   if (baseCheck) {
-    const pair = `${baseCheck.imageA} vs ${baseCheck.imageB}`;
+    const pairPrefix =
+      baseCheck.imageA !== baseCheck.imageB
+        ? `${baseCheck.imageA} vs ${baseCheck.imageB}: `
+        : '';
     if (baseCheck.regressions.length > 0 || baseCheck.status === 'FAIL') {
       matrix.push({
         check: 'Base-Test Regression',
         status: 'FAIL',
-        detail: `${pair}: ${baseCheck.regressions.slice(0, 5).join(', ') || baseCheck.summary}`,
+        detail: `${pairPrefix}${baseCheck.regressions.slice(0, 5).join(', ') || baseCheck.summary}`,
       });
     } else if (baseCheck.status === 'PASS') {
       matrix.push({
         check: 'Base-Test Regression',
         status: 'PASS',
-        detail: `${pair}: ${baseCheck.summary}`,
+        detail: `${pairPrefix}${baseCheck.summary}`,
       });
     } else {
       matrix.push({
         check: 'Base-Test Regression',
         status: 'WARN',
-        detail: `${pair}: ${baseCheck.summary}`,
+        detail: `${pairPrefix}${baseCheck.summary}`,
       });
     }
-  } else {
+  } else if (!bundle.abReport.executed || !isCore) {
     matrix.push({
       check: 'Base-Test Regression',
       status: bundle.abReport.executed ? 'SKIPPED' : 'NOT_VERIFIED',
@@ -550,14 +569,16 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     });
   }
 
-  // 5. Static / Taint Delta
+  // 5. Static / Taint Delta (extension-only CiviKitchen gate; omit on civicrm-core when not executed)
   const st = bundle.staticDelta;
   if (!st.executed) {
-    matrix.push({
-      check: 'Static / Taint Delta',
-      status: 'NOT_VERIFIED',
-      detail: st.summary,
-    });
+    if (!isCore) {
+      matrix.push({
+        check: 'Static / Taint Delta',
+        status: 'NOT_VERIFIED',
+        detail: st.summary,
+      });
+    }
   } else if (st.findings.some((f) => f.severity === 'error')) {
     matrix.push({
       check: 'Static / Taint Delta',
@@ -578,7 +599,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     });
   }
 
-  // 6. Browser A/B (Standalone)
+  // 6. Browser A/B (Standalone) — omit when skipped with no probed routes
   const bd = bundle.abReport.browserDiff;
   if (bd) {
     const routesCount = new Set([
@@ -615,17 +636,15 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         });
       }
     }
-  } else {
+  } else if (!bundle.abReport.executed && !isCore) {
     matrix.push({
       check: 'Browser A/B (Standalone)',
-      status: bundle.abReport.executed ? 'SKIPPED' : 'NOT_VERIFIED',
-      detail: bundle.abReport.executed
-        ? 'No Standalone UI routes discovered or browser check disabled.'
-        : 'Standalone browser A/B did not run.',
+      status: 'NOT_VERIFIED',
+      detail: 'Standalone browser A/B did not run.',
     });
   }
 
-  // 7. Demo
+  // 7. Demo (only show when interactive demo actually ran)
   if (bundle.abReport.demoArtifactsDir) {
     matrix.push({
       check: 'Demo',
@@ -634,12 +653,6 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         bundle.abReport.demoConsoleErrors.length > 0
           ? `${bundle.abReport.demoConsoleErrors.length} console/runtime error(s) in ${bundle.abReport.demoArtifactsDir}`
           : `Demo artifacts captured cleanly in ${bundle.abReport.demoArtifactsDir}`,
-    });
-  } else {
-    matrix.push({
-      check: 'Demo',
-      status: 'SKIPPED',
-      detail: 'Interactive ck demo not enabled.',
     });
   }
 
@@ -909,7 +922,8 @@ export function computeConfidenceScore(params: {
   // 2. Empirical verification matrix caps
   const byCheck = new Map(verificationMatrix.map((m) => [m.check, m]));
   const ci = byCheck.get('CI / Jenkins');
-  const proof = byCheck.get('CiviKitchen A/B Proof-of-Fix');
+  const proof =
+    byCheck.get('A/B Proof-of-Fix') ?? byCheck.get('CiviKitchen A/B Proof-of-Fix');
   const baseReg = byCheck.get('Base-Test Regression');
   const surface = byCheck.get('Live Surface Diff');
   const staticDelta = byCheck.get('Static / Taint Delta');
@@ -931,15 +945,15 @@ export function computeConfidenceScore(params: {
 
   if (proof?.status === 'FAIL') {
     if (/regression/i.test(proof.detail)) {
-      capAt(2, 'CiviKitchen A/B Proof-of-Fix found test regressions');
+      capAt(2, 'A/B Proof-of-Fix found test regressions');
     } else {
-      capAt(3, 'CiviKitchen A/B Proof-of-Fix failed to execute cleanly');
+      capAt(3, 'A/B Proof-of-Fix failed to execute cleanly');
     }
   } else if (proof?.status === 'WARN') {
     if (/tautological/i.test(proof.detail)) {
-      capAt(3, 'added PR test(s) passed on unfixed base A without proving fix');
+      capAt(3, 'added PR test(s) passed on unfixed base without proving fix');
     } else {
-      capAt(4, 'CiviKitchen A/B Proof-of-Fix did not observe a red-to-green transition');
+      capAt(4, 'A/B Proof-of-Fix did not observe a fail-to-pass transition');
     }
   }
 
@@ -962,7 +976,7 @@ export function computeConfidenceScore(params: {
     proof?.status === 'NOT_VERIFIED' &&
     baseReg?.status === 'NOT_VERIFIED'
   ) {
-    capAt(4, 'CiviKitchen A/B verification did not run');
+    capAt(4, 'A/B verification did not run');
   }
 
   if (reasons.length === 0) {
@@ -1012,17 +1026,23 @@ export function buildShortSummary(params: {
   }
 
   const proof = verificationMatrix.find(
-    (m) => m.check === 'CiviKitchen A/B Proof-of-Fix',
+    (m) =>
+      m.check === 'A/B Proof-of-Fix' ||
+      m.check === 'CiviKitchen A/B Proof-of-Fix',
   );
   if (proof?.status === 'PASS') {
-    const match = proof.detail.match(/(\d+\s+test\(s\)\s+red on A,\s+green on B)/i);
+    const match = proof.detail.match(
+      /(\d+\s+test\(s\)\s+(?:failed on base,\s+passed on PR|red on A,\s+green on B))/i,
+    );
     if (match?.[1]) {
-      parts.push(`CiviKitchen A/B proved ${match[1]}.`);
+      parts.push(`A/B testing proved ${match[1]}.`);
     }
   }
 
   if (findings.length === 0) {
-    parts.push(scoreRationale);
+    if (parts.length === 0) {
+      parts.push(scoreRationale);
+    }
   } else {
     const top = findings[0]!;
     const more =

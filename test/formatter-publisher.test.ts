@@ -195,9 +195,57 @@ describe('formatter & publisher', () => {
     expect(formatted.summaryBody).toContain('`r-explain`');
     expect(formatted.summaryBody).toContain('Ecosystem Blast Radius');
     expect(formatted.summaryBody).toContain('Untouched caller mismatch');
-    expect(formatted.summaryBody).toContain('AI-Assisted Review Disclosure (CiviCRM AGENTS.md)');
+    expect(formatted.summaryBody).not.toContain('AGENTS.md');
+    expect(formatted.summaryBody).not.toContain('**Images:**');
+    expect(formatted.summaryBody).toContain(
+      'Reviewed by [civireview](https://github.com/civico-de/civireview) · `cross-model` · 650 tokens',
+    );
     expect(formatted.summaryBody).toContain(
       '<!-- civireview:v1 head_sha=bbbb2222 base_sha=aaaa1111 preset=cross-model score=2/5 -->',
+    );
+  });
+
+  test('formatReviewMarkdown omits extension-only clutter on core and avoids Summary/Confidence duplication', () => {
+    const bundle = makeSampleBundle();
+    const review = makeSampleReview();
+    review.verdict = 'READY';
+    review.findings = [];
+    review.droppedCount = 0;
+    review.verificationMatrix = [
+      { check: 'CI / Jenkins', status: 'PASS', detail: '3/3 checks passed' },
+      {
+        check: 'A/B Proof-of-Fix',
+        status: 'PASS',
+        detail: '1 test(s) failed on base, passed on PR',
+      },
+    ];
+
+    const formatted = formatReviewMarkdown(review, bundle, {
+      preset: 'sonnet-opus',
+    });
+
+    expect(formatted.summaryBody).not.toContain('AGENTS.md');
+    expect(formatted.summaryBody).not.toContain('**Images:**');
+    expect(formatted.summaryBody).not.toContain('standalone-master vs standalone-master');
+    // Summary and Merge Confidence must not repeat the exact same rationale sentence
+    const rationaleOccurrences = formatted.summaryBody.split(
+      'No verified issues; passed CI / Jenkins, A/B Proof-of-Fix.',
+    ).length - 1;
+    expect(rationaleOccurrences).toBe(1);
+    expect(formatted.summaryBody).toContain(
+      '> **Summary:** Changes: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
+    );
+
+    // Extension reviews still show Images metadata
+    const extBundle = makeSampleBundle();
+    extBundle.repoInfo.kind = 'civicrm-extension';
+    extBundle.abReport.imageA = 'standalone-5.70';
+    extBundle.abReport.imageB = 'standalone-beta';
+    const extFormatted = formatReviewMarkdown(review, extBundle, {
+      preset: 'sonnet-opus',
+    });
+    expect(extFormatted.summaryBody).toContain(
+      '**Images:** `standalone-5.70` vs `standalone-beta`',
     );
   });
 
