@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-23
+
+### Fixed
+- **`git merge-tree` conflict filtering against older PRs**: Removed forced `--merge-base=<baseSha>` and filtered `git merge-tree` conflicts to `overlappingFiles` (files modified by *both* PRs) so base-branch history drift against an older open PR no longer triggers false merge conflicts in files the other PR never touched.
+- **`Base-Test Regression` summary when pre-existing failures occur on both A and B**: Reported `${passedBoth.length} test(s) passed on A and B (${bothFail.length} pre-existing failure(s) on both)` instead of falling back to `ck ab (junit) exited with 0`.
+
 ## [0.2.7] - 2026-11-23
 
 ### Changed

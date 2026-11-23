@@ -253,23 +253,30 @@ export async function checkRelatedPrMergeConflicts(params: {
   >();
   for (const c of toCheck) {
     const otherRef = `refs/civireview/related-pr-${c.number}`;
+    const overlapSet = new Set(c.overlappingFiles);
     const res = await gitExec([
       '-C',
       params.repoRoot,
       'merge-tree',
       '--write-tree',
-      `--merge-base=${params.baseSha}`,
       params.headSha,
       otherRef,
     ]);
     if (res.exitCode === 0) {
       results.set(c.number, { mergeConflict: 'clean' });
     } else if (res.exitCode === 1) {
-      const files = parseMergeTreeConflicts(res.stdout);
-      results.set(c.number, {
-        mergeConflict: 'conflicts',
-        ...(files.length > 0 ? { conflictingFiles: files.slice(0, 8) } : {}),
-      });
+      // Only count conflicts in files that BOTH PRs actually modified; conflicts
+      // in non-overlapping files are caused by base-branch history drift when one
+      // PR was branched from an older commit on master.
+      const files = parseMergeTreeConflicts(res.stdout).filter((f) => overlapSet.has(f));
+      if (files.length > 0) {
+        results.set(c.number, {
+          mergeConflict: 'conflicts',
+          conflictingFiles: files.slice(0, 8),
+        });
+      } else {
+        results.set(c.number, { mergeConflict: 'clean' });
+      }
     }
   }
 

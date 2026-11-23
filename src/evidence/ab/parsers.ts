@@ -470,7 +470,11 @@ export function buildAbCheckFromJson(params: {
               ? tautSummary
               : parsedJson.passedBoth.length > 0 && parsedJson.bothFail.length === 0
                 ? `${parsedJson.passedBoth.length} test(s) passed on A and B`
-                : `ck ab (${parsedJson.mode}) exited with ${effectiveExit}`;
+                : parsedJson.passedBoth.length > 0 && parsedJson.bothFail.length > 0
+                  ? `${parsedJson.passedBoth.length} test(s) passed on A and B (${parsedJson.bothFail.length} pre-existing failure(s) on both)`
+                  : parsedJson.bothFail.length > 0
+                    ? `0 new regressions (${parsedJson.bothFail.length} pre-existing failure(s) on both A and B)`
+                    : `ck ab (${parsedJson.mode}) exited with ${effectiveExit}`;
 
   const summary =
     tautSummary && baseSummary !== tautSummary ? `${baseSummary}; ${tautSummary}` : baseSummary;

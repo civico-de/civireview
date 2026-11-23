@@ -366,6 +366,15 @@ describe('related open PRs & GitLab issue discovery', () => {
             stderr: '',
           };
         }
+        if (args.includes('refs/civireview/related-pr-102')) {
+          // Conflict only in a file NOT in overlappingFiles (caused by base-branch drift)
+          return {
+            exitCode: 1,
+            stdout:
+              'deadbeef\nCONFLICT (content): Merge conflict in CRM/Event/Form/Registration.php\n',
+            stderr: '',
+          };
+        }
         return { exitCode: 0, stdout: 'cafebabe\n', stderr: '' };
       }
       return { exitCode: 1, stdout: '', stderr: '' };
