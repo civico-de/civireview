@@ -101,7 +101,9 @@ function tokenizeCommandArgs(text: string): string[] {
       continue;
     }
 
-    if (ch === '"' || ch === "'") {
+    // A quote only opens at the start of a token or after `--flag=`, so apostrophes
+    // inside prose ("doesn't") are kept as plain characters.
+    if ((ch === '"' || ch === "'") && (current === '' || /^--[\w-]+=$/.test(current))) {
       quote = ch;
       continue;
     }

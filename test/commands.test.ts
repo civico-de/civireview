@@ -88,4 +88,20 @@ describe('parseMentionCommand', () => {
       /Invalid PR comment effort/,
     );
   });
+
+  test('keeps apostrophes in the question and still parses flags after them', () => {
+    const parsed = parseMentionCommand("@civireview why doesn't this handle null? --full");
+    expect(parsed.flags.full).toBe(true);
+    expect(parsed.question).toBe("why doesn't this handle null?");
+
+    const second = parseMentionCommand("@civireview what's the impact --preset=cross-model here");
+    expect(second.flags.preset).toBe('cross-model');
+    expect(second.question).toBe("what's the impact here");
+  });
+
+  test('still honours quotes at the start of a token or after --flag=', () => {
+    const parsed = parseMentionCommand(`@civireview --page='civicrm/contact/view' "two words"`);
+    expect(parsed.flags.pages).toEqual(['civicrm/contact/view']);
+    expect(parsed.question).toBe('two words');
+  });
 });
