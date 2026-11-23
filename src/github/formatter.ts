@@ -182,8 +182,16 @@ function buildActionItems(review: FinalReview): string[] {
     }
   }
 
+  const findingFileBasenames = review.findings
+    .map((f) => f.path.split('/').pop()?.toLowerCase())
+    .filter((b): b is string => Boolean(b && b.length >= 5));
+
   for (const tr of review.threadResolutions ?? []) {
     if (tr.status === 'open') {
+      const combined = `${tr.topic} ${tr.detail}`.toLowerCase();
+      if (findingFileBasenames.some((base) => combined.includes(base))) {
+        continue;
+      }
       const handle = `@${tr.author.replace(/^@/, '')}`;
       items.push(
         `- [ ] **[OPEN REVIEWER FEEDBACK]** Address ${handle}: ${tr.topic} — ${truncateOneLine(tr.detail, 220)}`,
