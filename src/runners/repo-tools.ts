@@ -28,16 +28,26 @@ export function resolveSafeRepoPath(cwd: string, targetPath: string): string {
   if (candidate !== realRoot && !candidate.startsWith(realRoot + sep)) {
     throw new Error(`Path escapes repository root: "${targetPath}"`);
   }
+  assertNotGitInternals(realRoot, candidate, targetPath);
 
   if (existsSync(candidate) || isSymlink(candidate)) {
     const realTarget = realpathSync(candidate);
     if (realTarget !== realRoot && !realTarget.startsWith(realRoot + sep)) {
       throw new Error(`Symlink escapes repository root: "${targetPath}"`);
     }
+    assertNotGitInternals(realRoot, realTarget, targetPath);
     return realTarget;
   }
 
   return candidate;
+}
+
+/** Blocks `.git/` (remote URLs and credentials live in `.git/config`). */
+function assertNotGitInternals(realRoot: string, absPath: string, targetPath: string): void {
+  const segments = relative(realRoot, absPath).split(sep);
+  if (segments.some((seg) => seg.toLowerCase() === '.git')) {
+    throw new Error(`Access to git internals is not allowed: "${targetPath}"`);
+  }
 }
 
 function isSymlink(p: string): boolean {
@@ -158,13 +168,23 @@ export function createRepoTools(cwd: string): ToolSet {
         if (fixedStrings) args.push('--fixed-strings');
         args.push('--', pattern, searchRoot);
 
+        let rgProc: ReturnType<typeof Bun.spawn> | undefined;
         try {
-          const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
-          const [stdout, exitCode] = await Promise.all([
-            new Response(proc.stdout).text(),
-            proc.exited,
+          rgProc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
+        } catch {
+          rgProc = undefined; // rg is not installed: use the JS search below
+        }
+
+        if (rgProc) {
+          const [stdout, stderr, exitCode] = await Promise.all([
+            new Response(rgProc.stdout as ReadableStream).text(),
+            new Response(rgProc.stderr as ReadableStream).text(),
+            rgProc.exited,
           ]);
           if (exitCode === 1) return 'No matches found.';
+          if (exitCode !== 0) {
+            throw new Error(`rg failed (${exitCode}): ${truncateOutput(stderr.trim(), 500)}`);
+          }
           const lines = stdout
             .split(/\r?\n/)
             .filter(Boolean)
@@ -173,34 +193,33 @@ export function createRepoTools(cwd: string): ToolSet {
               line.startsWith(realRoot + sep) ? line.slice(realRoot.length + 1) : line,
             );
           return truncateOutput(lines.join('\n'));
-        } catch {
-          // Fallback JS search if rg is unavailable
-          const files: string[] = [];
-          walkFiles(realRoot, searchRoot, files, 500);
-          const hits: string[] = [];
-          const matcher = fixedStrings
-            ? (line: string) => line.includes(pattern)
-            : (() => {
-                const re = new RegExp(pattern);
-                return (line: string) => re.test(line);
-              })();
-          for (const rel of files) {
-            if (hits.length >= cap) break;
-            try {
-              const text = readFileSync(join(realRoot, rel), 'utf8');
-              const lines = text.split(/\r?\n/);
-              for (let i = 0; i < lines.length; i++) {
-                if (matcher(lines[i] ?? '')) {
-                  hits.push(`${rel}:${i + 1}:${lines[i]}`);
-                  if (hits.length >= cap) break;
-                }
-              }
-            } catch {
-              // ignore unreadable files
-            }
-          }
-          return hits.length > 0 ? truncateOutput(hits.join('\n')) : 'No matches found.';
         }
+
+        const files: string[] = [];
+        walkFiles(realRoot, searchRoot, files, 500);
+        const hits: string[] = [];
+        const matcher = fixedStrings
+          ? (line: string) => line.includes(pattern)
+          : (() => {
+              const re = new RegExp(pattern);
+              return (line: string) => re.test(line);
+            })();
+        for (const rel of files) {
+          if (hits.length >= cap) break;
+          try {
+            const text = readFileSync(join(realRoot, rel), 'utf8');
+            const lines = text.split(/\r?\n/);
+            for (let i = 0; i < lines.length; i++) {
+              if (matcher(lines[i] ?? '')) {
+                hits.push(`${rel}:${i + 1}:${lines[i]}`);
+                if (hits.length >= cap) break;
+              }
+            }
+          } catch {
+            // ignore unreadable files
+          }
+        }
+        return hits.length > 0 ? truncateOutput(hits.join('\n')) : 'No matches found.';
       },
     }),
 
