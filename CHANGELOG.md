@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Interactive Action Items (`- [ ] ...`) checklist in PR reviews**: Replaces static bullet lists with checkable GitHub task items for verified findings (with concise fix hints), failing empirical checks, and conflicting/duplicate open PRs (omitted on clean PRs).
 - **Related Open PRs & Possible GitLab Issues discovery (fixes #1)**: Deterministically pre-filters open PRs (by overlapping files, shared issue refs, and component/title keywords) and searches open `lab.civicrm.org` `dev/*` issues in parallel with Layer 1 A/B runs; Stage 0 Triage classifies grounded candidates as `duplicate`, `conflicts`, or `related` with calibrated confidence (`>= 60%`) and renders a compact `### Related Open PRs & Issues` table when matches are found.
 - **Bounded Verifier follow-up loop (`review.maxFollowUpRounds`, `0`–`2`, default `1`)**: The Stage 2 Verifier can now emit up to 2 targeted `followUpLeads` when it uncovers an uninvestigated adjacent defect, broken caller/hook contract, or edge case; each lead runs a focused follow-up specialist against the warm shared KV cache and is verified by a follow-up Verifier pass.
 - **Per-stage and total telemetry logging**: Logs `[stage]` and `[telemetry]` lines with model, reasoning effort, duration, uncached input, `cache_write`, `cache_read` (with hit %), output tokens, and estimated USD cost for every pipeline stage.

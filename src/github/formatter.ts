@@ -137,6 +137,50 @@ function relatedBadge(rel: 'duplicate' | 'conflicts' | 'related'): string {
   }
 }
 
+function truncateOneLine(text: string, maxLen = 140): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
+}
+
+function buildActionItems(review: FinalReview): string[] {
+  const items: string[] = [];
+
+  for (const f of review.findings) {
+    const loc =
+      f.startLine === f.endLine
+        ? `\`${f.path}:${f.endLine}\``
+        : `\`${f.path}:${f.startLine}-${f.endLine}\``;
+    const fixHint =
+      f.verdict === 'NEEDS_QUESTION'
+        ? ''
+        : f.suggestedFix.trim()
+          ? ` — ${truncateOneLine(f.suggestedFix, 120)}`
+          : '';
+    items.push(
+      `- [ ] **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]** ${loc} — ${f.title}${fixHint}`,
+    );
+  }
+
+  for (const row of review.verificationMatrix) {
+    if (row.status === 'FAIL') {
+      items.push(
+        `- [ ] **[CHECK FAILED]** Resolve \`${row.check}\`: ${truncateOneLine(row.detail, 140)}`,
+      );
+    }
+  }
+
+  for (const rel of review.relatedItems ?? []) {
+    if (rel.relationship === 'conflicts' || rel.relationship === 'duplicate') {
+      const label = rel.kind === 'pr' ? `PR ${rel.ref}` : rel.ref;
+      items.push(
+        `- [ ] **[${rel.relationship.toUpperCase()}]** Coordinate with [${label}](${rel.url}): ${truncateOneLine(rel.reason, 120)}`,
+      );
+    }
+  }
+
+  return items;
+}
+
 export function formatReviewMarkdown(
   review: FinalReview,
   bundle: EvidenceBundle,
@@ -209,16 +253,10 @@ export function formatReviewMarkdown(
       `- **PR:** \`${review.repo}#${review.prNumber}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
   );
 
-  // Scannable Key Findings overview right at the top
-  if (review.findings.length > 0) {
-    const bullets = review.findings.map((f) => {
-      const loc =
-        f.startLine === f.endLine
-          ? `\`${f.path}:${f.endLine}\``
-          : `\`${f.path}:${f.startLine}-${f.endLine}\``;
-      return `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]** ${loc} — ${f.title}`;
-    });
-    sections.push(`### Key Findings (${review.findings.length})\n${bullets.join('\n')}`);
+  // Interactive Action Items checklist right at the top when there are findings, failed checks, or conflicts
+  const actionItems = buildActionItems(review);
+  if (actionItems.length > 0) {
+    sections.push(`### Action Items (${actionItems.length})\n${actionItems.join('\n')}`);
   } else {
     sections.push(`### Findings\nNo verified high-signal issues found above the confidence gate.`);
   }

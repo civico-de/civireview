@@ -185,7 +185,13 @@ describe('formatter & publisher', () => {
     expect(formatted.summaryBody).toContain('Confidence: **2/5** `★★☆☆☆`');
     expect(formatted.summaryBody).toContain('> **Summary:**');
     expect(formatted.summaryBody).toContain('> **Merge Confidence (2/5):**');
-    expect(formatted.summaryBody).toContain('### Key Findings (2)');
+    expect(formatted.summaryBody).toContain('### Action Items (2)');
+    expect(formatted.summaryBody).toContain(
+      '- [ ] **[HIGH | PROVEN]** `CRM/Contact/BAO/Contact.php:11` — Inline bug — Return array',
+    );
+    expect(formatted.summaryBody).toContain(
+      '- [ ] **[MEDIUM | CONFIRMED]** `CRM/Contact/Page/View.php:40` — Untouched caller mismatch — Update caller',
+    );
     expect(formatted.summaryBody).toContain('<summary>Detailed Walkthrough (1 note)</summary>');
     expect(formatted.summaryBody).toContain('Empirical Verification Matrix');
     expect(formatted.summaryBody).toContain('CiviKitchen A/B Proof-of-Fix');
@@ -234,6 +240,35 @@ describe('formatter & publisher', () => {
     expect(rationaleOccurrences).toBe(1);
     expect(formatted.summaryBody).toContain(
       '> **Summary:** Changes: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
+    );
+    expect(formatted.summaryBody).not.toContain('### Action Items');
+
+    // Failing check + conflicting PR show up as interactive checklist items even with 0 findings
+    review.verificationMatrix.push({
+      check: 'CI / Jenkins',
+      status: 'FAIL',
+      detail: '1 check failed',
+    });
+    review.relatedItems = [
+      {
+        kind: 'pr',
+        ref: '#38120',
+        title: 'Conflicting PR',
+        url: 'https://github.com/civicrm/civicrm-core/pull/38120',
+        relationship: 'conflicts',
+        confidence: 90,
+        reason: 'Edits the same file',
+      },
+    ];
+    const withFailures = formatReviewMarkdown(review, bundle, {
+      preset: 'sonnet-opus',
+    });
+    expect(withFailures.summaryBody).toContain('### Action Items (2)');
+    expect(withFailures.summaryBody).toContain(
+      '- [ ] **[CHECK FAILED]** Resolve `CI / Jenkins`: 1 check failed',
+    );
+    expect(withFailures.summaryBody).toContain(
+      '- [ ] **[CONFLICTS]** Coordinate with [PR #38120](https://github.com/civicrm/civicrm-core/pull/38120): Edits the same file',
     );
 
     // Extension reviews still show Images metadata
