@@ -624,9 +624,9 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       mcpCitations: [],
     };
 
-    // Default `auto`: triage=low, threadReply=medium, small PR specialist=medium, medium-only verifier=medium
+    // Default `deep` profile: triage=medium, correctness/security=high, tests=medium, verifier=high
     expect(resolveStageEffort({ stage: 'triage', config: baseCfg, bundle: smallBundle })).toBe(
-      'low',
+      'medium',
     );
     expect(resolveStageEffort({ stage: 'threadReply', config: baseCfg, bundle: smallBundle })).toBe(
       'medium',
@@ -640,6 +640,16 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         triage: smallTriage,
         verificationMatrix: cleanMatrix,
       }),
+    ).toBe('high');
+    expect(
+      resolveStageEffort({
+        stage: 'specialist',
+        lens: 'tests',
+        config: baseCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        verificationMatrix: cleanMatrix,
+      }),
     ).toBe('medium');
     expect(
       resolveStageEffort({
@@ -650,14 +660,27 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         candidates: [medCandidate],
         verificationMatrix: cleanMatrix,
       }),
-    ).toBe('medium');
+    ).toBe('high');
 
-    // Escalates verifier to `high` on high/critical findings, security-sensitive PRs, or failing A/B,
-    // while keeping parallel Stage 1 specialists at `medium` in `auto` mode to avoid 4x token burn
+    // `balanced` profile: triage=low, specialists=medium, verifier scales medium -> high on high-risk/failing checks
+    const balancedCfg = loadConfig(process.cwd(), { review: { depth: 'balanced' } });
+    expect(resolveStageEffort({ stage: 'triage', config: balancedCfg, bundle: smallBundle })).toBe(
+      'low',
+    );
     expect(
       resolveStageEffort({
         stage: 'verifier',
-        config: baseCfg,
+        config: balancedCfg,
+        bundle: smallBundle,
+        triage: smallTriage,
+        candidates: [medCandidate],
+        verificationMatrix: cleanMatrix,
+      }),
+    ).toBe('medium');
+    expect(
+      resolveStageEffort({
+        stage: 'verifier',
+        config: balancedCfg,
         bundle: smallBundle,
         triage: smallTriage,
         candidates: [{ ...medCandidate, severity: 'high' }],
@@ -668,7 +691,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       resolveStageEffort({
         stage: 'specialist',
         lens: 'security',
-        config: baseCfg,
+        config: balancedCfg,
         bundle: smallBundle,
         triage: { ...smallTriage, prKind: 'security-sensitive' },
         verificationMatrix: cleanMatrix,
@@ -677,7 +700,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     expect(
       resolveStageEffort({
         stage: 'verifier',
-        config: baseCfg,
+        config: balancedCfg,
         bundle: smallBundle,
         triage: smallTriage,
         candidates: [medCandidate],
@@ -686,6 +709,14 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         ],
       }),
     ).toBe('high');
+
+    // `fast` profile: triage=low, specialist=low, verifier=medium
+    const fastCfg = loadConfig(process.cwd(), { review: { depth: 'fast' } });
+    expect(resolveStageEffort({ stage: 'triage', config: fastCfg })).toBe('low');
+    expect(resolveStageEffort({ stage: 'specialist', lens: 'correctness', config: fastCfg })).toBe(
+      'low',
+    );
+    expect(resolveStageEffort({ stage: 'verifier', config: fastCfg })).toBe('medium');
 
     // Global override and per-stage override precedence
     const globalCfg = loadConfig(process.cwd(), {

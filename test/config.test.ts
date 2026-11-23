@@ -35,9 +35,22 @@ describe('config schema and loader', () => {
     expect(cfg.review.confidenceThreshold).toBe(80);
     expect(cfg.review.maxInlineComments).toBe(10);
     expect(cfg.review.maxDiffBytes).toBe(250_000);
-    expect(cfg.review.maxSteps).toBe(15);
+    expect(cfg.review.depth).toBe('deep');
+    expect(cfg.review.maxSteps).toBe(25);
+    expect(cfg.review.maxFollowUpRounds).toBe(2);
+    expect(cfg.review.stageTimeoutMs).toBe(300_000);
     expect(cfg.review.autoPost).toBe(true);
     expect(cfg.review.reviewEvent).toBe('COMMENT');
+
+    const fastCfg = loadConfig(dir, { review: { depth: 'fast' } });
+    expect(fastCfg.review.maxSteps).toBe(12);
+    expect(fastCfg.review.maxFollowUpRounds).toBe(0);
+    expect(fastCfg.review.stageTimeoutMs).toBe(180_000);
+
+    const balancedCfg = loadConfig(dir, { review: { depth: 'balanced' } });
+    expect(balancedCfg.review.maxSteps).toBe(15);
+    expect(balancedCfg.review.maxFollowUpRounds).toBe(1);
+    expect(balancedCfg.review.stageTimeoutMs).toBe(240_000);
   });
 
   test('resolves all named presets cleanly', () => {

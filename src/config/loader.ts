@@ -8,6 +8,7 @@ import {
   CiviReviewConfigSchema,
   McpConfigSchema,
   PRESETS,
+  REVIEW_DEPTH_PROFILES,
   ReviewSettingsSchema,
   WatchConfigSchema,
   type CiviReviewConfigInput,
@@ -15,6 +16,7 @@ import {
   type PresetModels,
   type PresetName,
   type ResolvedCiviReviewConfig,
+  type ReviewDepth,
 } from './schema.ts';
 
 const CONFIG_FILENAMES = ['civireview.yaml', '.civireview.yaml'] as const;
@@ -130,6 +132,28 @@ export function loadConfig(
         }
       : undefined;
 
+  const rawReviewFile =
+    rawFileConfig && typeof rawFileConfig === 'object'
+      ? ((rawFileConfig as Record<string, unknown>).review as Record<string, unknown> | undefined)
+      : undefined;
+  const effectiveDepth: ReviewDepth = overrides.review?.depth ?? parsedFile.review?.depth ?? 'deep';
+  const depthProfile = REVIEW_DEPTH_PROFILES[effectiveDepth];
+  const explicitMaxSteps =
+    overrides.review?.maxSteps ??
+    (rawReviewFile && rawReviewFile.maxSteps !== undefined
+      ? parsedFile.review?.maxSteps
+      : undefined);
+  const explicitMaxFollowUp =
+    overrides.review?.maxFollowUpRounds ??
+    (rawReviewFile && rawReviewFile.maxFollowUpRounds !== undefined
+      ? parsedFile.review?.maxFollowUpRounds
+      : undefined);
+  const explicitTimeoutMs =
+    overrides.review?.stageTimeoutMs ??
+    (rawReviewFile && rawReviewFile.stageTimeoutMs !== undefined
+      ? parsedFile.review?.stageTimeoutMs
+      : undefined);
+
   const mergedInput: CiviReviewConfigInput = {
     trigger: overrides.trigger ?? parsedFile.trigger,
     preset,
@@ -152,6 +176,10 @@ export function loadConfig(
     review: {
       ...parsedFile.review,
       ...stripUndefined(overrides.review ?? {}),
+      depth: effectiveDepth,
+      maxSteps: explicitMaxSteps ?? depthProfile.maxSteps,
+      maxFollowUpRounds: explicitMaxFollowUp ?? depthProfile.maxFollowUpRounds,
+      stageTimeoutMs: explicitTimeoutMs ?? depthProfile.stageTimeoutMs,
       ...(mergedPaths ? { paths: mergedPaths } : {}),
     },
     watch: parsedFile.watch,

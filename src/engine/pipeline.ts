@@ -432,6 +432,7 @@ async function executeReviewPipeline(
       mcpScope,
       effort: triageEffort,
       maxSteps: Math.min(config.review.maxSteps, 3),
+      timeoutMs: config.review.stageTimeoutMs,
     },
     registry,
   );
@@ -564,6 +565,7 @@ async function executeReviewPipeline(
         ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
         ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
         maxSteps: config.review.maxSteps,
+        timeoutMs: config.review.stageTimeoutMs,
       },
       registry,
     );
@@ -637,6 +639,7 @@ async function executeReviewPipeline(
         ...(extraTools ? { extraTools } : {}),
         ...(extraMcpServers ? { extraMcpServers } : {}),
         maxSteps: config.review.maxSteps,
+        timeoutMs: config.review.stageTimeoutMs,
       },
       registry,
     );
@@ -713,6 +716,7 @@ async function executeReviewPipeline(
             ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
             ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
             maxSteps: config.review.maxSteps,
+            timeoutMs: config.review.stageTimeoutMs,
           },
           registry,
         );
@@ -773,6 +777,7 @@ async function executeReviewPipeline(
           ...(extraTools ? { extraTools } : {}),
           ...(extraMcpServers ? { extraMcpServers } : {}),
           maxSteps: config.review.maxSteps,
+          timeoutMs: config.review.stageTimeoutMs,
         },
         registry,
       );

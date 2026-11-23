@@ -224,13 +224,28 @@ export const StageEffortOverridesSchema = z
   .strict();
 export type StageEffortOverrides = z.infer<typeof StageEffortOverridesSchema>;
 
+export const REVIEW_DEPTHS = ['fast', 'balanced', 'deep'] as const;
+export const ReviewDepthSchema = z.enum(REVIEW_DEPTHS);
+export type ReviewDepth = z.infer<typeof ReviewDepthSchema>;
+
+export const REVIEW_DEPTH_PROFILES: Record<
+  ReviewDepth,
+  { maxSteps: number; maxFollowUpRounds: number; stageTimeoutMs: number }
+> = {
+  fast: { maxSteps: 12, maxFollowUpRounds: 0, stageTimeoutMs: 180_000 },
+  balanced: { maxSteps: 15, maxFollowUpRounds: 1, stageTimeoutMs: 240_000 },
+  deep: { maxSteps: 25, maxFollowUpRounds: 2, stageTimeoutMs: 300_000 },
+};
+
 export const ReviewSettingsSchema = z
   .object({
+    depth: ReviewDepthSchema.default('deep'),
     confidenceThreshold: z.number().min(0).max(100).default(80),
     maxInlineComments: z.number().int().nonnegative().default(10),
     maxDiffBytes: z.number().int().positive().default(250_000),
-    maxSteps: z.number().int().positive().default(15),
-    maxFollowUpRounds: z.number().int().min(0).max(2).default(1),
+    maxSteps: z.number().int().positive().default(25),
+    maxFollowUpRounds: z.number().int().min(0).max(2).default(2),
+    stageTimeoutMs: z.number().int().positive().default(300_000),
     maxBudgetUsd: z.number().positive().optional(),
     effort: EffortModeSchema.default('auto'),
     stageEffort: StageEffortOverridesSchema.optional(),

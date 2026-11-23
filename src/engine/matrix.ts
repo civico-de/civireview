@@ -774,8 +774,10 @@ export function resolveStageEffort(params: {
     return config.review.effort;
   }
 
+  const depth = config.review.depth ?? 'deep';
+
   if (stage === 'triage') {
-    return 'low';
+    return depth === 'deep' ? 'medium' : 'low';
   }
   if (stage === 'threadReply') {
     return 'medium';
@@ -786,13 +788,25 @@ export function resolveStageEffort(params: {
   const isHighRiskPr = isSecurityPr || triage?.riskLevel === 'high';
 
   if (stage === 'specialist') {
-    // Keep parallel Stage 1 specialists at `medium` effort in `auto` mode so 4
-    // parallel lenses don't each burn 10-15k thinking tokens; reserve `high`
-    // effort for the single Stage 2 Opus Verifier when high-severity candidates exist.
+    if (depth === 'fast') {
+      return 'low';
+    }
+    if (depth === 'deep') {
+      if (params.lens === 'correctness' || params.lens === 'security') {
+        return 'high';
+      }
+      return isHighRiskPr || hasEmpiricalFail ? 'high' : 'medium';
+    }
     return 'medium';
   }
 
   // Stage 2: Verifier
+  if (depth === 'deep') {
+    return 'high';
+  }
+  if (depth === 'fast') {
+    return 'medium';
+  }
   const candidateList = candidates ?? [];
   const hasHighOrCritical = candidateList.some(
     (c) => c.severity === 'critical' || c.severity === 'high',

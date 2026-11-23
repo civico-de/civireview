@@ -9,6 +9,7 @@ import {
   EffortModeSchema,
   ModelSpecSchema,
   PresetNameSchema,
+  ReviewDepthSchema,
   WatchModeSchema,
   type AuthorAssociation,
   type ModelOverrides,
@@ -50,6 +51,7 @@ Common Options:
   --repo <owner/name>       GitHub repository slug
   --preset <name>           Model preset (sonnet, sonnet-opus, cross-model, subscription, local-gpu)
   --effort <mode>           Reasoning effort (auto [default], low, medium, high, xhigh, max)
+  --depth <profile>         Review depth profile (fast, balanced, deep [default])
   --model <provider:model>  Override all specialist models
   --triage <provider:m>     Override Stage 0 triage model
   --verifier <provider:m>   Override verifier model
@@ -183,6 +185,7 @@ async function resolveGitLocalRefs(
 function buildConfigOverrides(opts: {
   preset?: string;
   effort?: string;
+  depth?: string;
   model?: string;
   triage?: string;
   verifier?: string;
@@ -236,6 +239,9 @@ function buildConfigOverrides(opts: {
   const review: Record<string, unknown> = {};
   if (opts.effort !== undefined) {
     review.effort = EffortModeSchema.parse(opts.effort.toLowerCase());
+  }
+  if (opts.depth !== undefined) {
+    review.depth = ReviewDepthSchema.parse(opts.depth.toLowerCase());
   }
   if (opts.include && opts.include.length > 0) review.include = opts.include;
   if (opts.exclude && opts.exclude.length > 0) review.exclude = opts.exclude;
@@ -307,6 +313,7 @@ async function main(): Promise<void> {
       pr: { type: 'string' },
       preset: { type: 'string' },
       effort: { type: 'string' },
+      depth: { type: 'string' },
       model: { type: 'string' },
       triage: { type: 'string' },
       verifier: { type: 'string' },
@@ -438,6 +445,7 @@ async function main(): Promise<void> {
       buildConfigOverrides({
         preset: values.preset,
         effort: values.effort,
+        depth: values.depth,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -494,6 +502,7 @@ async function main(): Promise<void> {
       buildConfigOverrides({
         preset: values.preset,
         effort: values.effort,
+        depth: values.depth,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -637,6 +646,7 @@ async function main(): Promise<void> {
       buildConfigOverrides({
         preset: values.preset,
         effort: values.effort,
+        depth: values.depth,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -736,6 +746,7 @@ async function main(): Promise<void> {
       buildConfigOverrides({
         preset: values.preset,
         effort: values.effort,
+        depth: values.depth,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,
@@ -804,6 +815,7 @@ async function main(): Promise<void> {
       buildConfigOverrides({
         preset: values.preset,
         effort: values.effort,
+        depth: values.depth,
         model: values.model,
         triage: values.triage,
         verifier: values.verifier,

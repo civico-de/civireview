@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: ''
+      depth:
+        description: Review depth profile (fast, balanced, deep [default])
+        required: false
+        type: string
+        default: ''
       ab_enabled:
         description: Enable CiviKitchen Standalone A/B Docker verification
         required: false
@@ -156,6 +161,7 @@ jobs:
           ALLOW_USERS: ${{ vars.CIVIREVIEW_ALLOW_USERS || '' }}
           PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet-opus' }}
           EFFORT_VAL: ${{ inputs.effort || vars.CIVIREVIEW_EFFORT || 'auto' }}
+          DEPTH_VAL: ${{ inputs.depth || vars.CIVIREVIEW_DEPTH || 'deep' }}
           AB_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.ab_enabled || 'true' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
@@ -174,6 +180,7 @@ jobs:
             --trigger "$TRIGGER_STR"
             --preset "$PRESET_VAL"
             --effort "$EFFORT_VAL"
+            --depth "$DEPTH_VAL"
             --max-per-hour "$MAX_PER_HOUR"
             --max-daily-usd "$MAX_DAILY_USD"
             --max-age-minutes "$MAX_AGE_MINUTES"

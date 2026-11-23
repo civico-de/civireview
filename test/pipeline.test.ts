@@ -715,7 +715,9 @@ describe('review pipeline', () => {
     });
 
     expect(maxConcurrentSpecialists).toBe(1);
-    expect(logs.some((l) => l.includes('[stage] triage') && l.includes('effort=low'))).toBe(true);
+    expect(logs.some((l) => l.includes('[stage] triage') && l.includes('effort=medium'))).toBe(
+      true,
+    );
     expect(
       logs.some(
         (l) =>

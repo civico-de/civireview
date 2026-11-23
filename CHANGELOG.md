@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-23
+
+### Added
+- **Single-switch review depth profile (`--depth fast|balanced|deep`, `review.depth`, `vars.CIVIREVIEW_DEPTH`, default `deep`)**:
+  - `deep` (new default): `maxSteps: 25`, `maxFollowUpRounds: 2`, `stageTimeoutMs: 300s`, Triage `medium`, `correctness`/`security` specialists `high`, Verifier `high`.
+  - `balanced`: `maxSteps: 15`, `maxFollowUpRounds: 1`, `stageTimeoutMs: 240s`, Triage `low`, specialists `medium`, Verifier scales `medium` → `high`.
+  - `fast`: `maxSteps: 12`, `maxFollowUpRounds: 0`, `stageTimeoutMs: 180s`, Triage `low`, specialists `low`, Verifier `medium`.
+
 ## [0.2.1] - 2026-11-23
 
 ### Fixed
@@ -54,7 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release of `civireview`: CiviCRM-native multi-model AI pull request reviewer with Layer 1 CiviKitchen A/B Proof-of-Fix, live surface diffing, Standalone Browser A/B screenshots & a11y checks, `civicrm-knowledge` MCP integration, GitHub Actions watcher (`watch-core.yml`), and inline thread replies.
 
-[Unreleased]: https://github.com/civico-de/civireview/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/civico-de/civireview/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/civico-de/civireview/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/civico-de/civireview/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/civico-de/civireview/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/civico-de/civireview/releases/tag/v0.1.0
