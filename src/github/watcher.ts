@@ -1274,6 +1274,9 @@ export async function runWatcherOnce(
           githubToken: token,
           incremental: !mention.flags.full,
         });
+      options.logger?.info(
+        `Collected evidence for ${mention.repoFullName}#${mention.prNumber}: ${bundle.diffFiles.length} file(s), A/B=${bundle.abReport.executed ? `executed (${bundle.abReport.checks.length} check(s))` : 'skipped'}`,
+      );
 
       try {
         // Idempotency guard even if local seen.json was deleted or watcher moved hosts:
@@ -1302,10 +1305,11 @@ export async function runWatcherOnce(
             cwd: options.repoRoot,
             liveUrls: urls,
             composeFiles,
+            logger: options.logger,
           });
           estimatedUsd = review.tokenUsage?.estimatedUsd;
 
-          await publishReviewFn({
+          const published = await publishReviewFn({
             owner: mention.owner,
             repo: mention.repo,
             prNumber: mention.prNumber,
@@ -1320,6 +1324,9 @@ export async function runWatcherOnce(
             maxInlineComments: effectiveConfig.review.maxInlineComments,
             reviewEvent: effectiveConfig.review.reviewEvent,
           });
+          options.logger?.info(
+            `Finished ${mention.repoFullName}#${mention.prNumber}: verdict=${review.verdict}${review.score ? ` (${review.score}/5)` : ''}${estimatedUsd !== undefined ? `, est=$${estimatedUsd.toFixed(2)}` : ''}${published.htmlUrl ? ` -> ${published.htmlUrl}` : ''}`,
+          );
         }
       } finally {
         await cleanup();

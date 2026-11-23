@@ -19,6 +19,7 @@ import {
   connectStdioMcpClient,
   type ConnectedMcpHandle,
 } from '../mcp/client.ts';
+import { extractJsonFromCliText } from './claude-cli.ts';
 import { estimateStageCostUsd } from './pricing.ts';
 import { createRepoTools } from './repo-tools.ts';
 import {
@@ -205,11 +206,27 @@ export class AiSdkRunner implements StageRunner {
         providerOptions = { openai: { reasoningEffort: req.effort } };
       }
 
+      const maxSteps = Math.max(2, req.maxSteps ?? 15);
+      const hasTools = Object.keys(tools).length > 0;
+
       const commonCallOptions = {
         model,
         instructions,
         tools,
-        stopWhen: stepCountIs(req.maxSteps ?? 15),
+        stopWhen: stepCountIs(maxSteps),
+        // Guarantee the final step always emits the structured JSON object instead
+        // of burning the last step on a tool call (which causes AI SDK to throw
+        // `NoOutputGeneratedError: No output generated.`).
+        ...(hasTools
+          ? {
+              prepareStep: ({ stepNumber }: { stepNumber: number }) => {
+                if (stepNumber >= maxSteps - 1) {
+                  return { toolChoice: 'none' as const };
+                }
+                return undefined;
+              },
+            }
+          : {}),
         maxOutputTokens: req.maxOutputTokens,
         ...(providerOptions ? { providerOptions } : {}),
         timeout: req.timeoutMs,
@@ -229,7 +246,31 @@ export class AiSdkRunner implements StageRunner {
             prompt: req.userPrompt,
           });
 
-      const validated = req.schema.parse(result.output);
+      let rawOutput: unknown;
+      try {
+        rawOutput = result.output;
+      } catch (outputErr) {
+        // Fallback: if text contains JSON (e.g. non-stop finishReason), try extracting it
+        const fallbackText = result.text?.trim();
+        if (fallbackText) {
+          try {
+            rawOutput = extractJsonFromCliText(fallbackText);
+          } catch {
+            // Fall through to rich diagnostic error
+          }
+        }
+        if (rawOutput === undefined) {
+          const stepsCount = result.steps?.length ?? 0;
+          const finishReason = result.finishReason ?? 'unknown';
+          const msg =
+            outputErr instanceof Error ? outputErr.message : String(outputErr);
+          throw new Error(
+            `Stage "${req.stage}" (${parsed.raw}) produced no structured output after ${stepsCount}/${maxSteps} step(s) (finishReason=${finishReason}, textLen=${result.text?.length ?? 0}): ${msg}`,
+          );
+        }
+      }
+
+      const validated = req.schema.parse(rawOutput);
       const rawInputTokens = result.usage.inputTokens ?? 0;
       const outputTokens = result.usage.outputTokens ?? 0;
       const cachedInputTokens =
