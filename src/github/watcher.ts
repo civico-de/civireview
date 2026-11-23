@@ -120,6 +120,7 @@ export interface WatcherOctokit extends PublisherOctokit {
     activity: {
       listNotificationsForAuthenticatedUser(params: {
         all?: boolean;
+        since?: string;
         per_page?: number;
         headers?: Record<string, string>;
       }): Promise<{
@@ -670,9 +671,18 @@ export async function pollNotificationMentions(
       WatcherOctokit['rest']['activity']['listNotificationsForAuthenticatedUser']
     >
   >;
+  const sinceIso =
+    maxCommentAgeMinutes !== undefined
+      ? new Date((nowMs ?? Date.now()) - maxCommentAgeMinutes * 60_000).toISOString()
+      : undefined;
+
   try {
+    // Use `all: true` so notifications accidentally marked read by opening a PR
+    // in a browser or email client while signed in as the bot are never dropped.
+    // Deduplication is enforced via `seen.json` + posted `trigger_comment` markers.
     response = await octokit.rest.activity.listNotificationsForAuthenticatedUser({
-      all: false,
+      all: true,
+      ...(sinceIso ? { since: sinceIso } : {}),
       per_page: 50,
       ...(lastModified
         ? { headers: { 'If-Modified-Since': lastModified } }
