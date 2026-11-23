@@ -141,21 +141,10 @@ export class AiSdkRunner implements StageRunner {
         ...req.extraTools,
       };
 
-      const instructions: SystemModelMessage[] = [
-        {
-          role: 'system',
-          content: req.systemPrompt,
-          ...(parsed.provider === 'anthropic'
-            ? {
-                providerOptions: {
-                  anthropic: {
-                    cacheControl: { type: 'ephemeral' as const },
-                  },
-                },
-              }
-            : {}),
-        },
-      ];
+      // Put the shared PR evidence prefix FIRST with cacheControl so all stages
+      // sharing the same model + tool definitions (e.g. sequential Stage 1 specialists)
+      // hit the exact same KV cache prefix before their lens-specific system prompt.
+      const instructions: SystemModelMessage[] = [];
 
       if (req.sharedPrefix) {
         instructions.push({
@@ -172,6 +161,20 @@ export class AiSdkRunner implements StageRunner {
             : {}),
         });
       }
+
+      instructions.push({
+        role: 'system',
+        content: req.systemPrompt,
+        ...(parsed.provider === 'anthropic'
+          ? {
+              providerOptions: {
+                anthropic: {
+                  cacheControl: { type: 'ephemeral' as const },
+                },
+              },
+            }
+          : {}),
+      });
 
       const multimodalUserMsg = buildMultimodalUserMessage(req.userPrompt, req.images);
 

@@ -650,4 +650,90 @@ describe('review pipeline', () => {
     expect(browserRow!.status).toBe('FAIL');
     expect(browserRow!.detail).toContain('1 console');
   });
+
+  test('runs Stage 1 specialists sequentially for cache warming and logs per-stage token/cache telemetry', async () => {
+    const config = loadConfig('/tmp/nonexistent-cfg-dir', { preset: 'sonnet-opus' });
+    let inFlightSpecialists = 0;
+    let maxConcurrentSpecialists = 0;
+    const logs: string[] = [];
+
+    const mockRunner: StageRunner = {
+      providers: ['anthropic'],
+      async run(req) {
+        if (req.stage.startsWith('specialist:')) {
+          inFlightSpecialists += 1;
+          maxConcurrentSpecialists = Math.max(maxConcurrentSpecialists, inFlightSpecialists);
+          await new Promise((r) => setTimeout(r, 5));
+          inFlightSpecialists -= 1;
+        }
+        if (req.stage === 'triage') {
+          return {
+            output: req.schema.parse({
+              prKind: 'core-bugfix',
+              riskLevel: 'medium',
+              activeLenses: ['correctness', 'security', 'tests'],
+              summaryBullets: ['Bugfix'],
+              recommendedAbTests: [],
+            }),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 1200,
+            usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 },
+          };
+        }
+        const lens = req.stage.replace('specialist:', '');
+        const isFirst = req.stage === 'specialist:correctness';
+        return {
+          output: req.schema.parse({
+            lens,
+            summary: 'Checked cleanly.',
+            findings: [],
+            checkedWithoutFindings: ['CRM/Contact/BAO/Contact.php'],
+          }),
+          model: req.model,
+          provider: 'anthropic',
+          durationMs: 3400,
+          usage: {
+            inputTokens: 500,
+            cacheWriteInputTokens: isFirst ? 20_000 : 1_000,
+            cachedInputTokens: isFirst ? 0 : 19_000,
+            outputTokens: 300,
+            totalTokens: 20_800,
+          },
+        };
+      },
+    };
+
+    const registry = createRunnerRegistry({ anthropic: mockRunner });
+    await runReviewPipeline({
+      bundle: makeBundle(),
+      filteredPatch: SAMPLE_PATCH,
+      config,
+      cwd: process.cwd(),
+      registry,
+      logger: { info: (msg) => logs.push(msg) },
+    });
+
+    expect(maxConcurrentSpecialists).toBe(1);
+    expect(logs.some((l) => l.includes('[stage] triage') && l.includes('effort=low'))).toBe(true);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('[stage] specialist:correctness') &&
+          l.includes('cache_write=20,000') &&
+          l.includes('0% hit'),
+      ),
+    ).toBe(true);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('[stage] specialist:security') &&
+          l.includes('cache_read=19,000') &&
+          l.includes('93% hit'),
+      ),
+    ).toBe(true);
+    expect(logs.some((l) => l.includes('[telemetry] total stages=4') && l.includes('cost=$'))).toBe(
+      true,
+    );
+  });
 });

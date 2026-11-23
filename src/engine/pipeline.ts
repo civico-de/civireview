@@ -18,7 +18,7 @@ import { buildThreadReplyPrompt, type ThreadReplyInput } from '../prompts/thread
 import { buildTriagePrompt, type StagePromptPair } from '../prompts/triage.ts';
 import { buildVerifierPrompt } from '../prompts/verifier.ts';
 import { createLiveProbeTool } from '../runners/live-prove.ts';
-import { estimateStageCostUsd, roundUsd } from '../runners/pricing.ts';
+import { estimateStageCostUsd, formatUsd, roundUsd } from '../runners/pricing.ts';
 import { createRunnerRegistry, runStage, type RunnerRegistry } from '../runners/registry.ts';
 import type { ExtraMcpServerConfig, StageImageInput, StageUsage } from '../runners/types.ts';
 import {
@@ -92,13 +92,58 @@ export interface RunThreadReplyOptions {
   registry?: RunnerRegistry;
 }
 
+function formatStageTelemetry(params: {
+  stage: string;
+  model: ModelSpec;
+  effort?: string;
+  durationMs: number;
+  usage?: StageUsage;
+  stageCost?: number;
+}): string {
+  const { stage, model, effort, durationMs, usage, stageCost } = params;
+  const durStr = `${(durationMs / 1000).toFixed(1)}s`;
+  const effortStr = effort ? ` effort=${effort}` : '';
+  if (!usage) {
+    return `[stage] ${stage} model=${model}${effortStr} dur=${durStr} usage=n/a`;
+  }
+  const cacheWrite = usage.cacheWriteInputTokens ?? 0;
+  const cacheRead = usage.cachedInputTokens ?? 0;
+  const totalIn = usage.inputTokens + cacheWrite + cacheRead;
+  const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
+  const costStr = stageCost !== undefined ? ` cost=${formatUsd(stageCost)}` : '';
+  return (
+    `[stage] ${stage} model=${model}${effortStr} dur=${durStr}` +
+    ` in=${usage.inputTokens.toLocaleString('en-US')}` +
+    ` cache_write=${cacheWrite.toLocaleString('en-US')}` +
+    ` cache_read=${cacheRead.toLocaleString('en-US')} (${hitPct}% hit)` +
+    ` out=${usage.outputTokens.toLocaleString('en-US')}${costStr}`
+  );
+}
+
+function formatTotalTelemetry(totals: TokenUsageTotals, totalDurationMs: number): string {
+  const cacheWrite = totals.cacheWriteInputTokens ?? 0;
+  const cacheRead = totals.cachedInputTokens ?? 0;
+  const totalIn = totals.inputTokens + cacheWrite + cacheRead;
+  const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
+  const stages = totals.byStage?.length ?? 0;
+  const costStr =
+    totals.estimatedUsd !== undefined ? ` cost=${formatUsd(totals.estimatedUsd)}` : '';
+  return (
+    `[telemetry] total stages=${stages} dur=${(totalDurationMs / 1000).toFixed(1)}s` +
+    ` in=${totals.inputTokens.toLocaleString('en-US')}` +
+    ` cache_write=${cacheWrite.toLocaleString('en-US')}` +
+    ` cache_read=${cacheRead.toLocaleString('en-US')} (${hitPct}% hit)` +
+    ` out=${totals.outputTokens.toLocaleString('en-US')}${costStr}`
+  );
+}
+
 function accumulateUsage(
   totals: TokenUsageTotals,
   stage: string,
   model: ModelSpec,
   usage: StageUsage | undefined,
-): boolean {
-  if (!usage) return false;
+): { recorded: boolean; stageCost?: number } {
+  if (!usage) return { recorded: false };
   totals.inputTokens += usage.inputTokens;
   totals.outputTokens += usage.outputTokens;
   totals.totalTokens += usage.totalTokens;
@@ -130,7 +175,7 @@ function accumulateUsage(
     totalTokens: usage.totalTokens,
     ...(stageCost !== undefined ? { estimatedUsd: stageCost } : {}),
   });
-  return true;
+  return { recorded: true, stageCost };
 }
 
 function buildSpecialistPrompt(
@@ -308,6 +353,7 @@ async function executeReviewPipeline(
 ): Promise<FinalReview> {
   const { bundle, config, cwd, logger, registry, mcpScope, sharedPrefix } = options;
 
+  const pipelineStart = Date.now();
   const modelsUsed: Record<string, ModelSpec> = {};
   const tokenTotals: TokenUsageTotals = {
     inputTokens: 0,
@@ -344,9 +390,20 @@ async function executeReviewPipeline(
     registry,
   );
   modelsUsed.triage = triageResult.model;
-  if (accumulateUsage(tokenTotals, 'triage', triageResult.model, triageResult.usage)) {
+  const triageAcc = accumulateUsage(tokenTotals, 'triage', triageResult.model, triageResult.usage);
+  if (triageAcc.recorded) {
     hasUsage = true;
   }
+  logger?.info?.(
+    formatStageTelemetry({
+      stage: 'triage',
+      model: triageResult.model,
+      effort: triageEffort,
+      durationMs: triageResult.durationMs,
+      usage: triageResult.usage,
+      stageCost: triageAcc.stageCost,
+    }),
+  );
 
   const triage = triageResult.output;
   const browserSignal = hasBrowserSignal(bundle);
@@ -371,6 +428,10 @@ async function executeReviewPipeline(
       verificationMatrix,
       scoreRationale: skipScore.rationale,
     });
+    if (hasUsage) {
+      logger?.info?.(formatTotalTelemetry(tokenTotals, Date.now() - pipelineStart));
+    }
+
     return FinalReviewSchema.parse({
       schemaVersion: '1',
       repo: bundle.pr.repo,
@@ -411,7 +472,9 @@ async function executeReviewPipeline(
     ? `\nLive Standalone A/B URLs available for Playwright inspection: A=${effectiveUrlA ?? 'N/A'}, B=${effectiveUrlB ?? 'N/A'}`
     : '';
 
-  // Stage 1: Parallel Specialist Lenses
+  // Stage 1: Sequential Specialist Lenses
+  // Run sequentially so specialist #1 writes the sharedPrefix+tools KV cache once
+  // and specialists #2..N reuse it via warm cache-read hits instead of racing cold writes.
   const lensEfforts = activeLenses.map((lens) => ({
     lens,
     effort: resolveStageEffort({
@@ -424,45 +487,52 @@ async function executeReviewPipeline(
     }),
   }));
   logger?.info?.(
-    `Stage 1 (Specialists): ${lensEfforts.map((l) => `${l.lens}[effort=${l.effort}]`).join(', ')}`,
-  );
-  const specialistResults = await Promise.all(
-    lensEfforts.map(async ({ lens, effort }) => {
-      const model = config.models.specialists[lens];
-      const prompt = buildSpecialistPrompt(lens, bundle, triage);
-      const isUi = lens === 'ui';
-      const res = await runStage(
-        {
-          stage: `specialist:${lens}`,
-          model,
-          cwd,
-          systemPrompt: prompt.systemPrompt,
-          sharedPrefix,
-          userPrompt:
-            isUi && liveUrlsNote ? `${prompt.userPrompt}${liveUrlsNote}` : prompt.userPrompt,
-          schema: SpecialistOutputSchema,
-          schemaName: `SpecialistOutput_${lens}`,
-          mcpScope,
-          effort,
-          ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
-          ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
-          maxSteps: config.review.maxSteps,
-        },
-        registry,
-      );
-      return { lens, res };
-    }),
+    `Stage 1 (Specialists, sequential): ${lensEfforts.map((l) => `${l.lens}[effort=${l.effort}]`).join(', ')}`,
   );
 
   const candidates: CandidateFinding[] = [];
   const standardsLists: Array<StandardVerdict[] | undefined> = [];
   const blastRadiusLists: Array<BlastRadiusItem[] | undefined> = [];
 
-  for (const { lens, res } of specialistResults) {
-    modelsUsed[`specialist:${lens}`] = res.model;
-    if (accumulateUsage(tokenTotals, `specialist:${lens}`, res.model, res.usage)) {
+  for (const { lens, effort } of lensEfforts) {
+    const model = config.models.specialists[lens];
+    const prompt = buildSpecialistPrompt(lens, bundle, triage);
+    const isUi = lens === 'ui';
+    const stageName = `specialist:${lens}`;
+    const res = await runStage(
+      {
+        stage: stageName,
+        model,
+        cwd,
+        systemPrompt: prompt.systemPrompt,
+        sharedPrefix,
+        userPrompt:
+          isUi && liveUrlsNote ? `${prompt.userPrompt}${liveUrlsNote}` : prompt.userPrompt,
+        schema: SpecialistOutputSchema,
+        schemaName: `SpecialistOutput_${lens}`,
+        mcpScope,
+        effort,
+        ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
+        ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
+        maxSteps: config.review.maxSteps,
+      },
+      registry,
+    );
+    modelsUsed[stageName] = res.model;
+    const specAcc = accumulateUsage(tokenTotals, stageName, res.model, res.usage);
+    if (specAcc.recorded) {
       hasUsage = true;
     }
+    logger?.info?.(
+      formatStageTelemetry({
+        stage: stageName,
+        model: res.model,
+        effort,
+        durationMs: res.durationMs,
+        usage: res.usage,
+        stageCost: specAcc.stageCost,
+      }),
+    );
     candidates.push(...res.output.findings);
     standardsLists.push(res.output.standards);
     blastRadiusLists.push(res.output.blastRadius);
@@ -520,9 +590,25 @@ async function executeReviewPipeline(
       registry,
     );
     modelsUsed.verifier = verifierResult.model;
-    if (accumulateUsage(tokenTotals, 'verifier', verifierResult.model, verifierResult.usage)) {
+    const verifierAcc = accumulateUsage(
+      tokenTotals,
+      'verifier',
+      verifierResult.model,
+      verifierResult.usage,
+    );
+    if (verifierAcc.recorded) {
       hasUsage = true;
     }
+    logger?.info?.(
+      formatStageTelemetry({
+        stage: 'verifier',
+        model: verifierResult.model,
+        effort: verifierEffort,
+        durationMs: verifierResult.durationMs,
+        usage: verifierResult.usage,
+        stageCost: verifierAcc.stageCost,
+      }),
+    );
     rawVerified = verifierResult.output.verifiedFindings;
     standards = adoptReconciledStandards(standards, verifierResult.output.reconciledStandards);
   } else {
@@ -566,6 +652,10 @@ async function executeReviewPipeline(
     verificationMatrix,
     bundle,
   });
+
+  if (hasUsage) {
+    logger?.info?.(formatTotalTelemetry(tokenTotals, Date.now() - pipelineStart));
+  }
 
   return FinalReviewSchema.parse({
     schemaVersion: '1',
