@@ -9,7 +9,12 @@ import {
   deriveRegressionTargets,
   isE2eMinkTestPath,
 } from '../src/evidence/ab/test-targets.ts';
-import { runCiviKitchenAb, type ExecFn } from '../src/evidence/civikitchen-ab.ts';
+import {
+  resolveAvailableCivikitchenImage,
+  runCiviKitchenAb,
+  type ExecFn,
+} from '../src/evidence/civikitchen-ab.ts';
+import { mergeBlastRadius } from '../src/engine/findings.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import type { RepoInfo } from '../src/evidence/types.ts';
 
@@ -362,5 +367,50 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(proof?.status).toBe('PASS');
     expect(proof?.fixed).toEqual(['CRM_Queue_SqlTest::testClaim']);
     expect(proof?.summary).toContain('1 test(s) red on A, green on B');
+  });
+
+  test('resolveAvailableCivikitchenImage falls back from unpublished standalone-6.21 to standalone-beta', async () => {
+    const probed: string[] = [];
+    const execFn: ExecFn = async (args) => {
+      probed.push(args.join(' '));
+      if (args[0] === 'docker' && args[1] === 'image' && args[2] === 'inspect') {
+        return { exitCode: 1, stdout: '', stderr: 'No such image' };
+      }
+      if (args[0] === 'docker' && args[1] === 'manifest' && args[2] === 'inspect') {
+        const ref = args[3] ?? '';
+        if (ref.endsWith(':standalone-beta')) {
+          return { exitCode: 0, stdout: '{}', stderr: '' };
+        }
+        return { exitCode: 1, stdout: '', stderr: 'no such manifest' };
+      }
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
+
+    const res = await resolveAvailableCivikitchenImage('standalone-6.21', 'civicrm-core', execFn);
+    expect(res).toEqual({ tag: 'standalone-beta', fallbackFrom: 'standalone-6.21' });
+    expect(probed.some((cmd) => cmd.includes(':standalone-6.21'))).toBe(true);
+  });
+
+  test('mergeBlastRadius deduplicates per normalized (repo, path) keeping richer impact', () => {
+    const merged = mergeBlastRadius([
+      [
+        {
+          repo: 'civicrm-core',
+          path: 'CRM/Core/I18n.php',
+          symbol: 'CRM_Core_I18n::crm_translate',
+          impact: 'Short impact.',
+        },
+      ],
+      [
+        {
+          repo: 'civicrm-core',
+          path: './CRM/Core/I18n.php',
+          symbol: 'crm_translate / crm_translate_raw',
+          impact: 'Much richer impact description covering raw callers.',
+        },
+      ],
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.impact).toContain('Much richer impact');
   });
 });

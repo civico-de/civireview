@@ -626,6 +626,7 @@ async function executeReviewPipeline(
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
       allowFollowUpLeads: maxFollowUpRounds > 0,
       triageBullets: walkthrough,
+      confidenceThreshold: config.review.confidenceThreshold,
     });
     const liveProveEnabled =
       isCheckEnabled(config, 'live-prove') &&
@@ -787,6 +788,7 @@ async function executeReviewPipeline(
       const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
         allowFollowUpLeads: round < maxFollowUpRounds,
         triageBullets: walkthrough,
+        confidenceThreshold: config.review.confidenceThreshold,
       });
       const fuVerifierResult = await runStage(
         {
@@ -848,6 +850,15 @@ async function executeReviewPipeline(
   const gated = rawVerified.filter(
     (f) => f.verdict !== 'REJECTED' && f.confidence >= config.review.confidenceThreshold,
   );
+  const uncertainCandidates = rawVerified.filter(
+    (f) =>
+      f.verdict !== 'REJECTED' &&
+      f.confidence >= 50 &&
+      f.confidence < config.review.confidenceThreshold,
+  );
+  const uncertainFindings = deduplicateVerifiedFindings(uncertainCandidates)
+    .toSorted(compareVerifiedFindings)
+    .slice(0, 5);
   const deduped = deduplicateVerifiedFindings(gated);
   const sorted = deduped.toSorted(compareVerifiedFindings);
 
@@ -860,6 +871,15 @@ async function executeReviewPipeline(
   const survivingFindings = sorted.filter((f) => keptInlineIds.has(f.id) || summaryIds.has(f.id));
 
   const droppedCount = Math.max(0, rawVerified.length - survivingFindings.length);
+  if (rawVerified.length > 0) {
+    const counts = { PROVEN: 0, CONFIRMED: 0, NEEDS_QUESTION: 0, REJECTED: 0 };
+    for (const f of rawVerified) {
+      counts[f.verdict]++;
+    }
+    logger?.info?.(
+      `[stage] verifier verdicts: total=${rawVerified.length} PROVEN=${counts.PROVEN} CONFIRMED=${counts.CONFIRMED} NEEDS_QUESTION=${counts.NEEDS_QUESTION} REJECTED=${counts.REJECTED} surviving=${survivingFindings.length} dropped=${droppedCount} (threshold=${config.review.confidenceThreshold})`,
+    );
+  }
   const verdict = computeFinalVerdict(survivingFindings, verificationMatrix);
   const { score, rationale: scoreRationale } = computeConfidenceScore({
     verdict,
@@ -904,6 +924,7 @@ async function executeReviewPipeline(
     blastRadius,
     ...(relatedItems.length > 0 ? { relatedItems } : {}),
     findings: survivingFindings,
+    ...(uncertainFindings.length > 0 ? { uncertainFindings } : {}),
     droppedCount,
     modelsUsed,
     tokenUsage: hasUsage ? tokenTotals : undefined,

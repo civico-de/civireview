@@ -135,8 +135,22 @@ DISPATCH_HDR=(
   -H "X-GitHub-Api-Version: 2022-11-28"
 )
 
-if curl -fsSg --max-time 30 "${DISPATCH_HDR[@]}" "$API/runs?per_page=5" \
-  | grep -qE '"status":\s*"(in_progress|queued)"'; then
+curl -fsSg --max-time 30 "${DISPATCH_HDR[@]}" \
+  -o "$STATE_DIR/runs.json" \
+  "$API/runs?per_page=5"
+
+ACTIVE_RUN="$(python3 - "$STATE_DIR/runs.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+active = any(
+    r.get("status") in ("in_progress", "queued", "waiting", "pending", "requested")
+    for r in data.get("workflow_runs", [])
+)
+print("1" if active else "0")
+PY
+)"
+if [ "$ACTIVE_RUN" = "1" ]; then
   log "workflow already queued or running, skipping dispatch"
   exit 0
 fi

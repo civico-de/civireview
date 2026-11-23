@@ -55,6 +55,19 @@ export function selectCivikitchenImage(params: {
 }
 
 /**
+ * Returns an ordered, deduplicated list of CiviKitchen Docker image tags to try
+ * when the preferred tag (e.g. `standalone-6.21` for a newly-cut release branch)
+ * has not been published to GHCR yet.
+ */
+export function getCivikitchenImageCandidates(preferred: string, kind: RepoInfo['kind']): string[] {
+  const fallbacks =
+    kind === 'civicrm-core'
+      ? ['standalone-beta', 'standalone-master', 'standalone-latest', 'standalone']
+      : ['standalone-latest', 'standalone'];
+  return Array.from(new Set([preferred, ...fallbacks]));
+}
+
+/**
  * Detects whether `repoRoot` is `civicrm-core`, a `civicrm-extension`, or `generic`,
  * extracting version/extension metadata and recommending the CiviKitchen Standalone image.
  */

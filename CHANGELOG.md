@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-23
+
+### Fixed
+- **Pre-flight CiviKitchen Docker image tag resolution & fallback**: Before launching `ck ab`, `civireview` now probes `docker image inspect` / `docker manifest inspect` for the preferred tag and falls back cleanly (`standalone-X.Y` → `standalone-beta` → `standalone-master` → `standalone-latest` → `standalone`) when a newly-cut release branch (e.g. `6.21`) does not yet have a published GHCR image. Deterministic missing-image errors (`failed to resolve reference`, `manifest unknown`, `: not found`, `No such image`) are no longer retried.
+- **Verifier–Gate confidence alignment & verdict telemetry**: Passed `confidenceThreshold` into the Verifier prompt, aligned `CONFIRMED` calibration to `${threshold}-95` so verified defects are not silently dropped at 75–79 while cited as `CONFIRMED:` in `reconciledWalkthrough`, added `[stage] verifier verdicts:` breakdown logging in `pipeline.ts`, and displayed the filtered-candidates note in `formatter.ts` even when 0 findings survive.
+- **External cron `pipefail` + `grep -q` guard (`scripts/external-cron-trigger.sh`)**: Replaced `curl ... | grep -qE` under `set -euo pipefail` (which caused `SIGPIPE` on `curl` and dispatched duplicate cancelled runs on bash 4.2) with file-backed Python JSON inspection of active workflow runs.
+- **Collapsed `Lower-Confidence Notes` `<details>` section**: Non-`REJECTED` findings scoring 50%–79% (below the 80% inline posting gate) are now preserved in a collapsed-by-default `<details>` block so reviewers can optionally inspect borderline observations without adding inline noise or affecting the verdict/score (`REJECTED` false positives remain fully hidden).
+- **Deduplicated `Ecosystem Blast Radius` rows**: Merged blast-radius entries per normalized `(repo, path)`, keeping the richest impact description.
+
 ## [0.2.3] - 2026-11-23
 
 ### Added

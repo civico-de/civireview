@@ -394,7 +394,22 @@ export function formatReviewMarkdown(
     );
   }
 
-  if (review.findings.length > 0 && review.droppedCount > 0) {
+  if (review.uncertainFindings && review.uncertainFindings.length > 0) {
+    const uncertainBody = review.uncertainFindings
+      .map((f) => {
+        const lineRef =
+          f.startLine === f.endLine
+            ? `${f.path}:${f.startLine}`
+            : `${f.path}:${f.startLine}-${f.endLine}`;
+        return `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRef}\` — **${f.title}**: ${f.issue}`;
+      })
+      .join('\n');
+    sections.push(
+      `<details>\n<summary>Lower-Confidence Notes (${review.uncertainFindings.length} — below posting gate, for optional review)</summary>\n\n${uncertainBody}\n</details>`,
+    );
+  }
+
+  if (review.droppedCount > 0) {
     sections.push(
       `_Note: ${review.droppedCount} low-confidence, duplicate, or disproved candidate finding(s) were filtered out by the adversarial verifier and confidence gate._`,
     );

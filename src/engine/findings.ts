@@ -100,17 +100,16 @@ export function computeFinalVerdict(
 }
 
 export function mergeBlastRadius(lists: Array<BlastRadiusItem[] | undefined>): BlastRadiusItem[] {
-  const seen = new Set<string>();
-  const merged: BlastRadiusItem[] = [];
+  const byRepoPath = new Map<string, BlastRadiusItem>();
   for (const list of lists) {
     if (!list) continue;
     for (const item of list) {
-      const key = `${item.repo}|${item.path}|${item.symbol}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        merged.push(item);
+      const key = `${item.repo.trim().toLowerCase()}|${normalizePath(item.path).toLowerCase()}`;
+      const existing = byRepoPath.get(key);
+      if (!existing || item.impact.length > existing.impact.length) {
+        byRepoPath.set(key, item);
       }
     }
   }
-  return merged;
+  return Array.from(byRepoPath.values());
 }

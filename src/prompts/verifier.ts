@@ -11,10 +11,15 @@ export function buildVerifierPrompt(
   bundle: EvidenceBundle,
   candidates: CandidateFinding[],
   standards?: StandardVerdict[],
-  options?: { allowFollowUpLeads?: boolean; triageBullets?: string[] },
+  options?: {
+    allowFollowUpLeads?: boolean;
+    triageBullets?: string[];
+    confidenceThreshold?: number;
+  },
 ): StagePromptPair {
   const allowFollowUp = options?.allowFollowUpLeads ?? true;
   const triageBullets = options?.triageBullets;
+  const threshold = options?.confidenceThreshold ?? 80;
   const followUpRule = allowFollowUp
     ? `\n8. Targeted Follow-Up Leads (\`followUpLeads\`, optional — default \`[]\`):
    - Leave \`followUpLeads\` EMPTY (\`[]\`) for clean PRs or when all concrete issues are already covered by the candidates above.
@@ -24,7 +29,8 @@ export function buildVerifierPrompt(
   const walkthroughRule =
     triageBullets && triageBullets.length > 0
       ? `\n9. Walkthrough Reconciliation (\`reconciledWalkthrough\`):
-   - Reconcile Stage 0's initial \`walkthrough\` bullets against your verified evidence and Stage 1 findings: replace any early \`NEEDS_QUESTION: I did not confirm...\` bullet whose question was answered by your code inspection with a factual \`CONFIRMED:\` or \`PROVEN:\` bullet, strip any bullet that merely repeats third-party bot comments (e.g. Greptile/CodeRabbit), and keep 3–6 crisp, non-contradictory bullets.`
+   - Reconcile Stage 0's initial \`walkthrough\` bullets against your verified evidence and Stage 1 findings: replace any early \`NEEDS_QUESTION: I did not confirm...\` bullet whose question was answered by your code inspection with a factual \`CONFIRMED:\` or \`PROVEN:\` bullet, strip any bullet that merely repeats third-party bot comments (e.g. Greptile/CodeRabbit), and keep 3–6 crisp, non-contradictory bullets.
+   - CONSISTENCY RULE: Only state \`CONFIRMED:\` for a defect in \`reconciledWalkthrough\` if that defect is also emitted in \`verifiedFindings\` with \`confidence >= ${threshold}\` (otherwise it will be filtered out by the posting gate and contradict a \`READY\` verdict).`
       : '';
 
   const systemPrompt = `You are the Adversarial Verifier for civireview.
@@ -42,11 +48,11 @@ VERIFICATION PROTOCOL (for every candidate finding):
    - Is the guard/sanitization/permission check actually enforced at a caller, middleware, QuickForm/APIv4 wrapper, or DAO layer?
    - Did the specialist misread the diff side (LEFT vs RIGHT), line numbers, or pre-existing behaviour?
    - Is it purely a style nit, hypothetical micro-optimization, or speculative fear without a concrete failure path?
-3. Assign a strict verdict and confidence (0..100):
+3. Assign a strict verdict and confidence (0..100). POSTING GATE: only non-\`REJECTED\` findings with \`confidence >= ${threshold}\` are posted to the PR author; anything below ${threshold} is filtered out.
    - 'PROVEN': Confirmed by deterministic test failure/pass in A/B or static delta, OR verified end-to-end with exact reproducible failure path. Confidence typically 90-100.
      - CALIBRATION: A candidate finding flagging a test listed in \`tautologicalTests\` backed by \`ck ab\` \`passed_both\` evidence on a bugfix/behavior-change PR is **\`PROVEN\`** (\`confidence >= 90\`), NOT speculative (\`REJECTED\` or \`NEEDS_QUESTION\`) — \`ck ab\` already ran that test against unfixed base A and observed it pass.
-   - 'CONFIRMED': Verified directly against code lines and CiviCRM contracts with concrete failure scenario. Confidence typically 75-95.
-   - 'NEEDS_QUESTION': Plausible risk whose trigger depends on external deployment/caller state not fully observable here. Confidence typically 50-79.
+   - 'CONFIRMED': Verified directly against code lines and CiviCRM contracts with a concrete failure scenario. Confidence typically ${threshold}-95 (use \`>= ${threshold}\` whenever you confirmed a real bug that should be posted, even if not executed at runtime; use \`< ${threshold}\` only if you want it suppressed).
+   - 'NEEDS_QUESTION': Plausible risk whose trigger depends on external deployment/caller state not fully observable here. Confidence typically 50-${Math.max(50, threshold - 1)} (or \`>= ${threshold}\` only when a concrete question genuinely warrants alerting the PR author).
    - 'REJECTED': Disproved, false positive, style nit, duplicate of another finding, or unsupported by evidence. Confidence 0-49.
 4. Visual & Live Probing (when available):
    - If BEFORE (A) / AFTER (B) screenshots are attached, visually compare them to verify or disprove claimed UI/CSS/layout regressions.

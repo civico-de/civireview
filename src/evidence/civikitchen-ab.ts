@@ -12,6 +12,7 @@ import {
   type ReviewSettings,
 } from '../config/schema.ts';
 import { extractAddedTestMethods } from './diff-filter.ts';
+import { getCivikitchenImageCandidates } from './repo-detect.ts';
 import {
   LiveSurfaceDiffSchema,
   type AbCheckResult,
@@ -195,6 +196,33 @@ export interface CiviKitchenAbOutcome {
  * creating temporary git worktrees under `$HOME` (for Docker bind-mount compatibility)
  * and cleaning them up in a guaranteed `finally` block (or via `cleanup()` when kept alive).
  */
+const CIVIKITCHEN_IMAGE_REPO = 'ghcr.io/civico-de/civikitchen';
+
+/**
+ * Verifies that the preferred CiviKitchen image tag exists (locally or in GHCR)
+ * before launching `ck ab`, falling back to the nearest published tag when a
+ * newly-cut release branch (e.g. `standalone-6.21`) has no image yet.
+ */
+export async function resolveAvailableCivikitchenImage(
+  preferred: string,
+  kind: RepoInfo['kind'],
+  execFn: ExecFn = defaultExec,
+): Promise<{ tag: string; fallbackFrom?: string }> {
+  const candidates = getCivikitchenImageCandidates(preferred, kind);
+  for (const tag of candidates) {
+    const ref = tag.includes('/') || tag.includes(':') ? tag : `${CIVIKITCHEN_IMAGE_REPO}:${tag}`;
+    const local = await execFn(['docker', 'image', 'inspect', ref], { timeoutMs: 5_000 });
+    if (local.exitCode === 0) {
+      return { tag, fallbackFrom: tag === preferred ? undefined : preferred };
+    }
+    const remote = await execFn(['docker', 'manifest', 'inspect', ref], { timeoutMs: 10_000 });
+    if (remote.exitCode === 0) {
+      return { tag, fallbackFrom: tag === preferred ? undefined : preferred };
+    }
+  }
+  return { tag: preferred };
+}
+
 async function noopCleanup(): Promise<void> {}
 
 export async function runCiviKitchenAb(
@@ -214,8 +242,8 @@ export async function runCiviKitchenAb(
 
   let surfaceDiff = computeSurfaceDiff(diffFiles, repoInfo);
   const notVerified = [...surfaceDiff.unverifiedSurfaces];
-  const imageA = repoInfo.recommendedImage;
-  const imageB = repoInfo.recommendedImage;
+  let imageA = repoInfo.recommendedImage;
+  let imageB = repoInfo.recommendedImage;
 
   const emptyStatic: StaticDeltaReport = {
     executed: false,
@@ -275,6 +303,19 @@ export async function runCiviKitchenAb(
       staticDelta: emptyStatic,
       cleanup: noopCleanup,
     };
+  }
+
+  const resolvedImg = await resolveAvailableCivikitchenImage(
+    repoInfo.recommendedImage,
+    repoInfo.kind,
+    execFn,
+  );
+  imageA = resolvedImg.tag;
+  imageB = resolvedImg.tag;
+  if (resolvedImg.fallbackFrom) {
+    console.error(
+      `[civireview:ab] Image "${resolvedImg.fallbackFrom}" not found in ${CIVIKITCHEN_IMAGE_REPO}; falling back to "${resolvedImg.tag}".`,
+    );
   }
 
   // Create worktrees inside $HOME by default so macOS Colima / Docker Desktop can bind-mount them
@@ -455,10 +496,12 @@ export async function runCiviKitchenAb(
 
       // Transient Docker/runner failure retry: if ck ab exited non-zero without
       // writing a report, did not time out, and did not hit a deterministic exit-2
-      // condition (only B wrote, holds no test case, same mounts), retry once.
+      // condition (missing image, only B wrote, holds no test case, same mounts), retry once.
       const combinedOut = `${res.stderr}\n${res.stdout}`;
       const isDeterministicExit2 =
-        /only B wrote\b|holds no test case|same mounts; nothing to compare/i.test(combinedOut);
+        /only B wrote\b|holds no test case|same mounts; nothing to compare|failed to resolve reference|manifest unknown|:\s*not found\b|No such image/i.test(
+          combinedOut,
+        );
       if (
         res.exitCode !== 0 &&
         !res.timedOut &&
