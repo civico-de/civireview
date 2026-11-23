@@ -379,19 +379,45 @@ export function buildCoreMountPlan(
         mountsBOnly.push('--mount', `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`);
       }
     }
+    const isTestOnlyPr = coreProdFiles.length === 0 && coreTestFiles.length > 0;
     for (const f of coreTestFiles) {
       if (isE2eMinkTestPath(f.path)) continue;
-      if (existsSync(join(worktreeB, f.path))) {
-        proofTestMounts.push(
-          '--mount',
-          `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`,
-        );
-      }
-      if (existsSync(join(worktreeA, f.path))) {
-        baseTestMounts.push(
-          '--mount',
-          `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`,
-        );
+      if (isTestOnlyPr) {
+        // Test-only PR (0 production files changed): mount base A's test into A and PR B's test into B
+        // so `ck ab` compares old vs refactored test instead of exiting 2 ("same mounts; nothing to compare").
+        if (existsSync(join(worktreeA, f.path))) {
+          proofTestMounts.push(
+            '--mount-a',
+            `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+          baseTestMounts.push(
+            '--mount-a',
+            `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+        }
+        if (existsSync(join(worktreeB, f.path))) {
+          proofTestMounts.push(
+            '--mount-b',
+            `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+          baseTestMounts.push(
+            '--mount-b',
+            `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+        }
+      } else {
+        if (existsSync(join(worktreeB, f.path))) {
+          proofTestMounts.push(
+            '--mount',
+            `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+        }
+        if (existsSync(join(worktreeA, f.path))) {
+          baseTestMounts.push(
+            '--mount',
+            `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`,
+          );
+        }
       }
     }
   } else {

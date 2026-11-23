@@ -273,7 +273,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       matrix.push({
         check: proofCheckLabel,
         status: 'NOT_VERIFIED',
-        detail: `${pairPrefix}${proofCheck.summary} (A/B runner error; no test regression observed)`,
+        detail: `${pairPrefix}Internal A/B test runner error — could not execute test file (not a PR failure).`,
       });
     } else {
       matrix.push({

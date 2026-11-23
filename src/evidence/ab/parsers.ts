@@ -500,7 +500,7 @@ export function buildAbCheckFromStdout(params: {
         ? `${parsed.regressions.length} regression(s) (pass on A, fail on B)`
         : parsed.fixed.length > 0
           ? `${parsed.fixed.length} test(s) red on A, green on B`
-          : `ck ab exited with ${res.exitCode}`,
+          : `Internal A/B test runner error (exit ${res.exitCode}) — not a PR failure`,
     outputSnippet: formatAbOutputSnippet(res.stdout, res.stderr, res.exitCode),
   };
 }
