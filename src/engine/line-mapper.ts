@@ -149,7 +149,8 @@ export function mapFindingsToDiff(
         finalStartLine = loSnap.line;
         if (loSnap.offset !== 0) snapped = true;
       } else if (loSnap && loSnap.line === finalEndLine) {
-        if (loSnap.offset !== 0) snapped = true;
+        collapsedRange = true;
+        snapped = true;
       } else {
         // startLine lies outside endLine's hunk (>2 lines away or different hunk).
         // If endLine was exact, safely snap to single-line; otherwise demote.
@@ -165,12 +166,16 @@ export function mapFindingsToDiff(
 
     const lineSpan = finalStartLine !== undefined ? finalEndLine - finalStartLine + 1 : 1;
 
-    const suggestionBlock = sanitizeSuggestionCode(finding.suggestionCode, {
-      side,
-      sameHunk: true,
-      lineSpan,
-      collapsedRange,
-    });
+    // A suggestion replaces exactly the commented lines, so it is only valid when
+    // the finding's lines were used unchanged.
+    const suggestionBlock = snapped
+      ? undefined
+      : sanitizeSuggestionCode(finding.suggestionCode, {
+          side,
+          sameHunk: true,
+          lineSpan,
+          collapsedRange,
+        });
 
     inlineFindings.push({
       finding,

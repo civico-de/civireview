@@ -44,6 +44,9 @@ function makeFinding(overrides: Partial<VerifiedFinding> = {}): VerifiedFinding 
   };
 }
 
+const base = (over: Partial<VerifiedFinding>) =>
+  makeFinding({ path: 'a.php', suggestionCode: 'replacement();', ...over });
+
 describe('line-mapper', () => {
   const diffFiles = parseUnifiedDiff(DIFF_TEXT);
 
@@ -141,5 +144,47 @@ describe('line-mapper', () => {
     expect(mapped.inlineFindings).toHaveLength(2);
     expect(mapped.inlineFindings[0]!.suggestionBlock).toBeUndefined();
     expect(mapped.inlineFindings[1]!.suggestionBlock).toBeUndefined();
+  });
+
+  describe('suggestions on moved lines', () => {
+    const SNAP_DIFF = `diff --git a/a.php b/a.php
+index 1..2 100644
+--- a/a.php
++++ b/a.php
+@@ -10,5 +10,6 @@ x
+   ctx
+-    old
++    new1
++    new2
+   ctx
+ }
+`;
+    const files = parseUnifiedDiff(SNAP_DIFF);
+
+    test('keeps the suggestion when the lines are used unchanged', () => {
+      const [m] = mapFindingsToDiff([base({ startLine: 12, endLine: 12 })], files).inlineFindings;
+      expect(m!.snapped).toBe(false);
+      expect(m!.suggestionBlock).toContain('replacement();');
+    });
+
+    test('drops the suggestion when the line was snapped to another line', () => {
+      const [m] = mapFindingsToDiff([base({ startLine: 9, endLine: 9 })], files).inlineFindings;
+      expect(m!.line).toBe(10);
+      expect(m!.snapped).toBe(true);
+      expect(m!.suggestionBlock).toBeUndefined();
+    });
+
+    test('drops the suggestion when a range was shortened', () => {
+      const [m] = mapFindingsToDiff([base({ startLine: 8, endLine: 12 })], files).inlineFindings;
+      expect(m!.startLine).toBe(10);
+      expect(m!.suggestionBlock).toBeUndefined();
+    });
+
+    test('drops the suggestion when a two-line range collapses to its last line', () => {
+      const [m] = mapFindingsToDiff([base({ startLine: 9, endLine: 10 })], files).inlineFindings;
+      expect(m!.line).toBe(10);
+      expect(m!.startLine).toBeUndefined();
+      expect(m!.suggestionBlock).toBeUndefined();
+    });
   });
 });
