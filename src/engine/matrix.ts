@@ -565,6 +565,10 @@ export interface ConfidenceScoreResult {
   rationale: string;
 }
 
+function isConfirmedFinding(f: VerifiedFinding): boolean {
+  return f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED';
+}
+
 /**
  * Computes a Greptile-style 1–5 merge-confidence score grounded deterministically
  * in verified findings and the empirical verification matrix.
@@ -575,10 +579,6 @@ export interface ConfidenceScoreResult {
  * - 2/5: High risk — confirmed high-severity defect or empirical CI/taint/browser/proof regression.
  * - 1/5: Critical blocker — confirmed critical defect or multiple confirmed high-severity defects.
  */
-function isConfirmedFinding(f: VerifiedFinding): boolean {
-  return f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED';
-}
-
 export function computeConfidenceScore(params: {
   verdict: FinalVerdict;
   findings: VerifiedFinding[];
@@ -588,10 +588,10 @@ export function computeConfidenceScore(params: {
   const { findings, verificationMatrix, prKind } = params;
 
   let score: ConfidenceScore = 5;
-  const reasons: string[] = [];
+  const reasons: Array<{ limit: ConfidenceScore; text: string }> = [];
 
   const capAt = (limit: ConfidenceScore, reason: string) => {
-    reasons.push(reason);
+    reasons.push({ limit, text: reason });
     if (limit < score) {
       score = limit;
     }
@@ -713,7 +713,10 @@ export function computeConfidenceScore(params: {
     return { score: 5, rationale: summary };
   }
 
-  const dedupedReasons = Array.from(new Set(reasons)).slice(0, 3);
+  // Strictest caps first so the rationale names what actually decides the score.
+  const dedupedReasons = Array.from(
+    new Set(reasons.toSorted((a, b) => a.limit - b.limit).map((r) => r.text)),
+  ).slice(0, 3);
   const first = dedupedReasons[0]!;
   const formattedFirst = first.charAt(0).toUpperCase() + first.slice(1);
   const rest = dedupedReasons.slice(1);

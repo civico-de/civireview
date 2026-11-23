@@ -104,7 +104,10 @@ export function detectRepoInfo(repoRoot: string, baseBranch?: string): RepoInfo 
 
     if (existsSync(civikitchenYamlPath)) {
       try {
-        const raw = yaml.load(readFileSync(civikitchenYamlPath, 'utf8'));
+        // Failsafe schema keeps every scalar a string, so `civicrm: 6.10` stays "6.10".
+        const raw = yaml.load(readFileSync(civikitchenYamlPath, 'utf8'), {
+          schema: yaml.FAILSAFE_SCHEMA,
+        });
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
           const obj = raw as Record<string, unknown>;
           const policy = obj.policy;
@@ -112,8 +115,6 @@ export function detectRepoInfo(repoRoot: string, baseBranch?: string): RepoInfo 
             const civi = (policy as Record<string, unknown>).civicrm;
             if (typeof civi === 'string' && civi.trim()) {
               civicrmFloor = civi.trim();
-            } else if (typeof civi === 'number') {
-              civicrmFloor = String(civi);
             }
           }
         }
