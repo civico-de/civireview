@@ -92,6 +92,59 @@ export function sanitizeGitHubMentions(markdown: string, mentionUsers = false): 
     .join('');
 }
 
+/** GitHub rejects review and comment bodies above 65,536 characters. */
+export const MAX_GITHUB_BODY_CHARS = 60_000;
+
+export function truncateForGitHub(text: string, max = MAX_GITHUB_BODY_CHARS): string {
+  if (text.length <= max) return text;
+  const note = "\n\n_… truncated to fit GitHub's size limit._";
+  return text.slice(0, Math.max(0, max - note.length)) + note;
+}
+
+/** Drops optional `<details>` sections from the end, then truncates the largest remaining one. */
+function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHARS): string[] {
+  const out = [...sections];
+  const total = () => out.join('\n\n').length;
+  // The last section holds the footer and dedup marker and always stays.
+  let omitted = 0;
+  for (let i = out.length - 2; i >= 0 && total() > max; i--) {
+    if (out[i]?.startsWith('<details>')) {
+      out.splice(i, 1);
+      omitted++;
+    }
+  }
+  if (omitted > 0) {
+    out.splice(
+      out.length - 1,
+      0,
+      `_${omitted} detail section(s) omitted to fit GitHub's size limit._`,
+    );
+  }
+  const excess = total() - max;
+  if (excess > 0) {
+    let largest = 0;
+    for (let i = 1; i < out.length - 1; i++) {
+      if ((out[i]?.length ?? 0) > (out[largest]?.length ?? 0)) largest = i;
+    }
+    const section = out[largest] ?? '';
+    out[largest] = truncateForGitHub(section, Math.max(0, section.length - excess));
+  }
+  return out;
+}
+
+/** Fence long enough that the content cannot close it early. */
+function fencedBlock(content: string, info: string): string[] {
+  const longestRun = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  return [`${fence}${info}`, content, fence];
+}
+
+/** Inline code span that survives backticks inside the content. */
+function inlineCode(content: string): string {
+  if (!content.includes('`')) return `\`${content}\``;
+  return `\`\` ${content} \`\``;
+}
+
 export interface FormattedReviewOutput {
   summaryBody: string;
   inlineComments: GitHubReviewCommentInput[];
@@ -149,10 +202,10 @@ export function formatInlineCommentBody(mapped: MappedInlineFinding): string {
   ];
 
   if (f.liveProofCommand) {
-    lines.push(`**Proof command:** \`${f.liveProofCommand}\``);
+    lines.push(`**Proof command:** ${inlineCode(f.liveProofCommand)}`);
   }
   if (f.liveProofOutput) {
-    lines.push('', '```text', f.liveProofOutput.slice(0, 800), '```');
+    lines.push('', ...fencedBlock(f.liveProofOutput.slice(0, 800), 'text'));
   }
   if (f.suggestedFix.trim()) {
     lines.push('', `**Suggested fix:** ${f.suggestedFix}`);
@@ -293,7 +346,7 @@ export function formatReviewMarkdown(
     line: m.line,
     ...(m.startLine !== undefined ? { start_line: m.startLine, start_side: m.side } : {}),
     side: m.side,
-    body: sanitizeGitHubMentions(formatInlineCommentBody(m), mentionUsers),
+    body: truncateForGitHub(sanitizeGitHubMentions(formatInlineCommentBody(m), mentionUsers)),
   }));
 
   const sections: string[] = [];
@@ -557,7 +610,7 @@ export function formatReviewMarkdown(
   );
 
   return {
-    summaryBody: sanitizeGitHubMentions(sections.join('\n\n'), mentionUsers),
+    summaryBody: sanitizeGitHubMentions(fitSectionsToLimit(sections).join('\n\n'), mentionUsers),
     inlineComments,
     overflowFindings: allSummaryFindings,
   };

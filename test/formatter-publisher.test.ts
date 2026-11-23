@@ -507,3 +507,124 @@ describe('formatter & publisher', () => {
     ]);
   });
 });
+
+function recordingOctokit(failWhen: (call: { event: string; comments: number }) => boolean) {
+  const calls: Array<{ event: string; comments: number; body: string }> = [];
+  const octokit: PublisherOctokit = {
+    rest: {
+      pulls: {
+        async createReview(params) {
+          const call = {
+            event: params.event,
+            comments: params.comments?.length ?? 0,
+            body: params.body,
+          };
+          calls.push(call);
+          if (failWhen(call)) {
+            throw Object.assign(new Error('Unprocessable Entity'), { status: 422 });
+          }
+          return { data: { id: 900 } };
+        },
+        async createReplyForReviewComment() {
+          return { data: { id: 1 } };
+        },
+      },
+    },
+  };
+  return { calls, octokit };
+}
+
+describe('publishing limits and fallbacks', () => {
+  test('a refused REQUEST_CHANGES is retried as COMMENT with the inline comments kept', async () => {
+    const { calls, octokit } = recordingOctokit((c) => c.event === 'REQUEST_CHANGES');
+
+    const res = await publishReview({
+      owner: 'civicrm',
+      repo: 'civicrm-core',
+      prNumber: 99,
+      review: makeSampleReview(),
+      bundle: makeSampleBundle(),
+      octokit,
+      reviewEvent: 'REQUEST_CHANGES',
+    });
+
+    expect(calls.map((c) => [c.event, c.comments])).toEqual([
+      ['REQUEST_CHANGES', 1],
+      ['COMMENT', 1],
+    ]);
+    expect(res.posted).toBe(true);
+    expect(res.fallbackUsed).toBe(false);
+    expect(res.inlineComments).toHaveLength(1);
+  });
+
+  test('still folds inline comments into the summary when COMMENT with comments is refused too', async () => {
+    const { calls, octokit } = recordingOctokit((c) => c.comments > 0);
+
+    const res = await publishReview({
+      owner: 'civicrm',
+      repo: 'civicrm-core',
+      prNumber: 99,
+      review: makeSampleReview(),
+      bundle: makeSampleBundle(),
+      octokit,
+      reviewEvent: 'REQUEST_CHANGES',
+    });
+
+    expect(calls.map((c) => [c.event, c.comments])).toEqual([
+      ['REQUEST_CHANGES', 1],
+      ['COMMENT', 1],
+      ['COMMENT', 0],
+    ]);
+    expect(res.fallbackUsed).toBe(true);
+  });
+
+  test('a 422 without inline comments or a different error is not retried', async () => {
+    const bundle = makeSampleBundle();
+    const review = makeSampleReview();
+    review.findings = [];
+    const { calls, octokit } = recordingOctokit(() => true);
+
+    await expect(
+      publishReview({ owner: 'o', repo: 'r', prNumber: 1, review, bundle, octokit }),
+    ).rejects.toThrow('Unprocessable Entity');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('keeps summary and inline comment bodies below the GitHub limit and the marker intact', () => {
+    const review = makeSampleReview();
+    const huge = 'x'.repeat(70_000);
+    review.findings[0]!.issue = huge;
+    review.blastRadius = Array.from({ length: 400 }, (_, i) => ({
+      repo: 'civicrm/civicrm-core',
+      path: `CRM/File${i}.php`,
+      symbol: `Symbol${i}`,
+      impact: 'y'.repeat(300),
+    }));
+    review.standards = Array.from({ length: 300 }, (_, i) => ({
+      code: `r-${i}`,
+      status: 'PASS' as const,
+      note: 'z'.repeat(300),
+    }));
+
+    const out = formatReviewMarkdown(review, makeSampleBundle());
+
+    expect(out.summaryBody.length).toBeLessThan(65_536);
+    expect(out.summaryBody).toContain('<!-- civireview:v1');
+    expect(out.summaryBody).toContain('omitted to fit GitHub');
+    for (const comment of out.inlineComments) {
+      expect(comment.body.length).toBeLessThan(65_536);
+    }
+  });
+
+  test('proof output containing backticks cannot close its own fence', () => {
+    const review = makeSampleReview();
+    review.findings[0]!.liveProofCommand = 'echo `date`';
+    review.findings[0]!.liveProofOutput = 'before\n```\nafter';
+
+    const out = formatReviewMarkdown(review, makeSampleBundle());
+    const body = out.inlineComments[0]!.body;
+
+    expect(body).toContain('````text\nbefore\n```\nafter\n````');
+    expect(body).toContain('`` echo `date` ``');
+  });
+});

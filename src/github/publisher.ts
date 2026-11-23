@@ -3,7 +3,12 @@ import type { ReviewEvent } from '../config/schema.ts';
 import type { FinalReview } from '../engine/schemas.ts';
 import { resolveGitHubToken } from '../evidence/github.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
-import { formatReviewMarkdown, type GitHubReviewCommentInput } from './formatter.ts';
+import {
+  formatReviewMarkdown,
+  MAX_GITHUB_BODY_CHARS,
+  truncateForGitHub,
+  type GitHubReviewCommentInput,
+} from './formatter.ts';
 
 export interface PublisherOctokit {
   rest: {
@@ -97,7 +102,7 @@ function appendFallbackCommentsToSummary(
   comments: GitHubReviewCommentInput[],
 ): string {
   if (comments.length === 0) return summaryBody;
-  const movedBlock =
+  const fullBlock =
     `### Inline Findings (Moved to Summary)\n\n` +
     comments
       .map((c) => {
@@ -105,6 +110,10 @@ function appendFallbackCommentsToSummary(
         return `#### \`${c.path}:${range}\` (${c.side})\n\n${c.body}`;
       })
       .join('\n\n---\n\n');
+  const movedBlock = truncateForGitHub(
+    fullBlock,
+    Math.max(0, MAX_GITHUB_BODY_CHARS - summaryBody.length - 100),
+  );
 
   const markerIdx = summaryBody.lastIndexOf('<!-- civireview:v1');
   if (markerIdx !== -1) {
@@ -204,40 +213,44 @@ export async function publishReview(options: PublishReviewOptions): Promise<Publ
     ? 'COMMENT'
     : resolveReviewEvent(review.verdict, options.reviewEvent);
 
+  // 422 fallbacks, most to least faithful: a plain COMMENT review (e.g. REQUEST_CHANGES or
+  // APPROVE is refused on one's own PR), then the inline comments folded into the summary.
+  const attempts: Array<{ event: ReviewEvent; moveInline: boolean }> = [
+    { event, moveInline: false },
+    ...(event !== 'COMMENT' ? [{ event: 'COMMENT' as const, moveInline: false }] : []),
+    ...(formatted.inlineComments.length > 0
+      ? [{ event: 'COMMENT' as const, moveInline: true }]
+      : []),
+  ];
+
   let fallbackUsed = false;
   let finalSummary = formatted.summaryBody;
   let finalComments = formatted.inlineComments;
-  let responseData: { id: number; html_url?: string };
+  let responseData: { id: number; html_url?: string } | undefined;
 
-  try {
-    const res = await octokit.rest.pulls.createReview({
-      owner,
-      repo,
-      pull_number: prNumber,
-      commit_id: review.headSha,
-      event,
-      body: finalSummary,
-      comments: finalComments,
-    });
-    responseData = res.data;
-  } catch (err) {
-    if (!isHttp422(err) || finalComments.length === 0) {
-      throw err;
+  for (const [index, attempt] of attempts.entries()) {
+    finalSummary = attempt.moveInline
+      ? appendFallbackCommentsToSummary(formatted.summaryBody, formatted.inlineComments)
+      : formatted.summaryBody;
+    finalComments = attempt.moveInline ? [] : formatted.inlineComments;
+    try {
+      const res = await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        commit_id: review.headSha,
+        event: attempt.event,
+        body: finalSummary,
+        comments: finalComments,
+      });
+      responseData = res.data;
+      fallbackUsed = attempt.moveInline;
+      break;
+    } catch (err) {
+      if (!isHttp422(err) || index === attempts.length - 1) throw err;
     }
-    fallbackUsed = true;
-    finalSummary = appendFallbackCommentsToSummary(finalSummary, finalComments);
-    finalComments = [];
-    const retryRes = await octokit.rest.pulls.createReview({
-      owner,
-      repo,
-      pull_number: prNumber,
-      commit_id: review.headSha,
-      event,
-      body: finalSummary,
-      comments: [],
-    });
-    responseData = retryRes.data;
   }
+  if (!responseData) throw new Error('Review was not posted.');
 
   if (commentId !== undefined) {
     await addCompletionReaction(octokit, owner, repo, commentId, review.verdict);
