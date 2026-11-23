@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
+import type { z } from 'zod';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {
   generateText,
+  NoObjectGeneratedError,
   Output,
   stepCountIs,
   type ImagePart,
@@ -114,6 +116,41 @@ function resolveLanguageModel(parsed: ParsedModelSpec): LanguageModel {
   }
 }
 
+/**
+ * Structured output that accepts the object wrapped in prose or a code fence, which
+ * models without a strict JSON mode produce. Strict parsing is tried first.
+ */
+function lenientObjectOutput<T>(schema: z.ZodType<T>, name: string) {
+  const strict = Output.object<T>({ schema, name });
+  return {
+    ...strict,
+    async parseCompleteOutput(...args: Parameters<typeof strict.parseCompleteOutput>) {
+      try {
+        return await strict.parseCompleteOutput(...args);
+      } catch (strictErr) {
+        try {
+          return schema.parse(extractJsonFromCliText(args[0].text));
+        } catch {
+          throw strictErr;
+        }
+      }
+    },
+  };
+}
+
+function noStructuredOutputError(
+  req: { stage: string },
+  parsed: ParsedModelSpec,
+  details: { steps?: number; maxSteps: number; finishReason?: string; textLength: number },
+  cause: unknown,
+): Error {
+  const msg = cause instanceof Error ? cause.message : String(cause);
+  return new Error(
+    `Stage "${req.stage}" (${parsed.raw}) produced no structured output${details.steps === undefined ? '' : ` after ${details.steps}/${details.maxSteps} step(s)`} (finishReason=${details.finishReason ?? 'unknown'}, textLen=${details.textLength}): ${msg}`,
+    { cause },
+  );
+}
+
 export class AiSdkRunner implements StageRunner {
   readonly providers = ['anthropic', 'openai', 'google', 'openrouter', 'openai-compat'] as const;
 
@@ -216,44 +253,51 @@ export class AiSdkRunner implements StageRunner {
         maxOutputTokens: req.maxOutputTokens,
         ...(providerOptions ? { providerOptions } : {}),
         timeout: req.timeoutMs,
-        output: Output.object<T>({
-          schema: req.schema,
-          name: req.schemaName ?? req.stage,
-        }),
+        output: lenientObjectOutput<T>(req.schema, req.schemaName ?? req.stage),
       };
 
-      const result = multimodalUserMsg
-        ? await generateText({
-            ...commonCallOptions,
-            messages: [multimodalUserMsg],
-          })
-        : await generateText({
-            ...commonCallOptions,
-            prompt: req.userPrompt,
-          });
+      let result;
+      try {
+        result = multimodalUserMsg
+          ? await generateText({
+              ...commonCallOptions,
+              messages: [multimodalUserMsg],
+            })
+          : await generateText({
+              ...commonCallOptions,
+              prompt: req.userPrompt,
+            });
+      } catch (err) {
+        if (NoObjectGeneratedError.isInstance(err)) {
+          throw noStructuredOutputError(
+            req,
+            parsed,
+            {
+              maxSteps,
+              finishReason: err.finishReason,
+              textLength: err.text?.length ?? 0,
+            },
+            err,
+          );
+        }
+        throw err;
+      }
 
       let rawOutput: unknown;
       try {
         rawOutput = result.output;
       } catch (outputErr) {
-        // Fallback: if text contains JSON (e.g. non-stop finishReason), try extracting it
-        const fallbackText = result.text?.trim();
-        if (fallbackText) {
-          try {
-            rawOutput = extractJsonFromCliText(fallbackText);
-          } catch {
-            // Fall through to rich diagnostic error
-          }
-        }
-        if (rawOutput === undefined) {
-          const stepsCount = result.steps?.length ?? 0;
-          const finishReason = result.finishReason ?? 'unknown';
-          const msg = outputErr instanceof Error ? outputErr.message : String(outputErr);
-          throw new Error(
-            `Stage "${req.stage}" (${parsed.raw}) produced no structured output after ${stepsCount}/${maxSteps} step(s) (finishReason=${finishReason}, textLen=${result.text?.length ?? 0}): ${msg}`,
-            { cause: outputErr },
-          );
-        }
+        throw noStructuredOutputError(
+          req,
+          parsed,
+          {
+            steps: result.steps?.length ?? 0,
+            maxSteps,
+            finishReason: result.finishReason,
+            textLength: result.text?.length ?? 0,
+          },
+          outputErr,
+        );
       }
 
       const validated = req.schema.parse(rawOutput);

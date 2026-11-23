@@ -8,6 +8,13 @@ import type { ToolSet } from 'ai';
 import type { ExtraMcpServerConfig } from '../runners/types.ts';
 import type { McpScopeResult } from './scope.ts';
 
+function warnUnavailable(name: string, err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err);
+  console.warn(
+    `[civireview:warn] MCP server "${name}" unavailable, continuing without it: ${reason}`,
+  );
+}
+
 export interface ConnectedMcpHandle {
   client: MCPClient | null;
   tools: ToolSet;
@@ -50,7 +57,8 @@ export async function connectMcpClient(scope: McpScopeResult): Promise<Connected
         }
       },
     };
-  } catch {
+  } catch (err) {
+    warnUnavailable('civicrm-knowledge', err);
     return {
       client: null,
       tools: {},
@@ -94,7 +102,8 @@ export async function connectStdioMcpClient(
         }
       },
     };
-  } catch {
+  } catch (err) {
+    warnUnavailable(server.name, err);
     return {
       client: null,
       tools: {},

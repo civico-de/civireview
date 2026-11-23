@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { z } from 'zod';
 import { extractJsonFromCliText, toCliJsonSchema } from './claude-cli.ts';
+import { runCliProcess } from './cli-process.ts';
 import { parseModelSpec, type StageRequest, type StageResult, type StageRunner } from './types.ts';
 
 function makeOpenAiStrictSchema(node: unknown): unknown {
@@ -145,18 +146,12 @@ export class CodexCliRunner implements StageRunner {
     ];
 
     try {
-      const proc = Bun.spawn(args, {
+      const { stdout, stderr, exitCode } = await runCliProcess(args, {
         cwd: req.cwd,
-        stdin: new Blob([fullPrompt]),
-        stdout: 'pipe',
-        stderr: 'pipe',
+        stdin: fullPrompt,
+        timeoutMs: req.timeoutMs,
+        label: 'codex CLI',
       });
-
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
 
       if (exitCode !== 0) {
         const errTail = (stderr || stdout).slice(-1500);

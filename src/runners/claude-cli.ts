@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { writeMcpConfigFile } from '../mcp/client.ts';
+import { runCliProcess } from './cli-process.ts';
 import { estimateStageCostUsd, roundUsd } from './pricing.ts';
 import {
   parseModelSpec,
@@ -90,18 +91,12 @@ export class ClaudeCliRunner implements StageRunner {
     ];
 
     try {
-      const proc = Bun.spawn(args, {
+      const { stdout, stderr, exitCode } = await runCliProcess(args, {
         cwd: req.cwd,
-        stdin: new Blob([fullPrompt]),
-        stdout: 'pipe',
-        stderr: 'pipe',
+        stdin: fullPrompt,
+        timeoutMs: req.timeoutMs,
+        label: 'claude CLI',
       });
-
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
 
       if (exitCode !== 0) {
         throw new Error(`claude CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { extractJsonFromCliText } from './claude-cli.ts';
+import { runCliProcess } from './cli-process.ts';
 import { parseModelSpec, type StageRequest, type StageResult, type StageRunner } from './types.ts';
 
 export class OpenCodeCliRunner implements StageRunner {
@@ -39,23 +40,21 @@ export class OpenCodeCliRunner implements StageRunner {
       .filter(Boolean)
       .join('\n\n');
 
-    const args = ['opencode', 'run', '--standalone', '-m', parsed.modelId, fullPrompt];
+    const args = [
+      process.env.OPENCODE_BIN || 'opencode',
+      'run',
+      '--standalone',
+      '-m',
+      parsed.modelId,
+      fullPrompt,
+    ];
 
-    const proc = Bun.spawn(args, {
+    const { stdout, stderr, exitCode } = await runCliProcess(args, {
       cwd: req.cwd,
-      env: {
-        ...process.env,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
+      env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig) },
+      timeoutMs: req.timeoutMs,
+      label: 'opencode CLI',
     });
-
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
 
     if (exitCode !== 0) {
       throw new Error(`opencode CLI exited with ${exitCode}: ${(stderr || stdout).slice(0, 1000)}`);
