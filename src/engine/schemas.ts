@@ -202,6 +202,7 @@ export const FinalReviewSchema = z.object({
   threadResolutions: z.array(ThreadResolutionSchema).optional(),
   findings: z.array(VerifiedFindingSchema),
   uncertainFindings: z.array(VerifiedFindingSchema).optional(),
+  rejectedFindings: z.array(VerifiedFindingSchema).optional(),
   droppedCount: z.number().int().nonnegative(),
   modelsUsed: z.record(z.string(), ModelSpecSchema),
   tokenUsage: TokenUsageTotalsSchema.optional(),

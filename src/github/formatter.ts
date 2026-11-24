@@ -324,6 +324,12 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   return items;
 }
 
+function lineRefOf(f: { path: string; startLine: number; endLine: number }): string {
+  return f.startLine === f.endLine
+    ? `${f.path}:${f.startLine}`
+    : `${f.path}:${f.startLine}-${f.endLine}`;
+}
+
 export function formatReviewMarkdown(
   review: FinalReview,
   bundle: EvidenceBundle,
@@ -565,26 +571,37 @@ export function formatReviewMarkdown(
 
   if (review.uncertainFindings && review.uncertainFindings.length > 0) {
     const uncertainBody = review.uncertainFindings
-      .map((f) => {
-        const lineRef =
-          f.startLine === f.endLine
-            ? `${f.path}:${f.startLine}`
-            : `${f.path}:${f.startLine}-${f.endLine}`;
-        return `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRef}\` — **${f.title}**: ${f.issue}`;
-      })
+      .map(
+        (f) =>
+          `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRefOf(f)}\` — **${f.title}**: ${f.issue}`,
+      )
       .join('\n');
     sections.push(
       `<details>\n<summary>Lower-Confidence Notes (${review.uncertainFindings.length} — below posting gate, for optional review)</summary>\n\n${uncertainBody}\n</details>`,
     );
   }
 
+  if (review.rejectedFindings && review.rejectedFindings.length > 0) {
+    const rejectedBody = review.rejectedFindings
+      .map(
+        (f) =>
+          `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRefOf(f)}\` — **${f.title}** — verifier: ${f.verificationEvidence}`,
+      )
+      .join('\n');
+    sections.push(
+      `<details>\n<summary>Rejected by the Verifier (${review.rejectedFindings.length})</summary>\n\n${rejectedBody}\n</details>`,
+    );
+  }
+
   const hiddenDroppedCount = Math.max(
     0,
-    review.droppedCount - (review.uncertainFindings?.length ?? 0),
+    review.droppedCount -
+      (review.uncertainFindings?.length ?? 0) -
+      (review.rejectedFindings?.length ?? 0),
   );
   if (hiddenDroppedCount > 0) {
     sections.push(
-      `_Note: ${hiddenDroppedCount} low-confidence, duplicate, or disproved candidate finding(s) were filtered out by the adversarial verifier and confidence gate._`,
+      `_Note: ${hiddenDroppedCount} duplicate candidate finding(s) were merged into the findings above._`,
     );
   }
 

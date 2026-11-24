@@ -41,6 +41,9 @@ CIVICRM SECURITY ATTACK-CLASS CHECKLIST:
    - Bypasses, token entropy, expiry, constant-time comparison.
 9. Dependencies:
    - Composer/npm package changes introducing vulnerable packages.
+10. Identity binding:
+   - Code that decides which contact or user a request acts as: CMS-user-to-contact matching (UFMatch), login and session setup, checksums, API keys, JWT claims, contact merge and dedupe.
+   - A match on an attribute the other party controls or that is not unique (email, name, external identifier) binds a session to someone else's contact. Trace who can set the attribute and whether uniqueness is enforced; the result is that contact's permissions and data.
 
 EVIDENCE INPUTS:
 - Inspect \`Surface Diff\` changes (menu routes, APIv4 actions, checkPermissions, hooks) and any \`cktaint\` / static delta leads in the Layer 1 evidence.

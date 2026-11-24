@@ -116,9 +116,10 @@ has not been exercised by anything.
 | Standalone browser A/B | probed routes, counts per regression type, screenshots |
 | Reviewer questions & thread resolution | open questions of human reviewers and whether the head answers them |
 | Lower-confidence notes | findings between 50 and the gate |
+| Rejected by the Verifier | candidates the verifier rejected or rated below 50, each with its reason |
 
-The line after them gives the number of candidates the verifier rejected or the gate
-dropped. The footer names the preset, token count and cost.
+The line after them gives the number of duplicate candidates that were merged into
+other findings. The footer names the preset, token count and cost.
 
 ## Disagreeing with a finding
 

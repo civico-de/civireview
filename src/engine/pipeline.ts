@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   isCheckEnabled,
   isLensEnabled,
+  type EffortLevel,
   type ModelSpec,
   type ResolvedCiviReviewConfig,
 } from '../config/schema.ts';
@@ -59,6 +60,7 @@ import {
   type TriageOutput,
   type VerifiedFinding,
 } from './schemas.ts';
+import { collectVerdicts, withUniqueIds } from './verdicts.ts';
 
 export {
   buildShortSummary,
@@ -527,6 +529,7 @@ async function executeReviewPipeline(
   );
 
   const candidates: CandidateFinding[] = [];
+  const candidateIds = new Set<string>();
   const standardsLists: Array<StandardVerdict[] | undefined> = [];
   const blastRadiusLists: Array<BlastRadiusItem[] | undefined> = [];
 
@@ -572,7 +575,7 @@ async function executeReviewPipeline(
         stageCost: specAcc.stageCost,
       }),
     );
-    candidates.push(...res.output.findings);
+    candidates.push(...withUniqueIds(res.output.findings, candidateIds));
     standardsLists.push(res.output.standards);
     blastRadiusLists.push(res.output.blastRadius);
   }
@@ -617,70 +620,96 @@ async function executeReviewPipeline(
         })
       : undefined;
 
-    const verifierResult = await runStage(
-      {
-        stage: 'verifier',
-        model: config.models.verifier,
-        cwd,
-        systemPrompt: verifierPrompt.systemPrompt,
-        sharedPrefix,
-        userPrompt: liveUrlsNote
-          ? `${verifierPrompt.userPrompt}${liveUrlsNote}`
-          : verifierPrompt.userPrompt,
-        schema: VerifierOutputSchema,
-        schemaName: 'VerifierOutput',
-        mcpScope,
-        effort: verifierEffort,
-        ...(browserImages.length > 0 ? { images: browserImages } : {}),
-        ...(extraTools ? { extraTools } : {}),
-        ...(extraMcpServers ? { extraMcpServers } : {}),
-        maxSteps: config.review.maxSteps,
-        maxOutputTokens,
-        timeoutMs: config.review.stageTimeoutMs,
-      },
-      registry,
-    );
-    modelsUsed.verifier = verifierResult.model;
-    const verifierAcc = accumulateUsage(
-      tokenTotals,
+    const runVerifier = async (
+      stage: string,
+      schemaName: string,
+      prompt: StagePromptPair,
+      effort: EffortLevel,
+    ) => {
+      const res = await runStage(
+        {
+          stage,
+          model: config.models.verifier,
+          cwd,
+          systemPrompt: prompt.systemPrompt,
+          sharedPrefix,
+          userPrompt: liveUrlsNote ? `${prompt.userPrompt}${liveUrlsNote}` : prompt.userPrompt,
+          schema: VerifierOutputSchema,
+          schemaName,
+          mcpScope,
+          effort,
+          ...(browserImages.length > 0 ? { images: browserImages } : {}),
+          ...(extraTools ? { extraTools } : {}),
+          ...(extraMcpServers ? { extraMcpServers } : {}),
+          maxSteps: config.review.maxSteps,
+          maxOutputTokens,
+          timeoutMs: config.review.stageTimeoutMs,
+        },
+        registry,
+      );
+      modelsUsed[stage] = res.model;
+      const acc = accumulateUsage(tokenTotals, stage, res.model, res.usage);
+      if (acc.recorded) hasUsage = true;
+      logger?.info?.(
+        formatStageTelemetry({
+          stage,
+          model: res.model,
+          effort,
+          maxSteps: config.review.maxSteps,
+          durationMs: res.durationMs,
+          usage: res.usage,
+          stageCost: acc.stageCost,
+        }),
+      );
+      return res.output;
+    };
+    const verdictsFor = (
+      batch: CandidateFinding[],
+      first: VerifiedFinding[],
+      effort: EffortLevel,
+      stagePrefix: string,
+    ) =>
+      collectVerdicts({
+        batch,
+        first,
+        stagePrefix,
+        warn: (m) => logger?.warn?.(m),
+        ask: async (missing, stage) => {
+          const prompt = buildVerifierPrompt(bundle, missing, standards, {
+            allowFollowUpLeads: false,
+            confidenceThreshold: config.review.confidenceThreshold,
+          });
+          const out = await runVerifier(stage, 'VerifierOutput', prompt, effort);
+          standards = adoptReconciledStandards(standards, out.reconciledStandards);
+          return out.verifiedFindings;
+        },
+      });
+
+    const verifierOutput = await runVerifier(
       'verifier',
-      verifierResult.model,
-      verifierResult.usage,
+      'VerifierOutput',
+      verifierPrompt,
+      verifierEffort,
     );
-    if (verifierAcc.recorded) {
-      hasUsage = true;
-    }
-    logger?.info?.(
-      formatStageTelemetry({
-        stage: 'verifier',
-        model: verifierResult.model,
-        effort: verifierEffort,
-        maxSteps: config.review.maxSteps,
-        durationMs: verifierResult.durationMs,
-        usage: verifierResult.usage,
-        stageCost: verifierAcc.stageCost,
-      }),
+    standards = adoptReconciledStandards(standards, verifierOutput.reconciledStandards);
+    rawVerified = await verdictsFor(
+      candidates,
+      verifierOutput.verifiedFindings,
+      verifierEffort,
+      'verifier',
     );
-    rawVerified = [...verifierResult.output.verifiedFindings];
-    standards = adoptReconciledStandards(standards, verifierResult.output.reconciledStandards);
-    if (
-      verifierResult.output.reconciledWalkthrough &&
-      verifierResult.output.reconciledWalkthrough.length > 0
-    ) {
-      walkthrough = verifierResult.output.reconciledWalkthrough;
+    if (verifierOutput.reconciledWalkthrough && verifierOutput.reconciledWalkthrough.length > 0) {
+      walkthrough = verifierOutput.reconciledWalkthrough;
     }
-    if (verifierResult.output.reconciledBlastRadius) {
-      blastRadius = mergeBlastRadius([verifierResult.output.reconciledBlastRadius]);
+    if (verifierOutput.reconciledBlastRadius) {
+      blastRadius = mergeBlastRadius([verifierOutput.reconciledBlastRadius]);
     }
-    if (
-      verifierResult.output.threadResolutions &&
-      verifierResult.output.threadResolutions.length > 0
-    ) {
-      threadResolutions = verifierResult.output.threadResolutions;
+    if (verifierOutput.threadResolutions && verifierOutput.threadResolutions.length > 0) {
+      threadResolutions = verifierOutput.threadResolutions;
     }
 
     // Bounded Verifier -> Follow-up Specialist -> Verifier loop (at most maxFollowUpRounds)
-    let pendingLeads: FollowUpLead[] = verifierResult.output.followUpLeads ?? [];
+    let pendingLeads: FollowUpLead[] = verifierOutput.followUpLeads ?? [];
     for (let round = 1; round <= maxFollowUpRounds && pendingLeads.length > 0; round++) {
       const enabledLeads = pendingLeads
         .filter((lead) => isLensEnabled(config, lead.lens))
@@ -748,7 +777,7 @@ async function executeReviewPipeline(
             stageCost: acc.stageCost,
           }),
         );
-        followUpCandidates.push(...res.output.findings);
+        followUpCandidates.push(...withUniqueIds(res.output.findings, candidateIds));
         if (res.output.blastRadius && res.output.blastRadius.length > 0) {
           blastRadiusLists.push(res.output.blastRadius);
           blastRadius = mergeBlastRadius(blastRadiusLists);
@@ -777,72 +806,48 @@ async function executeReviewPipeline(
         blastRadius,
         confidenceThreshold: config.review.confidenceThreshold,
       });
-      const fuVerifierResult = await runStage(
-        {
-          stage: fuStageName,
-          model: config.models.verifier,
-          cwd,
-          systemPrompt: fuVerifierPrompt.systemPrompt,
-          sharedPrefix,
-          userPrompt: liveUrlsNote
-            ? `${fuVerifierPrompt.userPrompt}${liveUrlsNote}`
-            : fuVerifierPrompt.userPrompt,
-          schema: VerifierOutputSchema,
-          schemaName: `VerifierOutput_followup_${round}`,
-          mcpScope,
-          effort: fuVerifierEffort,
-          ...(browserImages.length > 0 ? { images: browserImages } : {}),
-          ...(extraTools ? { extraTools } : {}),
-          ...(extraMcpServers ? { extraMcpServers } : {}),
-          maxSteps: config.review.maxSteps,
-          maxOutputTokens,
-          timeoutMs: config.review.stageTimeoutMs,
-        },
-        registry,
-      );
-      modelsUsed[fuStageName] = fuVerifierResult.model;
-      const fuAcc = accumulateUsage(
-        tokenTotals,
+      const fuOutput = await runVerifier(
         fuStageName,
-        fuVerifierResult.model,
-        fuVerifierResult.usage,
+        `VerifierOutput_followup_${round}`,
+        fuVerifierPrompt,
+        fuVerifierEffort,
       );
-      if (fuAcc.recorded) hasUsage = true;
-      logger?.info?.(
-        formatStageTelemetry({
-          stage: fuStageName,
-          model: fuVerifierResult.model,
-          effort: fuVerifierEffort,
-          maxSteps: config.review.maxSteps,
-          durationMs: fuVerifierResult.durationMs,
-          usage: fuVerifierResult.usage,
-          stageCost: fuAcc.stageCost,
-        }),
+      standards = adoptReconciledStandards(standards, fuOutput.reconciledStandards);
+      rawVerified.push(
+        ...(await verdictsFor(
+          followUpCandidates,
+          fuOutput.verifiedFindings,
+          fuVerifierEffort,
+          fuStageName,
+        )),
       );
-      rawVerified.push(...fuVerifierResult.output.verifiedFindings);
-      standards = adoptReconciledStandards(standards, fuVerifierResult.output.reconciledStandards);
-      if (
-        fuVerifierResult.output.reconciledWalkthrough &&
-        fuVerifierResult.output.reconciledWalkthrough.length > 0
-      ) {
-        walkthrough = fuVerifierResult.output.reconciledWalkthrough;
+      if (fuOutput.reconciledWalkthrough && fuOutput.reconciledWalkthrough.length > 0) {
+        walkthrough = fuOutput.reconciledWalkthrough;
       }
-      if (fuVerifierResult.output.reconciledBlastRadius) {
-        blastRadius = mergeBlastRadius([fuVerifierResult.output.reconciledBlastRadius]);
+      if (fuOutput.reconciledBlastRadius) {
+        blastRadius = mergeBlastRadius([fuOutput.reconciledBlastRadius]);
       }
-      if (
-        fuVerifierResult.output.threadResolutions &&
-        fuVerifierResult.output.threadResolutions.length > 0
-      ) {
-        threadResolutions = fuVerifierResult.output.threadResolutions;
+      if (fuOutput.threadResolutions && fuOutput.threadResolutions.length > 0) {
+        threadResolutions = fuOutput.threadResolutions;
       }
-      pendingLeads = round < maxFollowUpRounds ? (fuVerifierResult.output.followUpLeads ?? []) : [];
+      pendingLeads = round < maxFollowUpRounds ? (fuOutput.followUpLeads ?? []) : [];
     }
   } else {
     logger?.info?.('Stage 2 (Verifier) skipped: 0 candidate findings.');
   }
 
   // Stage 3: Confidence Gate, Dedup, Ranking & Inline Cap
+  for (const f of rawVerified) {
+    logger?.info?.(
+      `[finding] ${f.id} lens=${f.lens} ${f.verdict} confidence=${f.confidence} severity=${f.reassessedSeverity} "${f.title}" — ${f.verificationEvidence.slice(0, 300)}`,
+    );
+  }
+  const rejectedFindings = rawVerified
+    .filter(
+      (f) =>
+        f.verdict === 'REJECTED' || f.confidence < Math.min(50, config.review.confidenceThreshold),
+    )
+    .toSorted(compareVerifiedFindings);
   const gated = rawVerified.filter(
     (f) => f.verdict !== 'REJECTED' && f.confidence >= config.review.confidenceThreshold,
   );
@@ -922,6 +927,7 @@ async function executeReviewPipeline(
     ...(threadResolutions && threadResolutions.length > 0 ? { threadResolutions } : {}),
     findings: survivingFindings,
     ...(uncertainFindings.length > 0 ? { uncertainFindings } : {}),
+    ...(rejectedFindings.length > 0 ? { rejectedFindings } : {}),
     droppedCount,
     modelsUsed,
     tokenUsage: hasUsage ? tokenTotals : undefined,
