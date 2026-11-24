@@ -445,6 +445,13 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
           status: consoleErrs + pageErrs + netFails + renderReg > 0 ? 'FAIL' : 'WARN',
           detail: `Probed ${routesCount} route(s): ${consoleErrs} console, ${pageErrs} page, ${netFails} network, ${a11yViol} a11y, ${renderReg} render regression(s).`,
         });
+      } else if (bd.smokeOnly) {
+        matrix.push({
+          check: 'Browser A/B (Standalone)',
+          status: 'NOT_VERIFIED',
+          detail:
+            'Only the dashboard was probed as a smoke test (0 regressions); no route of the changed UI was found. Name one with `--page <route>`.',
+        });
       } else {
         matrix.push({
           check: 'Browser A/B (Standalone)',
@@ -565,6 +572,13 @@ export interface ConfidenceScoreResult {
   rationale: string;
 }
 
+/** Says whether a score-deciding finding was reproduced in a run or only read in the code. */
+function basis(fs: VerifiedFinding[]): string {
+  return fs.some((f) => f.verdict === 'PROVEN')
+    ? ''
+    : ' (from reading the code, not reproduced in a run)';
+}
+
 function isConfirmedFinding(f: VerifiedFinding): boolean {
   return f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED';
 }
@@ -623,12 +637,15 @@ export function computeConfidenceScore(params: {
 
   // 1. Verified findings caps
   if (confirmedCritical.length > 0) {
-    capAt(1, `${confirmedCritical.length} confirmed critical finding(s)`);
+    capAt(
+      1,
+      `${confirmedCritical.length} confirmed critical finding(s)${basis(confirmedCritical)}`,
+    );
   }
   if (confirmedHigh.length >= 2) {
-    capAt(1, `${confirmedHigh.length} confirmed high-severity findings`);
+    capAt(1, `${confirmedHigh.length} confirmed high-severity findings${basis(confirmedHigh)}`);
   } else if (confirmedHigh.length === 1) {
-    capAt(2, '1 confirmed high-severity finding');
+    capAt(2, `1 confirmed high-severity finding${basis(confirmedHigh)}`);
   }
   if (questionCritical.length > 0) {
     capAt(2, `${questionCritical.length} critical question(s) requiring confirmation`);

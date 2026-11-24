@@ -429,3 +429,39 @@ describe('buildShortSummary', () => {
     ).toBe('Nothing found.');
   });
 });
+
+const highFinding = (verdict: string) =>
+  ({ verdict, reassessedSeverity: 'high', confidence: 90 }) as never as VerifiedFinding;
+
+describe('browser smoke probe and score basis', () => {
+  test('a clean dashboard-only probe is not verified, a clean probe of a real route passes', () => {
+    const smoke = rowOf(browser({ smokeOnly: true }), 'Browser A/B (Standalone)')!;
+    expect(smoke.status).toBe('NOT_VERIFIED');
+    expect(smoke.detail).toContain('--page <route>');
+    expect(rowOf(browser({}), 'Browser A/B (Standalone)')?.status).toBe('PASS');
+  });
+
+  test('a regression on the dashboard still fails a smoke-only probe', () => {
+    expect(
+      rowOf(browser({ smokeOnly: true, new_page_errors: ['boom'] }), 'Browser A/B (Standalone)')
+        ?.status,
+    ).toBe('FAIL');
+  });
+
+  test('the rationale says whether the deciding finding was reproduced or only read', () => {
+    const read = computeConfidenceScore({
+      verdict: 'NEEDS_CHANGES',
+      findings: [highFinding('CONFIRMED')],
+      verificationMatrix: [],
+    });
+    expect(read.score).toBe(2);
+    expect(read.rationale).toContain('from reading the code, not reproduced in a run');
+    const proven = computeConfidenceScore({
+      verdict: 'NEEDS_CHANGES',
+      findings: [highFinding('PROVEN')],
+      verificationMatrix: [],
+    });
+    expect(proven.score).toBe(2);
+    expect(proven.rationale).not.toContain('from reading the code');
+  });
+});
