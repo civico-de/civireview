@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-24
+
 ### Added
 - **Eval**: `bun run eval` checks the live instances on two real kept stacks; `--with-model` also replays a reminder PR and checks that a stage reproduced it live.
 - **Telemetry**: each stage records its tool calls with shortened inputs and results in `review.json`, and the `[stage]` log line counts them per tool.
