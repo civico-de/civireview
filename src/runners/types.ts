@@ -1,4 +1,3 @@
-import type { ToolSet } from 'ai';
 import { z } from 'zod';
 import {
   ModelSpecSchema,
@@ -41,6 +40,15 @@ export interface StageUsage {
   estimatedUsd?: number;
   steps?: number;
   toolCalls?: number;
+  /** Each tool call in order, with input and result as shortened JSON. */
+  toolUses?: ToolUse[];
+}
+
+export interface ToolUse {
+  tool: string;
+  input: string;
+  /** Missing when the call failed before returning. */
+  output?: string;
 }
 
 export interface StageImageInput {
@@ -53,6 +61,16 @@ export interface ExtraMcpServerConfig {
   name: string;
   command: string;
   args: string[];
+  /** Wall-clock limit per tool call, for runners that pass it on. */
+  timeoutMs?: number;
+}
+
+/** The kept A/B stacks a stage may run commands in. */
+export interface LiveStacks {
+  composeFiles: { A: string; B: string };
+  urls: { A?: string; B?: string };
+  /** Longest timeout a single exec may ask for. */
+  maxExecSeconds: number;
 }
 
 export interface StageRequest<T> {
@@ -66,7 +84,7 @@ export interface StageRequest<T> {
   schemaName?: string;
   mcpScope?: McpScopeResult;
   images?: StageImageInput[];
-  extraTools?: ToolSet;
+  liveStacks?: LiveStacks;
   extraMcpServers?: ExtraMcpServerConfig[];
   maxSteps?: number;
   maxOutputTokens?: number;
@@ -85,7 +103,7 @@ export interface StageResult<T> {
 
 export interface StageRunner {
   readonly providers: readonly ModelProvider[];
-  /** True when the runner hands `extraTools` to the model; CLI runners do not. */
-  readonly supportsExtraTools?: boolean;
+  /** True when the runner gives the model the live tool on `liveStacks`. */
+  readonly supportsLiveStacks?: boolean;
   run<T>(req: StageRequest<T>): Promise<StageResult<T>>;
 }

@@ -12,12 +12,14 @@ const Schema = z.object({ verdict: z.string(), note: z.string().optional() });
 
 const FAKE_CLI = `#!/bin/sh
 printf '%s\\n' "$@" > "$FAKE_DIR/args.txt"
+printf '%s' "$ENABLE_TOOL_SEARCH" > "$FAKE_DIR/tool-search.txt"
 printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$FAKE_DIR/opencode-config.json"
 cat > "$FAKE_DIR/stdin.txt"
 while [ $# -gt 0 ]; do
   case "$1" in
     --output-last-message) out="$2" ;;
     --output-schema) cp "$2" "$FAKE_DIR/schema.json" ;;
+    --mcp-config) cp "$2" "$FAKE_DIR/mcp-config.json" ;;
   esac
   shift
 done
@@ -98,10 +100,23 @@ describe('extractJsonFromCliText', () => {
   });
 });
 
+const event = (type: string, content: unknown[]) => JSON.stringify({ type, message: { content } });
+
+const init = (status: string) =>
+  JSON.stringify({
+    type: 'system',
+    subtype: 'init',
+    mcp_servers: [
+      { name: 'live-probe', status },
+      { name: 'playwright', status: 'failed' },
+    ],
+  });
+
 describe('claude CLI runner', () => {
   test('sends the prompt on stdin, restricts tools, and reads structured output with usage and cost', async () => {
     respond(
       JSON.stringify({
+        type: 'result',
         structured_output: { verdict: 'ok' },
         total_cost_usd: 0.1234567,
         usage: {
@@ -133,16 +148,138 @@ describe('claude CLI runner', () => {
     expect(args[args.indexOf('--disallowedTools') + 1]).toBe('Write,Edit,Bash,NotebookEdit');
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob');
     expect(args[args.indexOf('--max-turns') + 1]).toBe('7');
+    expect(args[args.indexOf('--output-format') + 1]).toBe('stream-json');
+    expect(args).toContain('--verbose');
     expect(read('stdin.txt')).toBe('SYSTEM\n\nSHARED\n\nUSER');
   });
 
   test('falls back to a JSON string in `result` and omits --model for the default model', async () => {
-    respond(JSON.stringify({ result: 'Sure:\n```json\n{"verdict":"fenced"}\n```' }));
+    respond(
+      JSON.stringify({ type: 'result', result: 'Sure:\n```json\n{"verdict":"fenced"}\n```' }),
+    );
 
     const res = await new ClaudeCliRunner().run(request('claude-cli:default'));
 
     expect(res.output.verdict).toBe('fenced');
     expect(read('args.txt')).not.toContain('--model');
+  });
+
+  test('records tool calls from the stream and offers the live tool over MCP', async () => {
+    const stacks = mkdtempSync(join(tmpdir(), 'civireview-stacks-'));
+    const composeFiles = { A: join(stacks, 'A.compose.json'), B: join(stacks, 'B.compose.json') };
+    respond(
+      [
+        JSON.stringify({ type: 'system', subtype: 'init' }),
+        event('assistant', [
+          { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a.php' } },
+          {
+            type: 'tool_use',
+            id: 't2',
+            name: 'mcp__live-probe__live_probe_ab',
+            input: { mode: 'exec', argv: ['cv', 'api3', 'Job.send_reminder'] },
+          },
+          { type: 'tool_use', id: 't3', name: 'Grep', input: { pattern: 'x' } },
+          { type: 'tool_use', id: 't4', name: 'StructuredOutput', input: { verdict: 'ok' } },
+        ]),
+        event('user', [
+          { type: 'tool_result', tool_use_id: 't1', content: 'line 1' },
+          {
+            type: 'tool_result',
+            tool_use_id: 't2',
+            content: [{ type: 'text', text: '{"mode":"exec","exitCodes":{"A":0,"B":0}}' }],
+          },
+          { type: 'tool_result', tool_use_id: 't3', content: 'boom', is_error: true },
+        ]),
+        JSON.stringify({
+          type: 'result',
+          num_turns: 3,
+          structured_output: { verdict: 'ok' },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      ].join('\n'),
+    );
+
+    const res = await new ClaudeCliRunner().run(
+      request('claude-cli:sonnet', {
+        liveStacks: { composeFiles, urls: {}, maxExecSeconds: 180 },
+        extraMcpServers: [{ name: 'playwright', command: 'npx', args: ['-y', '@playwright/mcp'] }],
+      }),
+    );
+
+    expect(res.usage).toMatchObject({ steps: 3, toolCalls: 3 });
+    expect(res.usage?.toolUses).toEqual([
+      { tool: 'Read', input: '{"file_path":"a.php"}', output: 'line 1' },
+      {
+        tool: 'live_probe_ab',
+        input: '{"mode":"exec","argv":["cv","api3","Job.send_reminder"]}',
+        output: '{"mode":"exec","exitCodes":{"A":0,"B":0}}',
+      },
+      { tool: 'Grep', input: '{"pattern":"x"}' },
+    ]);
+    const args = read('args.txt').split('\n');
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe(
+      'Read,Grep,Glob,mcp__playwright__*,mcp__live-probe__*',
+    );
+    expect(read('tool-search.txt')).toBe('false');
+    const config = JSON.parse(read('mcp-config.json'));
+    const live = config.mcpServers['live-probe'];
+    expect(live).toMatchObject({ type: 'stdio', command: process.execPath, timeout: 210_000 });
+    // both servers start through the wrapper that leaves the PR worktree
+    expect(live.args.slice(0, 3)).toEqual(['--cwd', expect.any(String), '--no-env-file']);
+    expect(JSON.parse(live.args.at(-1)).composeFiles).toEqual(composeFiles);
+    expect(config.mcpServers.playwright.args.slice(-3)).toEqual(['npx', '-y', '@playwright/mcp']);
+  });
+
+  test('fails when the stream has no result event', async () => {
+    respond(JSON.stringify({ type: 'system', subtype: 'init' }));
+    await expect(new ClaudeCliRunner().run(request('claude-cli:sonnet'))).rejects.toThrow(
+      /no result event/,
+    );
+  });
+
+  test('fails when the live tool server did not start, and warns for other servers', async () => {
+    const stacks = mkdtempSync(join(tmpdir(), 'civireview-stacks-'));
+    const composeFiles = { A: join(stacks, 'A.compose.json'), B: join(stacks, 'B.compose.json') };
+    const result = JSON.stringify({ type: 'result', structured_output: { verdict: 'ok' } });
+    const req = request('claude-cli:sonnet', {
+      liveStacks: { composeFiles, urls: {}, maxExecSeconds: 60 },
+    });
+
+    respond([init('failed'), result].join('\n'));
+    await expect(new ClaudeCliRunner().run(req)).rejects.toThrow(
+      /could not start the live tool: live-probe \(failed\)/,
+    );
+
+    respond([init('connected'), result].join('\n'));
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (msg: string) => warnings.push(msg);
+    try {
+      expect((await new ClaudeCliRunner().run(req)).output.verdict).toBe('ok');
+    } finally {
+      console.warn = warn;
+    }
+    expect(warnings).toEqual([
+      '[civireview:warn] MCP server playwright (failed) unavailable, continuing without it',
+    ]);
+  });
+
+  test('names the error of the result event on a non-zero exit', async () => {
+    respond(
+      [
+        JSON.stringify({ type: 'system', subtype: 'init', tools: ['x'.repeat(2000)] }),
+        JSON.stringify({
+          type: 'result',
+          subtype: 'error_max_turns',
+          errors: ['Reached max turns (7)'],
+        }),
+      ].join('\n'),
+    );
+    process.env.FAKE_EXIT = '1';
+
+    await expect(new ClaudeCliRunner().run(request('claude-cli:sonnet'))).rejects.toThrow(
+      'claude CLI exited with 1: error_max_turns: Reached max turns (7)',
+    );
   });
 
   test('reports a non-zero exit with the CLI output', async () => {
@@ -156,7 +293,7 @@ describe('claude CLI runner', () => {
   });
 
   test('rejects output that does not match the stage schema', async () => {
-    respond(JSON.stringify({ structured_output: { wrong: true } }));
+    respond(JSON.stringify({ type: 'result', structured_output: { wrong: true } }));
 
     await expect(new ClaudeCliRunner().run(request('claude-cli:sonnet'))).rejects.toThrow();
   });

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   createLiveProbeTool,
   createStageLiveTools,
+  liveProbeTool,
   execWithCappedOutput,
 } from '../src/runners/live-prove.ts';
 import { createRunnerRegistry, runStage } from '../src/runners/registry.ts';
@@ -252,7 +253,7 @@ describe('runners', () => {
         };
       },
     }).live_probe_ab!;
-    const argv = ['cv', 'api3', 'Job.process_action_schedule'];
+    const argv = ['cv', 'api3', 'Job.send_reminder'];
     const execRes = (await execProbe.execute!(
       { mode: 'exec', argv, target: 'both', timeoutSeconds: 120 },
       { toolCallId: 'p3', messages: [], context: undefined },
@@ -260,6 +261,8 @@ describe('runners', () => {
     expect(execRes.differs).toBe(true);
     expect(execRes.a.exitCode).toBe(1);
     expect(execRes.b.output).toBe('sent 1');
+    // review.json keeps 300 characters of a result; the exit codes must sit before any output
+    expect(JSON.stringify(execRes)).toStartWith('{"mode":"exec","exitCodes":{"A":1,"B":0},');
     // argv goes through positionally, bounded by `timeout` inside the container
     expect(execCalls).toEqual([
       [...execPrefix(composeA), ...argv, 'timeout=135000'],
@@ -330,7 +333,7 @@ describe('runners', () => {
     writeFileSync(B, 'services: {}');
     const runner = {
       providers: ['anthropic'] as const,
-      supportsExtraTools: true,
+      supportsLiveStacks: true,
       run: async () => {
         throw new Error('not called');
       },
@@ -342,8 +345,9 @@ describe('runners', () => {
       urls: {},
       composeFiles: { A, B },
     });
-    const schema = liveFor('anthropic:claude-opus-5-5').tools!.live_probe_ab!
-      .inputSchema as z.ZodType;
+    const stacks = liveFor('anthropic:claude-opus-5-5').stacks!;
+    expect(stacks.maxExecSeconds).toBe(180);
+    const schema = liveProbeTool(stacks).live_probe_ab!.inputSchema as z.ZodType;
     const parse = (timeoutSeconds: number) =>
       schema.safeParse({ mode: 'exec', argv: ['true'], timeoutSeconds }).success;
     expect(parse(180)).toBe(true);

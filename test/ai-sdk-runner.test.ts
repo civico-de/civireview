@@ -110,7 +110,17 @@ describe('AiSdkRunner against an OpenAI-compatible endpoint', () => {
     const res = await new AiSdkRunner().run(request());
 
     expect(res.output.verdict).toBe('read it');
-    expect(res.usage).toMatchObject({ steps: 2, toolCalls: 1 });
+    expect(res.usage).toMatchObject({
+      steps: 2,
+      toolCalls: 1,
+      toolUses: [
+        {
+          tool: 'read_file',
+          input: '{"path":"hello.txt"}',
+          output: expect.stringContaining('second line'),
+        },
+      ],
+    });
     expect(JSON.stringify(requests[1])).toContain('2: second line');
   });
 

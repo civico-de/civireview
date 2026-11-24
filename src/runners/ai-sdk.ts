@@ -29,6 +29,7 @@ import {
   type StageRunner,
   type StageUsage,
 } from './types.ts';
+import { liveProbeTool } from './live-prove.ts';
 
 const MAX_IMAGES_PER_STAGE = 6;
 const MAX_TOTAL_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -153,7 +154,7 @@ function noStructuredOutputError(
 
 export class AiSdkRunner implements StageRunner {
   readonly providers = ['anthropic', 'openai', 'google', 'openrouter', 'openai-compat'] as const;
-  readonly supportsExtraTools = true;
+  readonly supportsLiveStacks = true;
 
   async run<T>(req: StageRequest<T>): Promise<StageResult<T>> {
     const start = Date.now();
@@ -176,7 +177,7 @@ export class AiSdkRunner implements StageRunner {
         ...repoTools,
         ...mcpHandle.tools,
         ...extraMcpTools,
-        ...req.extraTools,
+        ...(req.liveStacks ? liveProbeTool(req.liveStacks) : {}),
       };
 
       // Put the shared PR evidence prefix FIRST with cacheControl so all stages
@@ -311,9 +312,16 @@ export class AiSdkRunner implements StageRunner {
         Math.max(0, rawInputTokens - (cachedInputTokens ?? 0) - (cacheWriteInputTokens ?? 0));
 
       const stepsCount = result.steps?.length ?? 1;
-      const toolCallsCount = (result.steps ?? []).reduce(
-        (sum, s) => sum + (s.toolCalls?.length ?? 0),
-        0,
+      const toolUses = (result.steps ?? []).flatMap((s) =>
+        (s.toolCalls ?? []).map((c) => {
+          const res = s.toolResults?.find((r) => r.toolCallId === c.toolCallId);
+          return {
+            tool: c.toolName,
+            input: (JSON.stringify(c.input) ?? '').slice(0, 300),
+            // No result means the tool threw or never ran.
+            ...(res ? { output: (JSON.stringify(res.output) ?? '').slice(0, 300) } : {}),
+          };
+        }),
       );
 
       const baseUsage: StageUsage = {
@@ -327,7 +335,8 @@ export class AiSdkRunner implements StageRunner {
           (cachedInputTokens ?? 0) +
           outputTokens,
         steps: stepsCount,
-        toolCalls: toolCallsCount,
+        toolCalls: toolUses.length,
+        toolUses,
       };
       const usage: StageUsage = {
         ...baseUsage,

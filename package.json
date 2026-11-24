@@ -11,10 +11,11 @@
     "release": "bash scripts/release.sh",
     "dev": "bun run bin/civireview.ts",
     "test": "bun test",
+    "eval": "bun run evals/live-prove.ts",
     "typecheck": "bunx tsc --noEmit",
-    "lint": "oxlint bin src test",
-    "format": "oxfmt bin src test",
-    "format:check": "oxfmt --check bin src test"
+    "lint": "oxlint bin src test evals",
+    "format": "oxfmt bin src test evals",
+    "format:check": "oxfmt --check bin src test evals"
   },
   "engines": {
     "bun": ">=1.1.0"

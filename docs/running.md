@@ -109,6 +109,33 @@ Flags of the single stages:
 measure for a PR: the profile, the probed routes, the gate results and the *Not
 verified* list are all in `evidence.json`.
 
+## Live-instance eval
+
+`bun run eval` checks that the review stages can use the kept A/B instances
+(`live-prove`). It needs `CIVIKITCHEN_PATH` and Docker, and works under
+`~/.cache/civireview-eval` (`--work <dir>`).
+
+- Without flags it starts two kept Standalone stacks (`--image-a`, `--image-b`; two
+  different images, since `ck ab` refuses identical sides) and calls the live tool
+  directly: a `cv api4` write, `Job.send_reminder`, a command past its timeout, and an
+  HTTP GET on both sides. No model, no cost.
+- `--with-model` also replays civicrm/civicrm-core#38258 as a `--dry-run` review
+  with `--preset` (default `sonnet-opus`, `ANTHROPIC_API_KEY`, about $1;
+  `subscription` runs the same models through a logged-in `claude` CLI). It reads the
+  PR from GitHub and posts nothing. The PR fixes scheduled reminders. The
+  run passes when a stage, through `live_probe_ab` and with exit 0 on both stacks,
+  created a reminder (`ActionSchedule.create` or `.save`) and then, in the same stage,
+  made a further successful call on both stacks: the reminder job or a direct call of the
+  changed code. How often `Job.send_reminder` ran is printed, not required. The
+  review's worktrees and stacks live under the work directory and are removed even when
+  the review is killed. The points
+  still marked *Not verified* are printed for reading.
+
+The script exits non-zero when a check fails and stops the stacks it started.
+Each stage's tool calls, with input and result shortened to 300 characters, are in
+`review.json` under `tokenUsage.byStage[].toolUses` and counted per tool in the
+`[stage]` log line.
+
 ## Mention watcher
 
 For a repository where you cannot install a workflow (an upstream project), `civireview

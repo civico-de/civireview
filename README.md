@@ -107,7 +107,7 @@ verdict labels and the score caps.
 | [docs/how-it-works.md](docs/how-it-works.md) | One review from mention to posted comment, stage by stage |
 | [docs/profiles.md](docs/profiles.md) | The four profiles: detection, instance, checks, blind spots |
 | [docs/reading-a-review.md](docs/reading-a-review.md) | Sections of a review, verdict labels, confidence, score caps |
-| [docs/running.md](docs/running.md) | GitHub workflow, mention watcher, CLI subcommands, comment flags |
+| [docs/running.md](docs/running.md) | GitHub workflow, mention watcher, CLI subcommands, comment flags, live-instance eval |
 | [docs/configuration.md](docs/configuration.md) | `civireview.yaml`, presets, depth and effort, check and path filters |
 | [docs/security.md](docs/security.md) | Job isolation, secrets, untrusted PR content, watcher authorisation |
 | [civireview.example.yaml](civireview.example.yaml) | Annotated configuration file |

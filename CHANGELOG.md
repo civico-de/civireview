@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Eval**: `bun run eval` checks the live instances on two real kept stacks; `--with-model` also replays a reminder PR and checks that a stage reproduced it live.
+- **Telemetry**: each stage records its tool calls with shortened inputs and results in `review.json`, and the `[stage]` log line counts them per tool.
+
+### Changed
+- **Presets**: `subscription` runs the models of `sonnet-opus` (Sonnet triage and specialists, Opus verifier) through the `claude` CLI.
+- **claude CLI runner**: models get the live tool and the interactive browser from local MCP servers, started from civireview's directory so a `bunfig.toml`, `.env` or `.npmrc` in the PR is never read; the run fails when the live tool's server does not start. MCP tools are loaded with their schema up front (no deferred tool search), as on the API path. Each stage records its turns and tool calls, and a failed run reports the CLI's error.
+
+### Fixed
+- **Live instances**: the tool description named a job that does not exist (`Job.process_action_schedule`); it now names `Job.send_reminder`.
+
 ## [0.5.0] - 2026-11-24
 
 ### Changed

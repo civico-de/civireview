@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { validateLocalhostUrl, type ExecFn } from '../evidence/civikitchen-ab.ts';
 import { LIVE_INSTANCE_NOTE } from '../prompts/shared.ts';
 import type { RunnerRegistry } from './registry.ts';
-import { parseModelSpec } from './types.ts';
+import { parseModelSpec, type ExtraMcpServerConfig, type LiveStacks } from './types.ts';
 
 export interface CreateLiveProbeToolOptions {
   urlA?: string;
@@ -162,7 +163,7 @@ export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSe
         'Run checks on the running, disposable CiviCRM Standalone stacks A (base) and B (PR head). ' +
         '`exec` runs an argv inside the app container as www-data in /var/www/html, e.g. ' +
         '["cv","api4","Contact.create","{\\"values\\":{\\"contact_type\\":\\"Individual\\"}}"], ' +
-        '["cv","api3","Job.process_action_schedule"], ["cv","ev","return CRM_Core_DAO::singleValueQuery(\'SELECT 1\');"]. ' +
+        '["cv","api3","Job.send_reminder"], ["cv","ev","return CRM_Core_DAO::singleValueQuery(\'SELECT 1\');"]. ' +
         'Writes are allowed: create records and run jobs to reproduce a scenario. ' +
         '`http-get` fetches a relative route anonymously from both stacks. ' +
         'Other review stages share these stacks and may have left data behind.',
@@ -249,6 +250,8 @@ export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSe
         };
         return {
           mode,
+          // First after the mode, so a shortened copy of the result still carries them.
+          exitCodes: { ...(a ? { A: a.exitCode } : {}), ...(b ? { B: b.exitCode } : {}) },
           command: argv.join(' '),
           target,
           ...(a ? { a: shown(a) } : {}),
@@ -261,9 +264,31 @@ export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSe
   };
 }
 
+/** The live tool on the given stacks, for runners that run the tool loop themselves. */
+export function liveProbeTool(stacks: LiveStacks): ToolSet {
+  return createLiveProbeTool({
+    urlA: stacks.urls.A,
+    urlB: stacks.urls.B,
+    composeFileA: stacks.composeFiles.A,
+    composeFileB: stacks.composeFiles.B,
+    maxExecSeconds: stacks.maxExecSeconds,
+  });
+}
+
+/** The same tool as a stdio MCP server, for runners whose CLI runs the tool loop. */
+export function liveProbeMcpServer(stacks: LiveStacks): ExtraMcpServerConfig {
+  return {
+    name: 'live-probe',
+    command: process.execPath,
+    args: [join(import.meta.dir, '..', 'mcp', 'live-probe-server.ts'), JSON.stringify(stacks)],
+    // Above the exec's own host timeout, so the exec reports its timeout first.
+    timeoutMs: (stacks.maxExecSeconds + 30) * 1000,
+  };
+}
+
 /**
- * Returns, per stage model, the live tool and its prompt note. A stage gets neither when
- * one of the stacks is gone (a split evidence/review run) or its runner cannot pass tools on.
+ * Returns, per stage model, the kept stacks and the prompt note. A stage gets neither when
+ * one of the stacks is gone (a split evidence/review run) or its runner cannot offer the tool.
  * One exec may take at most half the stage timeout, so a slow command cannot end the stage.
  */
 export function createStageLiveTools(options: {
@@ -272,20 +297,21 @@ export function createStageLiveTools(options: {
   registry: RunnerRegistry;
   urls: { A?: string; B?: string };
   composeFiles?: { A?: string; B?: string };
-}): (model: string) => { tools?: ToolSet; note: string } {
+}): (model: string) => { stacks?: LiveStacks; note: string } {
   const { A, B } = options.composeFiles ?? {};
-  const tools =
-    options.enabled && A && B
-      ? createLiveProbeTool({
-          urlA: options.urls.A,
-          urlB: options.urls.B,
-          composeFileA: A,
-          composeFileB: B,
-          maxExecSeconds: options.stageTimeoutMs / 2000,
-        })
+  const stacks: LiveStacks | undefined =
+    options.enabled && A && B && existsSync(A) && existsSync(B)
+      ? {
+          composeFiles: { A, B },
+          urls: {
+            A: validateLocalhostUrl(options.urls.A),
+            B: validateLocalhostUrl(options.urls.B),
+          },
+          maxExecSeconds: Math.max(1, Math.floor(options.stageTimeoutMs / 2000)),
+        }
       : undefined;
   return (model) =>
-    tools && options.registry.get(parseModelSpec(model).provider)?.supportsExtraTools
-      ? { tools, note: LIVE_INSTANCE_NOTE }
+    stacks && options.registry.get(parseModelSpec(model).provider)?.supportsLiveStacks
+      ? { stacks, note: LIVE_INSTANCE_NOTE }
       : { note: '' };
 }

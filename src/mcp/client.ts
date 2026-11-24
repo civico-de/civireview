@@ -112,12 +112,52 @@ export async function connectStdioMcpClient(
   }
 }
 
+const REPO_ROOT = join(import.meta.dir, '..', '..');
+
 /**
- * Writes a temporary `0600` `--mcp-config` JSON file for CLI runners
- * (`claude-cli`, etc.) and returns a cleanup callback.
+ * Wraps a stdio server so it starts in civireview's directory. A CLI runner works in the
+ * PR worktree, where the PR could plant `bunfig.toml`, `.env` or `.npmrc`.
  */
-export function writeMcpConfigFile(scope: McpScopeResult): TempMcpConfigFile | null {
-  if (!scope.enabled || !scope.url) {
+export function outsideWorktree(server: ExtraMcpServerConfig): ExtraMcpServerConfig {
+  return {
+    ...server,
+    command: process.execPath,
+    args: [
+      '--cwd',
+      REPO_ROOT,
+      '--no-env-file',
+      join(import.meta.dir, 'outside-worktree.ts'),
+      server.command,
+      ...server.args,
+    ],
+  };
+}
+
+/**
+ * Writes a temporary `0600` `--mcp-config` file with the knowledge server (when enabled)
+ * and the given stdio servers, each started outside the worktree; returns a cleanup callback.
+ */
+export function writeMcpConfigFile(
+  scope: McpScopeResult | undefined,
+  stdioServers: ExtraMcpServerConfig[] = [],
+): TempMcpConfigFile | null {
+  const mcpServers: Record<string, Record<string, unknown>> = {};
+  if (scope?.enabled && scope.url) {
+    mcpServers['civicrm-knowledge'] = {
+      type: 'http',
+      url: scope.url,
+      ...(Object.keys(scope.headers).length > 0 ? { headers: scope.headers } : {}),
+    };
+  }
+  for (const server of stdioServers.map(outsideWorktree)) {
+    mcpServers[server.name] = {
+      type: 'stdio',
+      command: server.command,
+      args: server.args,
+      ...(server.timeoutMs ? { timeout: server.timeoutMs } : {}),
+    };
+  }
+  if (Object.keys(mcpServers).length === 0) {
     return null;
   }
 
@@ -125,20 +165,7 @@ export function writeMcpConfigFile(scope: McpScopeResult): TempMcpConfigFile | n
   chmodSync(dir, 0o700);
   const filePath = join(dir, 'mcp-config.json');
 
-  const serverEntry: Record<string, unknown> = {
-    type: 'http',
-    url: scope.url,
-  };
-  if (Object.keys(scope.headers).length > 0) {
-    serverEntry.headers = scope.headers;
-  }
-
-  const payload = {
-    mcpServers: {
-      'civicrm-knowledge': serverEntry,
-    },
-  };
-  const configJson = JSON.stringify(payload, null, 2);
+  const configJson = JSON.stringify({ mcpServers }, null, 2);
   writeFileSync(filePath, configJson, { mode: 0o600 });
   chmodSync(filePath, 0o600);
 

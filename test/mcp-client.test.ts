@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { connectMcpClient, connectStdioMcpClient, writeMcpConfigFile } from '../src/mcp/client.ts';
+import { dirname, join, resolve } from 'node:path';
+import {
+  connectMcpClient,
+  connectStdioMcpClient,
+  outsideWorktree,
+  writeMcpConfigFile,
+} from '../src/mcp/client.ts';
 import type { McpScopeResult } from '../src/mcp/scope.ts';
 
 const dirs: string[] = [];
@@ -127,5 +140,61 @@ await server.connect(new StdioServerTransport());
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('outsideWorktree', () => {
+  test('starts a stdio server in civireview, ignoring bunfig.toml and .env of the PR', async () => {
+    const pr = mkdtempSync(join(tmpdir(), 'civireview-hostile-'));
+    dirs.push(pr);
+    writeFileSync(join(pr, 'bunfig.toml'), 'preload = ["./evil.ts"]\n');
+    writeFileSync(join(pr, 'evil.ts'), 'console.log("EVIL");\n');
+    writeFileSync(join(pr, '.env'), 'PLANTED=from-pr\n');
+
+    const server = outsideWorktree({
+      name: 'probe',
+      command: 'sh',
+      args: ['-c', 'pwd; echo "planted=${PLANTED:-none}"'],
+    });
+    const proc = Bun.spawn([server.command, ...server.args], { cwd: pr, stdout: 'pipe' });
+    const out = await new Response(proc.stdout).text();
+    expect(await proc.exited).toBe(0);
+    expect(out).not.toContain('EVIL');
+    expect(out).toContain('planted=none');
+    expect(realpathSync(out.split('\n')[0]!)).toBe(realpathSync(resolve(import.meta.dir, '..')));
+  });
+
+  test('writes knowledge and stdio servers into one config', () => {
+    const file = writeMcpConfigFile(scope(), [{ name: 'live-probe', command: 'x', args: [] }])!;
+    dirs.push(dirname(file.filePath));
+    expect(Object.keys(JSON.parse(file.configJson).mcpServers)).toEqual([
+      'civicrm-knowledge',
+      'live-probe',
+    ]);
+  });
+});
+
+describe('outside-worktree wrapper', () => {
+  test('passes SIGTERM on to the server it started', async () => {
+    const server = outsideWorktree({
+      name: 'probe',
+      command: 'sh',
+      args: ['-c', 'echo $$; exec sleep 30'],
+    });
+    const proc = Bun.spawn([server.command, ...server.args], { stdout: 'pipe' });
+    const reader = proc.stdout.getReader();
+    const pid = Number(new TextDecoder().decode((await reader.read()).value).trim());
+    proc.kill('SIGTERM');
+    await proc.exited;
+    const alive = () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (let i = 0; i < 20 && alive(); i++) await Bun.sleep(100);
+    expect(alive()).toBe(false);
   });
 });

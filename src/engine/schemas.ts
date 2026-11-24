@@ -156,6 +156,9 @@ export const StageTokenUsageSchema = z.object({
   estimatedUsd: z.number().nonnegative().optional(),
   steps: z.number().int().nonnegative().optional(),
   toolCalls: z.number().int().nonnegative().optional(),
+  toolUses: z
+    .array(z.object({ tool: z.string(), input: z.string(), output: z.string().optional() }))
+    .optional(),
 });
 export type StageTokenUsage = z.infer<typeof StageTokenUsageSchema>;
 

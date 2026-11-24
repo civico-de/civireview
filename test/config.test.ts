@@ -64,8 +64,10 @@ describe('config schema and loader', () => {
     expect(resolveModels('sonnet-opus').triage).toBe('anthropic:claude-sonnet-5-5');
     expect(resolveModels('sonnet-opus').verifier).toBe('anthropic:claude-opus-5-5');
     expect(resolveModels('cross-model').verifier).toBe('openai:gpt-5.2');
-    expect(resolveModels('subscription').triage).toBe('claude-cli:haiku');
-    expect(resolveModels('subscription').verifier).toBe('claude-cli:opus');
+    // subscription runs the sonnet-opus models, only through the claude CLI
+    expect(JSON.stringify(resolveModels('subscription'))).toBe(
+      JSON.stringify(resolveModels('sonnet-opus')).replaceAll('anthropic:', 'claude-cli:'),
+    );
     expect(resolveModels('local-gpu').triage).toBe('openai-compat:local');
     expect(resolveModels('local-gpu').verifier).toBe('opencode-cli:local');
   });

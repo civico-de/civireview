@@ -16,11 +16,11 @@ async function runWith(composeFiles?: { A?: string; B?: string }, supportsExtraT
   const seen: Array<{ stage: string; liveTool: boolean; note: boolean; settleRule: boolean }> = [];
   const runner: StageRunner = {
     providers: ['anthropic'],
-    supportsExtraTools,
+    supportsLiveStacks: supportsExtraTools,
     async run(req) {
       seen.push({
         stage: req.stage,
-        liveTool: Boolean(req.extraTools?.live_probe_ab),
+        liveTool: Boolean(req.liveStacks),
         note: req.userPrompt.includes('LIVE INSTANCES'),
         settleRule: req.systemPrompt.includes('SETTLE GAPS LIVE'),
       });

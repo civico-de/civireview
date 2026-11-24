@@ -45,7 +45,7 @@ const FINDING = {
   mcpCitations: [],
 };
 
-const envelope = (output: unknown) => JSON.stringify({ structured_output: output });
+const envelope = (output: unknown) => JSON.stringify({ type: 'result', structured_output: output });
 
 let dir = '';
 
@@ -215,7 +215,7 @@ describe('civireview CLI end to end', () => {
     const parsed = FinalReviewSchema.parse(JSON.parse(readFileSync(out, 'utf8')));
     expect(parsed.verdict).toBe('NEEDS_CHANGES');
     expect(parsed.findings.map((f) => f.id)).toEqual(['sec-sqli']);
-    expect(parsed.modelsUsed).toMatchObject({ verifier: 'claude-cli:opus' });
+    expect(parsed.modelsUsed).toMatchObject({ verifier: 'claude-cli:claude-opus-5-5' });
     expect(readFileSync(join(dir, 'calls.log'), 'utf8').trim().split('\n')).toEqual([
       'triage',
       'specialist',

@@ -12,5 +12,5 @@
     "exactOptionalPropertyTypes": false,
     "types": ["bun"]
   },
-  "include": ["bin/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["bin/**/*.ts", "src/**/*.ts", "test/**/*.ts", "evals/**/*.ts"]
 }

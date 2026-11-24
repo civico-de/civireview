@@ -26,7 +26,7 @@ ignore its own markers, so every mention starts a full review.
 | `sonnet` (default) | Sonnet | Sonnet | Sonnet | `ANTHROPIC_API_KEY` |
 | `sonnet-opus` | Sonnet | Sonnet | Opus | `ANTHROPIC_API_KEY` |
 | `cross-model` | Haiku | Sonnet | an OpenAI model | both keys |
-| `subscription` | `claude-cli` models | `claude-cli` | `claude-cli` | a logged-in `claude` CLI |
+| `subscription` | Sonnet | Sonnet | Opus | a logged-in `claude` CLI |
 | `local-gpu` | `openai-compat:local` | `opencode-cli:local` | `opencode-cli:local` | `OPENAI_COMPAT_BASE_URL`, `opencode` |
 
 The exact model ids are pinned in `PRESETS` in
@@ -93,7 +93,9 @@ command inside the app containers of A and B (as `www-data`, without a shell), s
 They use it to reproduce a scenario on both sides; a defect observed this way is
 `PROVEN`, and the verifier tries it on open *Not verified* points before keeping them.
 The stages share the two instances. The split `evidence` job switches `live-prove`
-off, since its instances end with the job.
+off, since its instances end with the job. API models get the tool directly; `claude-cli`
+models get the same tool from a local MCP server. `codex-cli` and `opencode-cli` models
+do not get it.
 
 ## Browser
 

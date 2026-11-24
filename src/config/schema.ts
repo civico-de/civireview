@@ -81,16 +81,17 @@ export const PRESETS: Record<PresetName, PresetModels> = {
     verifier: 'openai:gpt-5.2',
     threadReply: 'anthropic:claude-sonnet-5-5',
   },
+  // The models of `sonnet-opus`, driven through the logged-in `claude` CLI.
   subscription: {
-    triage: 'claude-cli:haiku',
+    triage: 'claude-cli:claude-sonnet-5-5',
     specialists: {
-      correctness: 'claude-cli:sonnet',
-      security: 'claude-cli:sonnet',
-      tests: 'claude-cli:sonnet',
-      ui: 'claude-cli:sonnet',
+      correctness: 'claude-cli:claude-sonnet-5-5',
+      security: 'claude-cli:claude-sonnet-5-5',
+      tests: 'claude-cli:claude-sonnet-5-5',
+      ui: 'claude-cli:claude-sonnet-5-5',
     },
-    verifier: 'claude-cli:opus',
-    threadReply: 'claude-cli:sonnet',
+    verifier: 'claude-cli:claude-opus-5-5',
+    threadReply: 'claude-cli:claude-sonnet-5-5',
   },
   'local-gpu': {
     triage: 'openai-compat:local',

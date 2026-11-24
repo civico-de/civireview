@@ -61,6 +61,7 @@ import {
   type VerifiedFinding,
 } from './schemas.ts';
 import { assertBudgetEnforceable, assertWithinBudget } from './budget.ts';
+import { formatStageTelemetry } from './telemetry.ts';
 import {
   acceptedSkipReason,
   collectVerdicts,
@@ -107,39 +108,6 @@ export interface RunThreadReplyOptions {
   config: ResolvedCiviReviewConfig;
   cwd: string;
   registry?: RunnerRegistry;
-}
-
-function formatStageTelemetry(params: {
-  stage: string;
-  model: ModelSpec;
-  effort?: string;
-  maxSteps?: number;
-  durationMs: number;
-  usage?: StageUsage;
-  stageCost?: number;
-}): string {
-  const { stage, model, effort, maxSteps, durationMs, usage, stageCost } = params;
-  const durStr = `${(durationMs / 1000).toFixed(1)}s`;
-  const effortStr = effort ? ` effort=${effort}` : '';
-  if (!usage) {
-    return `[stage] ${stage} model=${model}${effortStr} dur=${durStr} usage=n/a`;
-  }
-  const stepsStr =
-    usage.steps !== undefined
-      ? ` steps=${usage.steps}${maxSteps !== undefined ? `/${maxSteps}` : ''}${usage.toolCalls !== undefined ? ` tools=${usage.toolCalls}` : ''}`
-      : '';
-  const cacheWrite = usage.cacheWriteInputTokens ?? 0;
-  const cacheRead = usage.cachedInputTokens ?? 0;
-  const totalIn = usage.inputTokens + cacheWrite + cacheRead;
-  const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
-  const costStr = stageCost !== undefined ? ` cost=${formatUsd(stageCost)}` : '';
-  return (
-    `[stage] ${stage} model=${model}${effortStr}${stepsStr} dur=${durStr}` +
-    ` in=${usage.inputTokens.toLocaleString('en-US')}` +
-    ` cache_write=${cacheWrite.toLocaleString('en-US')}` +
-    ` cache_read=${cacheRead.toLocaleString('en-US')} (${hitPct}% hit)` +
-    ` out=${usage.outputTokens.toLocaleString('en-US')}${costStr}`
-  );
 }
 
 function formatTotalTelemetry(totals: TokenUsageTotals, totalDurationMs: number): string {
@@ -198,6 +166,7 @@ function accumulateUsage(
     ...(stageCost !== undefined ? { estimatedUsd: stageCost } : {}),
     ...(usage.steps !== undefined ? { steps: usage.steps } : {}),
     ...(usage.toolCalls !== undefined ? { toolCalls: usage.toolCalls } : {}),
+    ...(usage.toolUses?.length ? { toolUses: usage.toolUses } : {}),
   });
   return { recorded: true, stageCost };
 }
@@ -575,7 +544,7 @@ async function executeReviewPipeline(
         effort,
         ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
         ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
-        ...(live.tools ? { extraTools: live.tools } : {}),
+        ...(live.stacks ? { liveStacks: live.stacks } : {}),
         maxSteps: config.review.maxSteps,
         maxOutputTokens,
         timeoutMs: config.review.stageTimeoutMs,
@@ -628,7 +597,7 @@ async function executeReviewPipeline(
     );
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
       allowFollowUpLeads: maxFollowUpRounds > 0,
-      liveTools: Boolean(verifierLive.tools),
+      liveTools: Boolean(verifierLive.stacks),
       triageBullets: walkthrough,
       blastRadius,
       confidenceThreshold: config.review.confidenceThreshold,
@@ -654,7 +623,7 @@ async function executeReviewPipeline(
           mcpScope,
           effort,
           ...(browserImages.length > 0 ? { images: browserImages } : {}),
-          ...(verifierLive.tools ? { extraTools: verifierLive.tools } : {}),
+          ...(verifierLive.stacks ? { liveStacks: verifierLive.stacks } : {}),
           ...(extraMcpServers ? { extraMcpServers } : {}),
           maxSteps: config.review.maxSteps,
           maxOutputTokens,
@@ -774,7 +743,7 @@ async function executeReviewPipeline(
             effort,
             ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
             ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
-            ...(live.tools ? { extraTools: live.tools } : {}),
+            ...(live.stacks ? { liveStacks: live.stacks } : {}),
             maxSteps: config.review.maxSteps,
             maxOutputTokens,
             timeoutMs: config.review.stageTimeoutMs,
@@ -820,7 +789,7 @@ async function executeReviewPipeline(
       const fuStageName = `verifier:followup-${round}`;
       const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
         allowFollowUpLeads: round < maxFollowUpRounds,
-        liveTools: Boolean(verifierLive.tools),
+        liveTools: Boolean(verifierLive.stacks),
         triageBullets: walkthrough,
         blastRadius,
         confidenceThreshold: config.review.confidenceThreshold,
