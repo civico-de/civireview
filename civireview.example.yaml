@@ -4,8 +4,8 @@
 trigger: "@civireview"
 
 # Named model presets:
-#   sonnet       -> Haiku triage, Sonnet specialists & verifier (API)
-#   sonnet-opus  -> Haiku triage, Sonnet specialists, Opus verifier (API)
+#   sonnet       -> Sonnet triage, specialists & verifier (API)
+#   sonnet-opus  -> Sonnet triage & specialists, Opus verifier (API)
 #   cross-model  -> Haiku triage, Sonnet specialists, GPT-5.2 verifier (API)
 #   subscription -> Claude Code CLI subscription (haiku/sonnet/opus, zero API key)
 #   local-gpu    -> OpenCode / OpenAI-compatible local server
@@ -34,7 +34,8 @@ ab:
   # civikitchenPath: /path/to/civikitchen
   # ckCommand: ck
 
-# Layer 1 check toggles (all CiviCRM Standalone focused; browser & a11y ON by default)
+# Layer 1 check toggles. `lifecycle` covers the lifecycle and the upgrade-parity gate
+# of extensions, including extensions bundled with civicrm-core (ext/<name>).
 checks:
   abTests: true
   surface: true
@@ -71,7 +72,11 @@ review:
   confidenceThreshold: 80
   maxInlineComments: 10
   maxDiffBytes: 250000
-  maxSteps: 15
+  # Depth profile: fast | balanced | deep. It sets maxSteps, triageMaxSteps,
+  # maxOutputTokens, maxFollowUpRounds and stageTimeoutMs; set one of those here
+  # only to override the profile.
+  depth: deep
+  # maxSteps: 35
   # Reasoning effort: auto (dynamic per stage & PR risk) | low | medium | high | xhigh | max
   effort: auto
   # Optional per-stage effort overrides:

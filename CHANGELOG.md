@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Profiles**: a review states where its change could be verified: `core`, `core-extension` (a core PR inside a bundled extension, `ext/<name>`), `extension` or `generic`. The profile is in the review header and in the model context.
+- **Bundled core extensions**: a core PR that touches `ext/<name>` gets the extension gates (taint delta, lifecycle, upgrade parity) for that extension, and the extension is enabled before the browser probe.
+- **Upgrade parity**: when schema or upgrader files change, the base version of the extension is installed, switched to the head and upgraded; its schema is compared with a fresh install of the head. A difference is a warning with the schema diff.
+- **Browser routes**: when UI files of an extension change, the routes it defines in `xml/Menu/*.xml` and `ang/*.aff.json` / `ang/*.aff.php` are probed.
+- **Documentation**: `docs/` with how a review is produced, the profiles, how to read a review, running, configuration and the security model.
+
+### Changed
+- **Browser A/B**: a clean probe that loaded only the dashboard, because no route of the changed UI was found, is `NOT_VERIFIED` with a hint to pass `--page`, no longer `PASS`.
+- **Merge confidence**: the rationale says when the deciding finding was read in the code and not reproduced in a run.
+- **Not verified**: the notes about `xml/schema` and `CRM/Upgrade/*` are left out for a bundled extension that gets the extension gates.
+- **Verifier**: confidence is the probability that a finding is true, independent of its severity; a defect is described once.
+
+### Fixed
+- **Extension gates**: taint and lifecycle run from the extension's directory. Started from the web root, lifecycle stopped at its precondition and was reported as a failed lifecycle, and taint scanned the whole instance until it timed out. A gate that does not reach its check is now listed as not verified and never becomes a finding.
+- **Taint delta**: only issue lines of the analysis are read. Timing and type-coverage lines, which differ between any two runs, and the trace lines of an issue were reported as new findings; an existing issue moved to another line was reported as new. A run that fails without an issue is listed as not verified.
+- **Extension gates**: each gate runs in an instance of its own name, and an instance left behind by a gate that timed out is removed. Before, one timeout made every later gate refuse to start. A failed analysis on the base, more bundled extensions than the gates cover, an extension that cannot be enabled for the browser probe and a PR mounted as whole directories are reported under *Not verified*.
+- **Schema gate**: the former call of a non-existent `ck schema` command, whose usage error was reported as a schema failure, is replaced by upgrade parity.
+
 ## [0.3.3] - 2026-11-23
 
 ### Fixed
