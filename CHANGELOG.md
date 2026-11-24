@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An incremental review runs A/B on the whole PR**: a review of the commits since the last civireview review mounted only the files those commits changed, so B ran the head's version of them next to the image's copy of files the PR changed earlier, and the earlier tests that prove the fix were not run. The proof then counted a new guard test as tautological and capped the score. The A/B run now always mounts the whole PR; the review itself still reads only the new commits.
+
 ## [0.7.0] - 2026-11-24
 
 ### Changed

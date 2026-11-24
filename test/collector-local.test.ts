@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../src/config/loader.ts';
-import { collectEvidence } from '../src/evidence/collector.ts';
+import { abDiffFiles, collectEvidence } from '../src/evidence/collector.ts';
+import { filterAndTruncateDiff } from '../src/evidence/diff-filter.ts';
 import { EvidenceBundleSchema } from '../src/evidence/types.ts';
 
 let repo = '';
@@ -116,5 +117,34 @@ describe('collectEvidence in local git mode', () => {
     await expect(collectEvidence({ repoRoot: repo, config: noAbConfig() })).rejects.toThrow(
       /git rev-parse HEAD~1 failed/,
     );
+  });
+});
+
+const fileDiff = (path: string) =>
+  [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    '@@ -1 +1 @@',
+    '-a',
+    '+b',
+    '',
+  ].join('\n');
+
+describe('abDiffFiles', () => {
+  test('mounts the whole PR when the review reads only the delta', () => {
+    const config = noAbConfig();
+    const delta = fileDiff('CRM/Late.php');
+    const full = fileDiff('CRM/Early.php') + delta;
+    const reviewFiles = filterAndTruncateDiff(delta, 1_000_000, config.review.paths).files;
+    const files = abDiffFiles(delta, full, reviewFiles, config);
+    expect(files.map((f) => f.path)).toEqual(['CRM/Early.php', 'CRM/Late.php']);
+  });
+
+  test('reuses the review files for a full review', () => {
+    const config = noAbConfig();
+    const full = fileDiff('CRM/Early.php');
+    const reviewFiles = filterAndTruncateDiff(full, 1_000_000, config.review.paths).files;
+    expect(abDiffFiles(full, full, reviewFiles, config)).toBe(reviewFiles);
   });
 });

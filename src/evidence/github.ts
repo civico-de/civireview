@@ -122,7 +122,10 @@ export interface FetchGitHubPrOptions {
 
 export interface GitHubPrContext {
   pr: PrMetadata;
+  /** What the review reads: the delta since the last review, or the whole PR. */
   diffText: string;
+  /** The whole PR against its base, which the A/B run compares. */
+  fullDiffText: string;
   comments: PrComment[];
   statuses: CommitStatusInput[];
   linkedIssues: LinkedIssue[];
@@ -591,15 +594,16 @@ export async function fetchGitHubPrContext(
     }
   }
 
-  if (!diffText) {
-    const diffResp = await octokit.pulls.get({
-      owner,
-      repo,
-      pull_number: prNumber,
-      mediaType: { format: 'diff' },
-    });
-    diffText = typeof diffResp.data === 'string' ? diffResp.data : String(diffResp.data);
-  }
+  // The A/B run compares the PR base with the head, so it needs the whole PR diff.
+  const fullDiffResp = await octokit.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+    mediaType: { format: 'diff' },
+  });
+  const fullDiffText =
+    typeof fullDiffResp.data === 'string' ? fullDiffResp.data : String(fullDiffResp.data);
+  if (!diffText) diffText = fullDiffText;
 
   const statuses: CommitStatusInput[] = [];
   try {
@@ -737,6 +741,7 @@ export async function fetchGitHubPrContext(
       url: prData.html_url,
     },
     diffText,
+    fullDiffText,
     comments,
     statuses,
     linkedIssues,

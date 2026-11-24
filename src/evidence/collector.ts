@@ -7,7 +7,12 @@ import { fetchGitHubPrContext } from './github.ts';
 import { fetchJenkinsStatus } from './jenkins.ts';
 import { collectRelatedGitLabIssues, collectRelatedOpenPrs } from './related.ts';
 import { detectBundledExtensions, detectRepoInfo } from './repo-detect.ts';
-import { EvidenceBundleSchema, type EvidenceBundle, type PrMetadata } from './types.ts';
+import {
+  EvidenceBundleSchema,
+  type DiffFile,
+  type EvidenceBundle,
+  type PrMetadata,
+} from './types.ts';
 
 export interface CollectEvidenceOptions {
   repoRoot: string;
@@ -44,6 +49,20 @@ async function runGitCommand(repoRoot: string, args: string[]): Promise<string> 
 }
 
 /**
+ * The files the A/B run mounts. It compares the PR base with the head, so an
+ * incremental review, which reads only the delta, still mounts the whole PR.
+ */
+export function abDiffFiles(
+  reviewDiffText: string,
+  fullDiffText: string,
+  reviewFiles: DiffFile[],
+  config: ResolvedCiviReviewConfig,
+): DiffFile[] {
+  if (fullDiffText === reviewDiffText) return reviewFiles;
+  return filterAndTruncateDiff(fullDiffText, config.review.maxDiffBytes, config.review.paths).files;
+}
+
+/**
  * Collects all Layer 1 deterministic evidence (PR metadata/local git diff,
  * filtered hunks, repo detection, CI/Jenkins status, CiviKitchen A/B results),
  * validates the `EvidenceBundle`, and optionally writes `evidence.json` +
@@ -60,6 +79,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
 
   let pr: PrMetadata;
   let rawDiffText: string;
+  let rawFullDiffText: string;
   let comments: EvidenceBundle['comments'] = [];
   let linkedIssues: EvidenceBundle['linkedIssues'] = [];
   let ciStatus: EvidenceBundle['ciStatus'] = {
@@ -80,6 +100,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     });
     pr = gh.pr;
     rawDiffText = gh.diffText;
+    rawFullDiffText = gh.fullDiffText;
     comments = gh.comments;
     linkedIssues = gh.linkedIssues;
     ciStatus = await fetchJenkinsStatus({ statuses: gh.statuses });
@@ -89,6 +110,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     const headSha =
       options.headSha ?? (await runGitCommand(repoRoot, ['rev-parse', 'HEAD'])).trim();
     rawDiffText = await runGitCommand(repoRoot, ['diff', baseSha, headSha]);
+    rawFullDiffText = rawDiffText;
     const subject = (await runGitCommand(repoRoot, ['log', '-1', '--pretty=%s', headSha])).trim();
 
     pr = {
@@ -113,10 +135,11 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     config.review.maxDiffBytes,
     config.review.paths,
   );
+  const abFiles = abDiffFiles(rawDiffText, rawFullDiffText, filtered.files, config);
   if (repoInfo.kind === 'civicrm-core') {
     const bundled = detectBundledExtensions(
       repoRoot,
-      filtered.files.map((f) => f.path),
+      abFiles.map((f) => f.path),
     );
     if (bundled.length > 0) repoInfo.bundledExtensions = bundled;
   }
@@ -129,7 +152,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
       headSha: pr.headSha,
       prNumber: pr.prNumber > 0 ? pr.prNumber : undefined,
       baseBranch: pr.baseBranch,
-      diffFiles: filtered.files,
+      diffFiles: abFiles,
       abConfig: config.ab,
       checksConfig: config.checks,
       browserConfig: config.browser,

@@ -212,7 +212,9 @@ model chooses them.
 - The review is posted as a comment by default (`review.reviewEvent`). If GitHub refuses
   a requested "request changes" or "approve", it is retried as a comment.
 - The summary ends with a hidden marker holding base and head commit, which the next
-  incremental review reads.
+  incremental review reads. That review reads only the new commits, but its A/B run
+  still mounts the whole PR, since it compares the PR's base with its head. A PR whose
+  full diff GitHub can no longer produce therefore gets no review at all.
 
 A reply to `@civireview <question>` inside a review thread takes a shorter path: one
 model call with the thread, the PR and its diff, posted into that thread. No instance

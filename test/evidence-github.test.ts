@@ -126,7 +126,9 @@ describe('fetchGitHubPrContext', () => {
     const comments = [{ id: 1, body: marker(OLD_HEAD), created_at: '2026-11-01T00:00:00Z' }];
 
     const ahead = makeFakeOctokit({ issueComments: comments, compareStatus: 'ahead' });
-    expect((await fetchContext(ahead.octokit, true)).diffText).toBe('DELTA-DIFF');
+    const aheadContext = await fetchContext(ahead.octokit, true);
+    expect(aheadContext.diffText).toBe('DELTA-DIFF');
+    expect(aheadContext.fullDiffText).toBe('FULL-DIFF');
 
     const diverged = makeFakeOctokit({ issueComments: comments, compareStatus: 'diverged' });
     expect((await fetchContext(diverged.octokit, true)).diffText).toBe('FULL-DIFF');
