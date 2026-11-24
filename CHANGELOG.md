@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Core A/B runs on the base itself**: civireview reads the core commit of the CiviKitchen image and mounts every top-level directory in which it differs from the PR's base into both instances. This replaces the time-window overlay of up to 50 recently merged files. Changed composer dependencies in between are listed under *Not verified*.
 - **No substitute image for core PRs**: a core PR whose branch image is not published skips A/B and says so under *Not verified*; the fallback to `standalone-beta` or `standalone-master` is gone. An extension that runs on the newest stable instead of its floor image has that named in the review.
+- **Deleted base files that stay in the image are named**: a file the base deleted from a core extension with composer downloads (e.g. `greenwich`) cannot be unmounted; the review lists it under *Not verified*. Other drifted extensions are mounted as whole directories.
 
 ## [0.5.1] - 2026-11-24
 
