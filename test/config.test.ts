@@ -183,3 +183,10 @@ models:
     expect(isLensEnabled(includedCfg, 'correctness')).toBe(false);
   });
 });
+
+test('botLogin comes from the override when the repository has no config file', () => {
+  expect(loadConfig('/tmp/nonexistent-cfg-dir', { botLogin: 'review-bot' }).botLogin).toBe(
+    'review-bot',
+  );
+  expect(loadConfig('/tmp/nonexistent-cfg-dir').botLogin).toBeUndefined();
+});

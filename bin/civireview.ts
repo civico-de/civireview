@@ -67,6 +67,7 @@ Common Options:
   --dry-run                 Print formatted output instead of posting to GitHub
   --out <path>              Output directory or file path
   --cwd <dir>               Repository working directory (default: process.cwd())
+  --bot-login <login>       Login the reviews are posted as; only its comments count as review markers
   -h, --help                Show this help message
 
 Reply Options:
@@ -184,6 +185,7 @@ async function resolveGitLocalRefs(
 }
 
 function buildConfigOverrides(opts: {
+  botLogin?: string;
   preset?: string;
   effort?: string;
   depth?: string;
@@ -248,6 +250,7 @@ function buildConfigOverrides(opts: {
   if (opts.exclude && opts.exclude.length > 0) review.exclude = opts.exclude;
 
   return {
+    botLogin: opts.botLogin,
     preset,
     models: Object.keys(models).length > 0 ? models : undefined,
     ab:
@@ -337,6 +340,7 @@ async function main(): Promise<void> {
       'comment-id': { type: 'string' },
       'body-env': { type: 'string' },
       trigger: { type: 'string' },
+      'bot-login': { type: 'string' },
       mode: { type: 'string' },
       repos: { type: 'string', multiple: true },
       allow: { type: 'string', multiple: true },
@@ -390,6 +394,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         ab: abFlag,
         demo: values.demo ? true : undefined,
         browser: browserFlag,
@@ -444,6 +449,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         preset: values.preset,
         effort: values.effort,
         depth: values.depth,
@@ -501,6 +507,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         preset: values.preset,
         effort: values.effort,
         depth: values.depth,
@@ -646,6 +653,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         preset: values.preset,
         effort: values.effort,
         depth: values.depth,
@@ -747,6 +755,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         preset: values.preset,
         effort: values.effort,
         depth: values.depth,
@@ -817,6 +826,7 @@ async function main(): Promise<void> {
     const config = loadConfig(
       cwd,
       buildConfigOverrides({
+        botLogin: values['bot-login'],
         preset: values.preset,
         effort: values.effort,
         depth: values.depth,

@@ -15,7 +15,9 @@ A model is written `<provider>:<model>`. Providers: `anthropic`, `openai`, `goog
 
 `botLogin` is the GitHub login the reviews are posted as. When set, only comments of
 that login count as the marker of an earlier review; without it a marker in anyone's
-comment is accepted.
+comment is accepted. `--bot-login` sets it on the command line; the watch workflow
+passes the repository variable `CIVIREVIEW_BOT_LOGIN`. A wrong login makes the tool
+ignore its own markers, so every mention starts a full review.
 
 `preset` picks a model per stage:
 

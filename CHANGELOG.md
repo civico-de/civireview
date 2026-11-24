@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CLI**: `--bot-login` sets `botLogin` without a config file; the watch workflow passes the repository variable `CIVIREVIEW_BOT_LOGIN`, since the watched repository carries no `civireview.yaml`.
+
 ## [0.4.0] - 2026-11-24
 
 ### Added

@@ -23,6 +23,7 @@ const CONFIG_FILENAMES = ['civireview.yaml', '.civireview.yaml'] as const;
 
 export interface ConfigOverrides {
   trigger?: string;
+  botLogin?: string;
   preset?: PresetName;
   models?: ModelOverrides;
   ab?: Partial<CiviReviewConfigInput['ab']>;
@@ -166,7 +167,7 @@ export function loadConfig(
 
   const mergedInput: CiviReviewConfigInput = {
     trigger: overrides.trigger ?? parsedFile.trigger,
-    botLogin: parsedFile.botLogin,
+    botLogin: overrides.botLogin ?? parsedFile.botLogin,
     preset,
     ab: {
       ...parsedFile.ab,

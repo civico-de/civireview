@@ -89,6 +89,7 @@ jobs:
           MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
           WAIT_FOR_CI: ${{ vars.CIVIREVIEW_WAIT_FOR_CI || 'true' }}
           TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
+          BOT_LOGIN: ${{ vars.CIVIREVIEW_BOT_LOGIN }}
         run: |
           set -euo pipefail
           if [ -z "${GITHUB_TOKEN:-}" ]; then
@@ -111,6 +112,9 @@ jobs:
           )
           if [ "$WAIT_FOR_CI" = "true" ]; then
             ARGS+=(--wait-for-ci)
+          fi
+          if [ -n "$BOT_LOGIN" ]; then
+            ARGS+=(--bot-login "$BOT_LOGIN")
           fi
           if [ -n "$ALLOW_ASSOCIATIONS" ]; then
             ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
@@ -170,6 +174,7 @@ jobs:
           MAX_AGE_MINUTES: ${{ inputs.max_age_minutes || vars.CIVIREVIEW_MAX_AGE_MINUTES || '1440' }}
           WAIT_FOR_CI: ${{ vars.CIVIREVIEW_WAIT_FOR_CI || 'true' }}
           TRIGGER_STR: ${{ vars.CIVIREVIEW_TRIGGER || '@civireview' }}
+          BOT_LOGIN: ${{ vars.CIVIREVIEW_BOT_LOGIN }}
         run: |
           set -euo pipefail
           ARGS=(
@@ -192,6 +197,9 @@ jobs:
           )
           if [ "$WAIT_FOR_CI" = "true" ]; then
             ARGS+=(--wait-for-ci)
+          fi
+          if [ -n "$BOT_LOGIN" ]; then
+            ARGS+=(--bot-login "$BOT_LOGIN")
           fi
           if [ -n "$ALLOW_ASSOCIATIONS" ]; then
             ARGS+=(--allow-associations "$ALLOW_ASSOCIATIONS")
