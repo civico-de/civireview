@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Core browser tests run in the proof of fix**: a PR's tests under `tests/phpunit/E2E/` run on both sides with `ck ab --browser`, so a new browser test can prove its fix. Files of a development-only extension (its `info.xml` description starts with "(DEVELOPMENT ONLY)", like afform's mock forms) count as test fixtures and come from the head on both sides. Where A's copy of an extension comes from the base through a directory mount, the head's development-only extension or `tests/` directory is laid over it; a test file or fixture that cannot be given to both sides stops the proof of fix with a note under *Not verified*. A civikitchen without `ck ab --browser` runs the other tests and names the browser tests under *Not verified*.
+- **Earlier reviews collapse**: after posting, civireview rewrites its own earlier reviews on the PR to a one-line summary (link to the new review, old verdict and confidence) with the full old body folded below. Other users' reviews and inline comments stay as they are, and a failed rewrite is only logged.
 
 ### Fixed
 

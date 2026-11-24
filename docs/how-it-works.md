@@ -215,6 +215,9 @@ model chooses them.
   incremental review reads. That review reads only the new commits, but its A/B run
   still mounts the whole PR, since it compares the PR's base with its head. A PR whose
   full diff GitHub can no longer produce therefore gets no review at all.
+- After posting, civireview's own earlier reviews on the PR are rewritten to one line
+  that links the new review, with the old body folded below and its marker kept. A
+  dry run changes nothing, and a failed rewrite is logged without failing the run.
 
 A reply to `@civireview <question>` inside a review thread takes a shorter path: one
 model call with the thread, the PR and its diff, posted into that thread. No instance

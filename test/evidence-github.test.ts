@@ -5,6 +5,7 @@ import {
   extractLastReviewedMarker,
   fetchGitHubPrContext,
 } from '../src/evidence/github.ts';
+import { collapseReviewBody } from '../src/github/publisher.ts';
 
 const HEAD = 'h'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -12,6 +13,7 @@ const OLD_HEAD = 'o'.repeat(40);
 
 interface FakeOptions {
   issueComments?: Array<{ id: number; body: string; created_at: string }>;
+  reviews?: Array<{ id: number; body: string; state: string; submitted_at: string }>;
   compareStatus?: 'ahead' | 'diverged';
   checkRuns?: Array<{ name: string; status: string; conclusion: string | null }>;
 }
@@ -58,8 +60,9 @@ function makeFakeOctokit(opts: FakeOptions = {}) {
       async listReviewComments() {
         return { data: [] };
       },
-      async listReviews() {
-        return { data: [] };
+      async listReviews(params: { page?: number }) {
+        if ((params.page ?? 1) > 1) return { data: [] };
+        return { data: (opts.reviews ?? []).map((r) => ({ ...r, user })) };
       },
     },
     issues: {
@@ -135,6 +138,22 @@ describe('fetchGitHubPrContext', () => {
 
     const notIncremental = makeFakeOctokit({ issueComments: comments });
     expect((await fetchContext(notIncremental.octokit, false)).diffText).toBe('FULL-DIFF');
+  });
+
+  test('a collapsed earlier review still yields its marker for the incremental review', async () => {
+    const body = collapseReviewBody(
+      marker(OLD_HEAD),
+      'https://github.com/o/r/pull/1#r2',
+      '2026-11-24',
+    );
+    const reviews = [{ id: 1, body, state: 'COMMENTED', submitted_at: '2026-11-01T00:00:00Z' }];
+    const { octokit, calls } = makeFakeOctokit({ reviews, compareStatus: 'ahead' });
+
+    const ctx = await fetchContext(octokit, true);
+
+    expect(ctx.pr.lastReviewedHeadSha).toBe(OLD_HEAD);
+    expect(calls).toContain('compare:diff');
+    expect(ctx.diffText).toBe('DELTA-DIFF');
   });
 
   test('maps check runs to pass / pending / fail and keeps PR metadata and linked issues', async () => {

@@ -1,7 +1,11 @@
 import { Octokit } from '@octokit/rest';
 import type { ReviewEvent } from '../config/schema.ts';
 import type { FinalReview } from '../engine/schemas.ts';
-import { resolveGitHubToken } from '../evidence/github.ts';
+import {
+  extractAllReviewedMarkers,
+  fetchAllPages,
+  resolveGitHubToken,
+} from '../evidence/github.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
 import {
   formatReviewMarkdown,
@@ -21,7 +25,35 @@ export interface PublisherOctokit {
         event: 'COMMENT' | 'REQUEST_CHANGES' | 'APPROVE';
         body: string;
         comments?: GitHubReviewCommentInput[];
-      }): Promise<{ data: { id: number; html_url?: string } }>;
+      }): Promise<{
+        data: {
+          id: number;
+          html_url?: string;
+          submitted_at?: string;
+          user?: { login?: string } | null;
+        };
+      }>;
+      listReviews(params: {
+        owner: string;
+        repo: string;
+        pull_number: number;
+        per_page?: number;
+        page?: number;
+      }): Promise<{
+        data: Array<{
+          id: number;
+          body?: string | null;
+          user?: { login?: string } | null;
+          submitted_at?: string;
+        }>;
+      }>;
+      updateReview(params: {
+        owner: string;
+        repo: string;
+        pull_number: number;
+        review_id: number;
+        body: string;
+      }): Promise<unknown>;
       createReplyForReviewComment(params: {
         owner: string;
         repo: string;
@@ -62,6 +94,7 @@ export interface PublishReviewOptions {
   maxInlineComments?: number;
   reviewEvent?: ReviewEvent;
   mentionUsers?: boolean;
+  logger?: { warn?(msg: string): void };
 }
 
 export interface PublishReviewResult {
@@ -72,6 +105,7 @@ export interface PublishReviewResult {
   htmlUrl?: string;
   summaryBody: string;
   inlineComments: GitHubReviewCommentInput[];
+  collapsedReviewIds?: number[];
 }
 
 function resolveReviewEvent(
@@ -172,6 +206,90 @@ async function getOctokit(injected?: PublisherOctokit, token?: string): Promise<
   return new Octokit({ auth: resolvedToken }) as unknown as PublisherOctokit;
 }
 
+const COLLAPSED_MARKER = '<!-- civireview:collapsed -->';
+const COLLAPSED_RE = /^<!-- civireview:collapsed -->[ \t\r]*$/m;
+const HEADER_RE = /^## CiviReview: (\S+) \*\*([^*\n]+)\*\* · Confidence: \*\*([1-5])\/5\*\*/m;
+
+function defaultWarn(msg: string): void {
+  console.error(`[civireview:warn] ${msg}`);
+}
+
+/**
+ * Wraps an earlier review body under a one-line summary that links the newer review.
+ * The old body stays verbatim, so its civireview:v1 marker remains on its own line.
+ */
+export function collapseReviewBody(oldBody: string, newReviewUrl: string, newDate: string): string {
+  const header = HEADER_RE.exec(oldBody);
+  const parts = [`Superseded by [the review of ${newDate}](${newReviewUrl})`];
+  if (header) parts.push(`${header[1]} ${header[2]}`, `Confidence ${header[3]}/5`);
+  return (
+    `${parts.join(' · ')}\n\n<details><summary>Earlier review</summary>\n\n` +
+    `${oldBody.trimEnd()}\n\n</details>\n${COLLAPSED_MARKER}`
+  );
+}
+
+/**
+ * Collapses the poster's earlier civireview reviews on the PR. Cosmetic step after posting:
+ * every failure is logged and never fails the run.
+ */
+async function collapseEarlierReviews(
+  octokit: PublisherOctokit,
+  pr: { owner: string; repo: string; prNumber: number },
+  posted: {
+    id: number;
+    html_url?: string;
+    submitted_at?: string;
+    user?: { login?: string } | null;
+  },
+  warn: (msg: string) => void,
+): Promise<number[]> {
+  const { owner, repo, prNumber } = pr;
+  let reviews: Awaited<ReturnType<PublisherOctokit['rest']['pulls']['listReviews']>>['data'];
+  try {
+    reviews = await fetchAllPages((page) =>
+      octokit.rest.pulls
+        .listReviews({ owner, repo, pull_number: prNumber, per_page: 100, page })
+        .then((r) => r.data),
+    );
+  } catch (err) {
+    warn(`Could not list reviews to collapse earlier ones: ${String(err)}`);
+    return [];
+  }
+  const candidates = reviews.filter(
+    (r) =>
+      // Review ids grow, so a review posted concurrently after this one is never collapsed by it.
+      r.id < posted.id &&
+      !COLLAPSED_RE.test(r.body ?? '') &&
+      extractAllReviewedMarkers([{ body: r.body }]).length > 0,
+  );
+  if (candidates.length === 0) return [];
+  const login = posted.user?.login?.toLowerCase();
+  if (!login || !posted.html_url) {
+    warn(
+      `Review ${posted.id} has no author or URL in the response; earlier reviews not collapsed.`,
+    );
+    return [];
+  }
+  const date = (posted.submitted_at ?? new Date().toISOString()).slice(0, 10);
+  const collapsed: number[] = [];
+  for (const r of candidates) {
+    if (r.user?.login?.toLowerCase() !== login) continue;
+    try {
+      await octokit.rest.pulls.updateReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        review_id: r.id,
+        body: collapseReviewBody(r.body ?? '', posted.html_url, date),
+      });
+      collapsed.push(r.id);
+    } catch (err) {
+      warn(`Could not collapse earlier review ${r.id}: ${String(err)}`);
+    }
+  }
+  return collapsed;
+}
+
 /**
  * Formats and posts a complete PR review (summary + batched inline comments) in a
  * single `pulls.createReview` API call, with automatic HTTP 422 fallback.
@@ -256,9 +374,17 @@ export async function publishReview(options: PublishReviewOptions): Promise<Publ
     await addCompletionReaction(octokit, owner, repo, commentId, review.verdict);
   }
 
+  const collapsedReviewIds = await collapseEarlierReviews(
+    octokit,
+    { owner, repo, prNumber },
+    responseData,
+    (msg) => (options.logger?.warn ?? defaultWarn)(msg),
+  );
+
   return {
     posted: true,
     fallbackUsed,
+    collapsedReviewIds,
     reviewId: responseData.id,
     htmlUrl: responseData.html_url,
     summaryBody: finalSummary,

@@ -70,19 +70,6 @@ export interface WatcherOctokit extends PublisherOctokit {
           head?: { sha?: string };
         };
       }>;
-      listReviews?(params: {
-        owner: string;
-        repo: string;
-        pull_number: number;
-        per_page?: number;
-      }): Promise<{
-        data: Array<{
-          id: number;
-          body?: string | null;
-          user?: { login?: string } | null;
-          submitted_at?: string;
-        }>;
-      }>;
     };
     orgs?: {
       checkMembershipForUser?(params: {

@@ -70,6 +70,12 @@ describe('github watcher polling & execution', () => {
           async listReviewComments() {
             return { data: [] };
           },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
+          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -161,6 +167,12 @@ describe('github watcher polling & execution', () => {
         pulls: {
           async listReviewComments() {
             return { data: [] };
+          },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
           },
           async createReview() {
             return { data: { id: 1 } };
@@ -286,6 +298,12 @@ describe('github watcher polling & execution', () => {
         pulls: {
           async listReviewComments() {
             return { data: [] };
+          },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
           },
           async createReview() {
             return { data: { id: 1 } };
@@ -441,6 +459,12 @@ describe('github watcher polling & execution', () => {
               ],
             };
           },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
+          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -585,6 +609,12 @@ describe('github watcher polling & execution', () => {
           async listReviewComments() {
             return { data: [] };
           },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
+          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -698,6 +728,12 @@ describe('github watcher polling & execution', () => {
         pulls: {
           async listReviewComments() {
             return { data: [] };
+          },
+          async listReviews() {
+            return { data: [] };
+          },
+          async updateReview() {
+            throw new Error('unexpected updateReview');
           },
           async createReview() {
             return { data: { id: 1 } };
