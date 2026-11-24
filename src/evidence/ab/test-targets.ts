@@ -343,6 +343,14 @@ export function stripFilterArgs(cmd: string[]): string[] {
   return out;
 }
 
+export const CORE_COMPOSER_FILES = ['composer.json', 'composer.lock'];
+/** Composer's post-install scripts; the release tarball images lack them. */
+const CORE_COMPOSER_SCRIPTS = 'tools/scripts/composer';
+
+export function isCoreComposerFile(filePath: string): boolean {
+  return CORE_COMPOSER_FILES.includes(filePath);
+}
+
 export function isMountableCorePath(filePath: string): boolean {
   if (!filePath || filePath.startsWith('/') || filePath.includes('..')) {
     return false;
@@ -363,8 +371,10 @@ export interface CoreMountPlan {
   proofTestMounts: string[];
   baseTestMounts: string[];
   useFileMounts: boolean;
-  /** Files the base deleted that stay visible from the image on both sides. */
+  /** Files the base lacks that stay visible from the image. */
   staleImageFiles: string[];
+  /** PR-deleted or renamed-away files of extensions with build output; B still sees the image's copy. */
+  prDeletedImageFiles: string[];
 }
 
 /**
@@ -454,6 +464,7 @@ export function buildCoreMountPlan(
   let proofTestMounts: string[] = [];
   let baseTestMounts: string[] = [];
   let staleImageFiles: string[] = [];
+  const prDeletedImageFiles: string[] = [];
 
   const mountableCoreFiles = diffFiles.filter((f) => isMountableCorePath(f.path));
   const coreProdFiles = mountableCoreFiles.filter((f) => !isCoreTestPath(f.path));
@@ -493,9 +504,35 @@ export function buildCoreMountPlan(
     mountsBOnly.push('--mount', spec);
   };
 
+  // Each side gets its composer files; the image syncs vendor/ to ones it was not installed from.
+  const prComposer = diffFiles.some((f) => isCoreComposerFile(f.path));
+  const driftComposer = baseDriftFiles.some(isCoreComposerFile);
+  for (const f of [...CORE_COMPOSER_FILES, CORE_COMPOSER_SCRIPTS]) {
+    const specA = `${join(worktreeA, f)}:/var/www/html/core/${f}:ro`;
+    const specB = `${join(worktreeB, f)}:/var/www/html/core/${f}:ro`;
+    if (prComposer) {
+      if (existsSync(join(worktreeA, f))) {
+        abMounts.push('--mount-a', specA);
+        mountsAOnly.push('--mount', specA);
+      }
+      if (existsSync(join(worktreeB, f))) {
+        abMounts.push('--mount-b', specB);
+        mountsBOnly.push('--mount', specB);
+      }
+    } else if (driftComposer && existsSync(join(worktreeA, f))) {
+      addShared(specA);
+    }
+  }
+
   if (useFileMounts) {
     const prPaths = new Set(diffFiles.map((f) => f.path));
-    const drift = baseDriftMounts(baseDriftFiles, worktreeA, unitOf, (p) => prPaths.has(p));
+    // A PR path the base lacks stays the drift's business: A must not see the image's copy.
+    const drift = baseDriftMounts(
+      baseDriftFiles,
+      worktreeA,
+      unitOf,
+      (p) => prPaths.has(p) && existsSync(join(worktreeA, p)),
+    );
     drift.specs.forEach(addShared);
     staleImageFiles = drift.staleImageFiles;
 
@@ -509,7 +546,7 @@ export function buildCoreMountPlan(
         mountsBOnly.push('--mount', `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`);
       }
     }
-    const isTestOnlyPr = coreProdFiles.length === 0 && coreTestFiles.length > 0;
+    const isTestOnlyPr = coreProdFiles.length === 0 && !prComposer && coreTestFiles.length > 0;
     for (const f of coreTestFiles) {
       if (isE2eMinkTestPath(f.path)) continue;
       if (isTestOnlyPr) {
@@ -551,22 +588,62 @@ export function buildCoreMountPlan(
       }
     }
   } else {
-    const dirs = new Set(touchedComponents);
+    // Extensions with build output keep their image directory; their PR files are mounted singly.
+    const dirs = new Set(touchedComponents.filter((d) => unitOf(`${d}/`).isDir));
+    const singlyMounted = mountableCoreFiles.filter(
+      (f) => f.path.startsWith('ext/') && !unitOf(f.path).isDir,
+    );
     for (const f of coreProdFiles) {
-      dirs.add(
-        f.path
-          .split('/')
-          .slice(0, f.path.startsWith('ext/') ? 2 : 1)
-          .join('/'),
-      );
+      const { unit, isDir } = unitOf(f.path);
+      if (isDir) dirs.add(unit);
+    }
+    // A test-only PR compares the base's tests on A with the PR's on B.
+    const testOnly = coreProdFiles.length === 0 && !prComposer;
+    const extTestMounts = { proof: [] as string[], base: [] as string[] };
+    for (const f of singlyMounted) {
+      const pathA = f.oldPath ?? f.path;
+      const specA = `${join(worktreeA, pathA)}:/var/www/html/core/${pathA}:ro`;
+      const specB = `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`;
+      const inA = existsSync(join(worktreeA, pathA));
+      const inB = existsSync(join(worktreeB, f.path));
+      if (isCoreTestPath(f.path)) {
+        if (testOnly) {
+          const sides = [
+            ...(inA ? ['--mount-a', specA] : []),
+            ...(inB ? ['--mount-b', specB] : []),
+          ];
+          extTestMounts.proof.push(...sides);
+          extTestMounts.base.push(...sides);
+        } else {
+          if (inB) extTestMounts.proof.push('--mount', specB);
+          if (inA) extTestMounts.base.push('--mount', specA);
+        }
+        continue;
+      }
+      if (inA) {
+        abMounts.push('--mount-a', specA);
+        mountsAOnly.push('--mount', specA);
+      }
+      if (inB) {
+        abMounts.push('--mount-b', specB);
+        mountsBOnly.push('--mount', specB);
+      }
+      if (inA && (!inB || pathA !== f.path)) prDeletedImageFiles.push(pathA);
     }
     // Keep CRM/ and Civi/ in lockstep when falling back to directory mounts
     if (dirs.has('CRM') || dirs.has('Civi')) {
       dirs.add('CRM');
       dirs.add('Civi');
     }
+    const prPaths = new Set(
+      singlyMounted
+        .flatMap((f) => [f.path, f.oldPath ?? f.path])
+        .filter((p) => existsSync(join(worktreeA, p))),
+    );
     const ownMount = (p: string) =>
-      p.startsWith('tests/') || Array.from(dirs).some((d) => p === d || p.startsWith(`${d}/`));
+      p.startsWith('tests/') ||
+      prPaths.has(p) ||
+      Array.from(dirs).some((d) => p === d || p.startsWith(`${d}/`));
     const drift = baseDriftMounts(baseDriftFiles, worktreeA, unitOf, ownMount);
     drift.specs.forEach(addShared);
     staleImageFiles = drift.staleImageFiles;
@@ -580,12 +657,23 @@ export function buildCoreMountPlan(
         mountsBOnly.push('--mount', `${join(worktreeB, dir)}:/var/www/html/core/${dir}:ro`);
       }
     }
-    if (existsSync(join(worktreeB, 'tests'))) {
-      proofTestMounts = ['--mount', `${join(worktreeB, 'tests')}:/var/www/html/core/tests:ro`];
+    const testsA = `${join(worktreeA, 'tests')}:/var/www/html/core/tests:ro`;
+    const testsB = `${join(worktreeB, 'tests')}:/var/www/html/core/tests:ro`;
+    const hasA = existsSync(join(worktreeA, 'tests'));
+    const hasB = existsSync(join(worktreeB, 'tests'));
+    if (testOnly) {
+      const sides = [
+        ...(hasA ? ['--mount-a', testsA] : []),
+        ...(hasB ? ['--mount-b', testsB] : []),
+      ];
+      proofTestMounts = [...sides];
+      baseTestMounts = [...sides];
+    } else {
+      if (hasB) proofTestMounts = ['--mount', testsB];
+      if (hasA) baseTestMounts = ['--mount', testsA];
     }
-    if (existsSync(join(worktreeA, 'tests'))) {
-      baseTestMounts = ['--mount', `${join(worktreeA, 'tests')}:/var/www/html/core/tests:ro`];
-    }
+    proofTestMounts.push(...extTestMounts.proof);
+    baseTestMounts.push(...extTestMounts.base);
   }
 
   return {
@@ -596,5 +684,6 @@ export function buildCoreMountPlan(
     baseTestMounts,
     useFileMounts,
     staleImageFiles,
+    prDeletedImageFiles,
   };
 }

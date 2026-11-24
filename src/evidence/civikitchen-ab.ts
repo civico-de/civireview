@@ -47,6 +47,7 @@ import { computeSurfaceDiff, mergeLiveSurfaceDiff } from './ab/surface-diff.ts';
 import {
   buildCkAbName,
   buildCoreMountPlan,
+  isCoreComposerFile,
   buildMultiTargetTestCommand,
   buildPerFileFilterArgs,
   deriveRegressionTargets,
@@ -633,9 +634,13 @@ export async function runCiviKitchenAb(
         notVerified.push(
           `Core commit of ${imageA} not resolved; A runs on the image's core with only the PR's directories taken from the base.`,
         );
-      } else if (drift.files.some((p) => /^composer\.(json|lock)$/.test(p))) {
+      }
+      const composerDiffers =
+        (drift.files ?? []).some(isCoreComposerFile) ||
+        diffFiles.some((f) => isCoreComposerFile(f.path));
+      if (composerDiffers && !drift.vendorSync) {
         notVerified.push(
-          `Composer dependencies changed between ${imageA} (core ${drift.imageCoreRef}) and the base; vendor/ is the image's.`,
+          `Composer dependencies differ from ${imageA}'s, which does not sync vendor/ at boot; vendor/ is the image's.`,
         );
       }
       const mountPlan = buildCoreMountPlan(
@@ -647,7 +652,12 @@ export async function runCiviKitchenAb(
       );
       if (mountPlan.staleImageFiles.length > 0) {
         notVerified.push(
-          `Files the base deleted stay in ${imageA} on both sides: ${mountPlan.staleImageFiles.join(', ')}`,
+          `Files the base lacks stay visible from ${imageA}: ${mountPlan.staleImageFiles.join(', ')}`,
+        );
+      }
+      if (mountPlan.prDeletedImageFiles.length > 0) {
+        notVerified.push(
+          `Files the PR deletes or renames stay in ${imageA} on B: ${mountPlan.prDeletedImageFiles.join(', ')}`,
         );
       }
       abMounts = mountPlan.abMounts;

@@ -66,11 +66,16 @@ instead of its floor; the review names the substitution.
 How the code gets into the instance depends on the profile: for core, the changed files
 are bind-mounted over the image's core tree, one by one for a small PR and as whole
 directories otherwise; for an extension repository the whole worktree is mounted as an
-extension. The image's core commit, read from its source log, rarely is the PR's base,
-so every top-level directory in which the two differ is mounted from the base into both
-sides (single files under `ext/` and `tests/`). A therefore runs on the base itself.
-A change to `composer.json` or `composer.lock` in between cannot be mounted; the review
-names it.
+extension. Files of a bundled extension with build output (composer downloads, compiled
+assets) are always mounted one by one, so the image's output stays visible; a file the PR
+deletes or renames there stays on B, and the review names it. The image's core commit, read from its
+source log, rarely is the PR's base, so every top-level directory in which the two differ
+is mounted from the base into both sides (single files under `tests/` and in those
+extensions). A therefore runs on the base itself.
+Each side also gets its own `composer.json`, `composer.lock` and `tools/scripts/composer`
+when they differ from the image's, and the image runs `composer install` for them on boot. An image built
+before that boot step keeps its own `vendor/`; the review names the difference. A side
+without one of the two files (core has always shipped both) sees the image's copy.
 
 Every check below runs the same command on A and on B and compares the outcome.
 

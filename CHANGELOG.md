@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Each A/B side gets its own composer dependencies**: when the base or the PR has a `composer.json`/`composer.lock` other than the image's, both files are mounted per side and the CiviKitchen image syncs `vendor/` on boot. Only an image without that boot step still gets the *Not verified* note.
+
+### Fixed
+
+- **Bundled extensions with build output keep it in large PRs**: in directory-mount mode, a PR touching `ext/greenwich`, `ext/chart_kit` or another extension with composer downloads or compiled assets mounted the whole extension directory and hid that output on both sides. Its changed files and tests are now mounted one by one; a file the PR deletes or renames there is named under *Not verified*.
+
 ## [0.6.0] - 2026-11-24
 
 ### Changed

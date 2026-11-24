@@ -81,6 +81,66 @@ const onlyLatestPublished: ExecFn = async (args) =>
 
 const alwaysFails: ExecFn = async () => ({ exitCode: 1, stdout: '', stderr: 'no such file' });
 
+async function runDriftReview(vendorSync: boolean) {
+  const repoDir = mkdtempSync(join(tmpdir(), 'civireview-drift-'));
+  const imageSha = 'd'.repeat(40);
+  const ckCalls: string[][] = [];
+  const execFn: ExecFn = async (args) => {
+    if (args[0] === 'docker' && args[1] === 'run') {
+      return {
+        exitCode: 0,
+        stdout: `git . ${imageSha}\n${vendorSync ? 'vendor-sync\n' : ''}`,
+        stderr: '',
+      };
+    }
+    if (args[0] === 'git' && args[3] === 'worktree' && args[4] === 'add') {
+      const target = args[6]!;
+      mkdirSync(join(target, 'CRM/Queue'), { recursive: true });
+      mkdirSync(join(target, 'Civi'), { recursive: true });
+      writeFileSync(join(target, 'CRM/Queue/Sql.php'), '<?php\n');
+      writeFileSync(join(target, 'Civi/Recent.php'), '<?php\n');
+      writeFileSync(join(target, 'composer.lock'), '{}\n');
+      mkdirSync(join(target, 'tests/phpunit/CRM/Queue'), { recursive: true });
+      writeFileSync(join(target, 'tests/phpunit/CRM/Queue/SqlTest.php'), '<?php\n');
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }
+    if (args[0] === 'git' && args.includes('diff') && args.includes(imageSha)) {
+      return { exitCode: 0, stdout: 'Civi/Recent.php\ncomposer.lock\n', stderr: '' };
+    }
+    if (args[0] === 'ck') ckCalls.push(args);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+
+  const outcome = await runCiviKitchenAb({
+    repoRoot: repoDir,
+    repoInfo: { kind: 'civicrm-core', root: repoDir, recommendedImage: 'standalone-master' },
+    baseSha: 'aaaaaaa',
+    headSha: 'bbbbbbb',
+    diffFiles: parseUnifiedDiff(
+      [
+        'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
+        '--- a/CRM/Queue/Sql.php',
+        '+++ b/CRM/Queue/Sql.php',
+        '@@ -1 +1,2 @@',
+        ' <?php',
+        '+// fix',
+        'diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTest.php',
+        '--- a/tests/phpunit/CRM/Queue/SqlTest.php',
+        '+++ b/tests/phpunit/CRM/Queue/SqlTest.php',
+        '@@ -1 +1,2 @@',
+        ' <?php',
+        '+  public function testClaim(): void {}',
+      ].join('\n'),
+    ),
+    abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+    checksConfig: ChecksConfigSchema.parse({ liveProve: false }),
+    execFn,
+    worktreeBaseDir: join(repoDir, '.worktrees'),
+  });
+  rmSync(repoDir, { recursive: true, force: true });
+  return { outcome, abRun: ckCalls.find((a) => a[1] === 'ab'), imageSha };
+}
+
 describe('E2E/Mink test exclusion from headless PHPUnit proof-of-fix', () => {
   test('isE2eMinkTestPath identifies core and extension E2E Mink tests', () => {
     expect(isE2eMinkTestPath('tests/phpunit/E2E/Core/LoginTest.php')).toBe(true);
@@ -478,7 +538,7 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
       if (args[0] === 'docker' && args[1] === 'run') {
         return {
           exitCode: 0,
-          stdout: `git . ${sha}\ngit packages ${'b'.repeat(40)}\n`,
+          stdout: `git . ${sha}\ngit packages ${'b'.repeat(40)}\nvendor-sync\n`,
           stderr: '',
         };
       }
@@ -498,6 +558,7 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(drift).toEqual({
       imageCoreRef: sha,
       files: ['CRM/Core/RecentHelper.php', 'composer.lock'],
+      vendorSync: true,
     });
     expect(calls.find((a) => a.includes('diff'))).toEqual([
       'git',
@@ -535,7 +596,11 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
       imageTag: 'standalone-6.20',
       execFn,
     });
-    expect(drift).toEqual({ imageCoreRef: '6.20.1', files: ['CRM/Utils/Foo.php'] });
+    expect(drift).toEqual({
+      imageCoreRef: '6.20.1',
+      files: ['CRM/Utils/Foo.php'],
+      vendorSync: false,
+    });
     expect(calls.find((a) => a.includes('fetch'))).toEqual([
       'git',
       '-C',
@@ -659,6 +724,186 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(plan.abMounts.filter((m) => m.endsWith('/core/sql:ro'))).toHaveLength(2);
   });
 
+  test('buildCoreMountPlan keeps build-output extensions in directory mode', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    writeFileSync(join(wtA, 'ext/greenwich/greenwich.php'), '<?php\n');
+    writeFileSync(join(wtB, 'ext/greenwich/greenwich.php'), '<?php // fix\n');
+    writeFileSync(join(wtA, 'ext/greenwich/Old.php'), '<?php\n');
+    writeFileSync(join(wtA, 'ext/greenwich/Before.php'), '<?php\n');
+    writeFileSync(join(wtB, 'ext/greenwich/After.php'), '<?php\n');
+    const extTest = 'ext/greenwich/tests/phpunit/GreenwichTest.php';
+    for (const wt of [wtA, wtB]) {
+      mkdirSync(join(wt, 'ext/greenwich/tests/phpunit'), { recursive: true });
+      writeFileSync(join(wt, extTest), '<?php\n');
+    }
+    const diffFiles = parseUnifiedDiff(
+      [
+        'diff --git a/ext/greenwich/greenwich.php b/ext/greenwich/greenwich.php',
+        '--- a/ext/greenwich/greenwich.php',
+        '+++ b/ext/greenwich/greenwich.php',
+        '@@ -1 +1 @@',
+        '-<?php',
+        '+<?php // fix',
+        'diff --git a/ext/greenwich/Old.php b/ext/greenwich/Old.php',
+        'deleted file mode 100644',
+        '--- a/ext/greenwich/Old.php',
+        '+++ /dev/null',
+        '@@ -1 +0,0 @@',
+        '-<?php',
+        'diff --git a/ext/greenwich/Before.php b/ext/greenwich/After.php',
+        'similarity index 100%',
+        'rename from ext/greenwich/Before.php',
+        'rename to ext/greenwich/After.php',
+        `diff --git a/${extTest} b/${extTest}`,
+        `--- a/${extTest}`,
+        `+++ b/${extTest}`,
+        '@@ -1 +1,2 @@',
+        ' <?php',
+        '+  public function testFix(): void {}',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, ['ext/greenwich'], wtA, wtB, [
+      'ext/greenwich/greenwich.php',
+      'ext/greenwich/Before.php',
+    ]);
+    expect(plan.useFileMounts).toBe(false);
+    expect(plan.abMounts.some((a) => a.endsWith(':/var/www/html/core/ext/greenwich:ro'))).toBe(
+      false,
+    );
+    const at = (spec: string) => plan.abMounts[plan.abMounts.indexOf(spec) - 1];
+    const file = 'ext/greenwich/greenwich.php';
+    expect(at(`${join(wtA, file)}:/var/www/html/core/${file}:ro`)).toBe('--mount-a');
+    expect(at(`${join(wtB, file)}:/var/www/html/core/${file}:ro`)).toBe('--mount-b');
+    expect(plan.abMounts.filter((a) => a.includes(file))).toHaveLength(2);
+    expect(plan.prDeletedImageFiles).toEqual(['ext/greenwich/Old.php', 'ext/greenwich/Before.php']);
+    const before = 'ext/greenwich/Before.php';
+    const after = 'ext/greenwich/After.php';
+    expect(at(`${join(wtA, before)}:/var/www/html/core/${before}:ro`)).toBe('--mount-a');
+    expect(plan.abMounts.filter((a) => a.endsWith(`/core/${before}:ro`))).toHaveLength(1);
+    expect(at(`${join(wtB, after)}:/var/www/html/core/${after}:ro`)).toBe('--mount-b');
+    expect(plan.proofTestMounts).toContain(
+      `${join(wtB, extTest)}:/var/www/html/core/${extTest}:ro`,
+    );
+    expect(plan.baseTestMounts).toContain(`${join(wtA, extTest)}:/var/www/html/core/${extTest}:ro`);
+  });
+
+  test('buildCoreMountPlan keeps a test-only PR in directory mode side-specific', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    const extTest = 'ext/greenwich/tests/phpunit/GreenwichTest.php';
+    for (const wt of [wtA, wtB]) {
+      mkdirSync(join(wt, 'ext/greenwich/tests/phpunit'), { recursive: true });
+      writeFileSync(join(wt, extTest), '<?php\n');
+    }
+    writeFileSync(join(wtA, 'ext/greenwich/tests/phpunit/OldTest.php'), '<?php\n');
+    const diffFiles = parseUnifiedDiff(
+      [
+        `diff --git a/${extTest} b/${extTest}`,
+        `--- a/${extTest}`,
+        `+++ b/${extTest}`,
+        '@@ -1 +1,2 @@',
+        ' <?php',
+        '+  public function testFix(): void {}',
+        'diff --git a/ext/greenwich/tests/phpunit/OldTest.php b/ext/greenwich/tests/phpunit/OldTest.php',
+        'deleted file mode 100644',
+        '--- a/ext/greenwich/tests/phpunit/OldTest.php',
+        '+++ /dev/null',
+        '@@ -1 +0,0 @@',
+        '-<?php',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, ['ext/greenwich'], wtA, wtB, []);
+    expect(plan.useFileMounts).toBe(false);
+    const specA = `${join(wtA, extTest)}:/var/www/html/core/${extTest}:ro`;
+    const specB = `${join(wtB, extTest)}:/var/www/html/core/${extTest}:ro`;
+    for (const mounts of [plan.proofTestMounts, plan.baseTestMounts]) {
+      expect(mounts[mounts.indexOf(specA) - 1]).toBe('--mount-a');
+      expect(mounts[mounts.indexOf(specB) - 1]).toBe('--mount-b');
+      expect(mounts[mounts.indexOf(`${join(wtA, 'tests')}:/var/www/html/core/tests:ro`) - 1]).toBe(
+        '--mount-a',
+      );
+    }
+  });
+
+  test('buildCoreMountPlan runs the PR test on both sides of a composer change', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    const testPath = 'tests/phpunit/CRM/Utils/FooTest.php';
+    for (const wt of [wtA, wtB]) {
+      writeFileSync(join(wt, 'composer.lock'), '{}\n');
+      mkdirSync(join(wt, 'tests/phpunit/CRM/Utils'), { recursive: true });
+      writeFileSync(join(wt, testPath), '<?php\n');
+    }
+    const diffFiles = parseUnifiedDiff(
+      [
+        'diff --git a/composer.lock b/composer.lock',
+        '--- a/composer.lock',
+        '+++ b/composer.lock',
+        '@@ -1 +1 @@',
+        '-{}',
+        '+{ }',
+        `diff --git a/${testPath} b/${testPath}`,
+        `--- a/${testPath}`,
+        `+++ b/${testPath}`,
+        '@@ -1 +1,2 @@',
+        ' <?php',
+        '+  public function testFoo(): void {}',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, [], wtA, wtB, []);
+    expect(plan.proofTestMounts).toEqual([
+      '--mount',
+      `${join(wtB, testPath)}:/var/www/html/core/${testPath}:ro`,
+    ]);
+  });
+
+  test('buildCoreMountPlan gives each side its composer files when the PR changes them', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    for (const wt of [wtA, wtB]) mkdirSync(join(wt, 'tools/scripts/composer'), { recursive: true });
+    writeFileSync(join(wtB, 'composer.lock'), '{}\n');
+    writeFileSync(join(wtA, 'composer.lock'), '{}\n');
+    const diffFiles = parseUnifiedDiff(
+      [
+        'diff --git a/composer.lock b/composer.lock',
+        '--- a/composer.lock',
+        '+++ b/composer.lock',
+        '@@ -1 +1 @@',
+        '-{}',
+        '+{ }',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, [], wtA, wtB, ['composer.lock']);
+    const at = (spec: string) => plan.abMounts[plan.abMounts.indexOf(spec) - 1];
+    expect(at(`${join(wtA, 'composer.lock')}:/var/www/html/core/composer.lock:ro`)).toBe(
+      '--mount-a',
+    );
+    expect(at(`${join(wtB, 'composer.lock')}:/var/www/html/core/composer.lock:ro`)).toBe(
+      '--mount-b',
+    );
+    expect(at(`${join(wtA, 'composer.json')}:/var/www/html/core/composer.json:ro`)).toBe(
+      '--mount-a',
+    );
+    const scripts = 'tools/scripts/composer';
+    expect(at(`${join(wtA, scripts)}:/var/www/html/core/${scripts}:ro`)).toBe('--mount-a');
+    expect(at(`${join(wtB, scripts)}:/var/www/html/core/${scripts}:ro`)).toBe('--mount-b');
+  });
+
+  test('buildCoreMountPlan names a PR-added extension file the image already has', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    const added = 'ext/greenwich/New.php';
+    writeFileSync(join(wtB, added), '<?php\n');
+    const diffFiles = parseUnifiedDiff(
+      [
+        `diff --git a/${added} b/${added}`,
+        'new file mode 100644',
+        '--- /dev/null',
+        `+++ b/${added}`,
+        '@@ -0,0 +1 @@',
+        '+<?php',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, ['ext/greenwich'], wtA, wtB, [added]);
+    expect(plan.staleImageFiles).toEqual([added]);
+  });
+
   test('buildCoreMountPlan keeps per-file mounts when the base matches the image', () => {
     const { wtA, wtB } = makeCoreWorktrees();
     const plan = buildCoreMountPlan(modifiedSqlDiff(), ['CRM'], wtA, wtB, []);
@@ -701,65 +946,22 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(calls.some((a) => a[0] === 'ck')).toBe(false);
   });
 
-  test('runCiviKitchenAb mounts the base drift and reports changed composer dependencies', async () => {
-    const repoDir = makeTempDir();
-    const imageSha = 'd'.repeat(40);
-    const ckCalls: string[][] = [];
-    const execFn: ExecFn = async (args) => {
-      if (args[0] === 'docker' && args[1] === 'run') {
-        return { exitCode: 0, stdout: `git . ${imageSha}\n`, stderr: '' };
-      }
-      if (args[0] === 'git' && args[3] === 'worktree' && args[4] === 'add') {
-        const target = args[6]!;
-        mkdirSync(join(target, 'CRM/Queue'), { recursive: true });
-        mkdirSync(join(target, 'Civi'), { recursive: true });
-        writeFileSync(join(target, 'CRM/Queue/Sql.php'), '<?php\n');
-        writeFileSync(join(target, 'Civi/Recent.php'), '<?php\n');
-        mkdirSync(join(target, 'tests/phpunit/CRM/Queue'), { recursive: true });
-        writeFileSync(join(target, 'tests/phpunit/CRM/Queue/SqlTest.php'), '<?php\n');
-        return { exitCode: 0, stdout: '', stderr: '' };
-      }
-      if (args[0] === 'git' && args.includes('diff') && args.includes(imageSha)) {
-        return { exitCode: 0, stdout: 'Civi/Recent.php\ncomposer.lock\n', stderr: '' };
-      }
-      if (args[0] === 'ck') ckCalls.push(args);
-      return { exitCode: 0, stdout: '', stderr: '' };
-    };
-
-    const outcome = await runCiviKitchenAb({
-      repoRoot: repoDir,
-      repoInfo: { kind: 'civicrm-core', root: repoDir, recommendedImage: 'standalone-master' },
-      baseSha: 'aaaaaaa',
-      headSha: 'bbbbbbb',
-      diffFiles: parseUnifiedDiff(
-        [
-          'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
-          '--- a/CRM/Queue/Sql.php',
-          '+++ b/CRM/Queue/Sql.php',
-          '@@ -1 +1,2 @@',
-          ' <?php',
-          '+// fix',
-          'diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTest.php',
-          '--- a/tests/phpunit/CRM/Queue/SqlTest.php',
-          '+++ b/tests/phpunit/CRM/Queue/SqlTest.php',
-          '@@ -1 +1,2 @@',
-          ' <?php',
-          '+  public function testClaim(): void {}',
-        ].join('\n'),
-      ),
-      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
-      checksConfig: ChecksConfigSchema.parse({ liveProve: false }),
-      execFn,
-      worktreeBaseDir: join(repoDir, '.worktrees'),
-    });
-
-    expect(outcome.abReport.notVerified).toContain(
-      `Composer dependencies changed between standalone-master (core ${imageSha}) and the base; vendor/ is the image's.`,
-    );
-    const abRun = ckCalls.find((a) => a[1] === 'ab');
+  test('runCiviKitchenAb mounts the base drift and the base composer files', async () => {
+    const { outcome, abRun, imageSha } = await runDriftReview(true);
     const civiMount = abRun?.find((a) => a.endsWith(':/var/www/html/core/Civi:ro'));
-    expect(civiMount).toBeDefined();
     expect(civiMount).toContain('/A/Civi:');
     expect(abRun?.[abRun.indexOf(civiMount!) - 1]).toBe('--mount');
+    const lockMount = abRun?.find((a) => a.endsWith(':/var/www/html/core/composer.lock:ro'));
+    expect(lockMount).toContain('/A/composer.lock:');
+    expect(abRun?.[abRun.indexOf(lockMount!) - 1]).toBe('--mount');
+    expect(outcome.abReport.notVerified.some((n) => n.includes('Composer'))).toBe(false);
+    expect(imageSha).toHaveLength(40);
+  });
+
+  test('runCiviKitchenAb names composer drift an image cannot sync', async () => {
+    const { outcome } = await runDriftReview(false);
+    expect(outcome.abReport.notVerified).toContain(
+      "Composer dependencies differ from standalone-master's, which does not sync vendor/ at boot; vendor/ is the image's.",
+    );
   });
 });

@@ -9,30 +9,35 @@ export function civikitchenImageRef(tag: string): string {
   return tag.includes('/') || tag.includes(':') ? tag : `${CIVIKITCHEN_IMAGE_REPO}:${tag}`;
 }
 
+const CORE_COMPOSER_INPUTS = '/var/www/html/core/vendor/.civikitchen-composer-inputs';
+
 /**
- * Names the civicrm-core commit an image holds: the `git .` line of its source
- * log, or the release tag of the tarball it was built from.
+ * Names the civicrm-core commit an image holds (the `git .` line of its source
+ * log, or the release tag of its tarball) and whether its entrypoint syncs
+ * vendor/ to mounted core composer files.
  */
-export async function readImageCoreRef(
+export async function readImageCore(
   imageTag: string,
   execFn: ExecFn,
-): Promise<string | undefined> {
+): Promise<{ ref?: string; vendorSync: boolean }> {
   const res = await execFn(
     [
       'docker',
       'run',
       '--rm',
       '--entrypoint',
-      'cat',
+      'sh',
       civikitchenImageRef(imageTag),
-      CIVICRM_SOURCE_LOG,
+      '-c',
+      `cat ${CIVICRM_SOURCE_LOG} && if [ -f ${CORE_COMPOSER_INPUTS} ]; then echo vendor-sync; fi`,
     ],
     { timeoutMs: 600_000 },
   );
-  if (res.exitCode !== 0) return undefined;
+  if (res.exitCode !== 0) return { vendorSync: false };
+  const vendorSync = /^vendor-sync$/m.test(res.stdout);
   const git = res.stdout.match(/^git \. ([0-9a-f]{40})$/m);
-  if (git?.[1]) return git[1];
-  return res.stdout.match(/^tarball \S*\/civicrm-(\d+\.\d+\.\d+)-/m)?.[1];
+  const ref = git?.[1] ?? res.stdout.match(/^tarball \S*\/civicrm-(\d+\.\d+\.\d+)-/m)?.[1];
+  return { ref, vendorSync };
 }
 
 /**
@@ -45,10 +50,10 @@ export async function collectBaseDriftSinceImage(params: {
   baseSha: string;
   imageTag: string;
   execFn: ExecFn;
-}): Promise<{ imageCoreRef?: string; files?: string[] }> {
+}): Promise<{ imageCoreRef?: string; files?: string[]; vendorSync: boolean }> {
   const { execFn } = params;
-  const imageCoreRef = await readImageCoreRef(params.imageTag, execFn);
-  if (!imageCoreRef) return {};
+  const { ref: imageCoreRef, vendorSync } = await readImageCore(params.imageTag, execFn);
+  if (!imageCoreRef) return { vendorSync };
 
   const isCommit = /^[0-9a-f]{40}$/.test(imageCoreRef);
   const rev = isCommit ? imageCoreRef : `refs/tags/${imageCoreRef}`;
@@ -58,12 +63,12 @@ export async function collectBaseDriftSinceImage(params: {
     await git(['fetch', '--no-tags', 'origin', isCommit ? rev : `${rev}:${rev}`], 120_000);
   }
   const diff = await git(['diff', '--no-renames', '--name-only', rev, params.baseSha], 30_000);
-  if (diff.exitCode !== 0) return { imageCoreRef };
+  if (diff.exitCode !== 0) return { imageCoreRef, vendorSync };
   const files = diff.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  return { imageCoreRef, files };
+  return { imageCoreRef, files, vendorSync };
 }
 
 /**
