@@ -524,10 +524,19 @@ function mockPrDiff(withDeletion: boolean): DiffFile[] {
   );
 }
 
+const fixRoot = (wt: string, root: string) => `${join(wt, root)}:/var/www/html/core/${root}:ro`;
+const flagOf = (mounts: string[], spec: string) => mounts[mounts.indexOf(spec) - 1];
+const deleted = (path: string, line: string) => [
+  `diff --git a/${path} b/${path}`,
+  'deleted file mode 100644',
+  `--- a/${path}`,
+  '+++ /dev/null',
+  '@@ -1 +0,0 @@',
+  `-${line}`,
+];
+
 describe('development-only extension fixtures', () => {
   const MOCK = 'ext/afform/mock';
-  const fixRoot = (wt: string, root: string) => `${join(wt, root)}:/var/www/html/core/${root}:ro`;
-  const flagOf = (mounts: string[], spec: string) => mounts[mounts.indexOf(spec) - 1];
   const prodChange = [
     'diff --git a/ext/afform/core/ang/afJoin.js b/ext/afform/core/ang/afJoin.js',
     '--- a/ext/afform/core/ang/afJoin.js',
@@ -535,14 +544,6 @@ describe('development-only extension fixtures', () => {
     '@@ -1 +1 @@',
     '-// join',
     '+// fixed join',
-  ];
-  const deleted = (path: string, line: string) => [
-    `diff --git a/${path} b/${path}`,
-    'deleted file mode 100644',
-    `--- a/${path}`,
-    '+++ /dev/null',
-    '@@ -1 +0,0 @@',
-    `-${line}`,
   ];
 
   test('devOnlyExtensionRoots finds the root of the extension the nearest info.xml declares', () => {

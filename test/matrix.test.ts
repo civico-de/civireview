@@ -528,3 +528,31 @@ describe('browser smoke probe and score basis', () => {
     expect(proven.rationale).not.toContain('from reading the code');
   });
 });
+
+test('the proof row names the base of the merge A/B ran on', () => {
+  const base = makeBundle();
+  const bundle = bundleWithChecks([{ name: 'proof-of-fix', status: 'PASS', fixed: ['testX'] }]);
+  bundle.abReport = {
+    ...bundle.abReport,
+    testedMerge: { base: 'c'.repeat(40), merge: 'e'.repeat(40) },
+  };
+  const row = buildVerificationMatrix(bundle).verificationMatrix.find(
+    (r) => r.check === 'A/B Proof-of-Fix',
+  );
+  expect(row?.detail).toStartWith(`PR merged into ${'c'.repeat(10)}: `);
+  const regression = makeBundle();
+  regression.abReport = {
+    ...regression.abReport,
+    checks: regression.abReport.checks.map((c) => ({ ...c, name: 'base-test-regression' })),
+    testedMerge: { base: 'c'.repeat(40), merge: 'e'.repeat(40) },
+  };
+  expect(
+    buildVerificationMatrix(regression).verificationMatrix.find(
+      (r) => r.check === 'Base-Test Regression',
+    )?.detail,
+  ).toStartWith(`PR merged into ${'c'.repeat(10)}: `);
+  expect(
+    buildVerificationMatrix(base).verificationMatrix.find((r) => r.check === 'A/B Proof-of-Fix')
+      ?.detail,
+  ).not.toContain('PR merged into');
+});

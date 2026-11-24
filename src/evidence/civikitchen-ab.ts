@@ -42,6 +42,7 @@ import {
   collectBaseDriftSinceImage,
   resolveAvailableCivikitchenImage,
 } from './ab/image-drift.ts';
+import { checkoutPrMerge } from './ab/merge-ref.ts';
 import { runStandaloneBrowserAb, runStaticAndLifecycleChecks } from './ab/static-browser.ts';
 import { computeSurfaceDiff, mergeLiveSurfaceDiff } from './ab/surface-diff.ts';
 import {
@@ -355,6 +356,7 @@ export async function runCiviKitchenAb(
   const keepLive = abConfig.keepStacks || interactiveBrowser || liveProve;
   const wantSurface = isCheckEnabled(effectiveCfg, 'surface');
 
+  let testedMerge: { base: string; merge: string } | undefined;
   let worktreesCreated = false;
   let completed = false;
 
@@ -632,12 +634,39 @@ export async function runCiviKitchenAb(
     let mountsBOnly: string[] = [];
 
     if (repoInfo.kind === 'civicrm-core') {
-      const drift = await collectBaseDriftSinceImage({
+      let drift = await collectBaseDriftSinceImage({
         repoRoot,
         baseSha,
         imageTag: imageA,
         execFn,
       });
+      // A base whose composer files differ from the image's may not install there at all.
+      if ((drift.files ?? []).some(isCoreComposerFile)) {
+        const merged = options.prNumber
+          ? await checkoutPrMerge({
+              repoRoot,
+              prNumber: options.prNumber,
+              baseSha,
+              headSha,
+              worktreeA,
+              worktreeB,
+              execFn,
+            })
+          : { error: 'there is no PR whose merge could be tested' };
+        if ('error' in merged) {
+          notVerified.push(
+            `The base ${baseSha.slice(0, 10)} has other composer dependencies than ${imageA} and A/B runs on it; ${merged.error}.`,
+          );
+        } else {
+          testedMerge = merged;
+          drift = await collectBaseDriftSinceImage({
+            repoRoot,
+            baseSha: merged.base,
+            imageTag: imageA,
+            execFn,
+          });
+        }
+      }
       if (!drift.files) {
         notVerified.push(
           `Core commit of ${imageA} not resolved; A runs on the image's core with only the PR's directories taken from the base.`,
@@ -950,6 +979,7 @@ export async function runCiviKitchenAb(
       demoArtifactsDir,
       demoConsoleErrors,
       notVerified: Array.from(new Set([...notVerified, ...surfaceDiff.unverifiedSurfaces])),
+      ...(testedMerge ? { testedMerge } : {}),
     },
     staticDelta: {
       executed: toolsRun.length > 0,

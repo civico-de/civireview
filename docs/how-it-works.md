@@ -76,6 +76,13 @@ Each side also gets its own `composer.json`, `composer.lock` and `tools/scripts/
 when they differ from the image's, and the image runs `composer install` for them on boot. An image built
 before that boot step keeps its own `vendor/`; the review names the difference. A side
 without one of the two files (core has always shipped both) sees the image's copy.
+A base whose `composer.json` or `composer.lock` differs from the image's may not install
+there at all (an old lock pins plugins today's Composer rejects). For such a PR, A/B runs on
+GitHub's merge of the PR into its base branch instead: A on the merge's first parent, B on
+the merge, and the proof row names that base. Without a merge of the current head (a PR
+with conflicts, or a merge GitHub has not recomputed yet), A/B stays on the old base and
+*Not verified* says why. The diff, the findings and the inline comments stay on the PR's
+own base and head.
 
 Every check below runs the same command on A and on B and compares the outcome.
 

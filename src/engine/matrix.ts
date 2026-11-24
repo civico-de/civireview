@@ -177,8 +177,10 @@ function regressionRow(
   label: string,
   check: AbCheck,
   hideSkipped: boolean,
+  mergePrefix = '',
 ): VerificationMatrixEntry | undefined {
-  const pairPrefix = check.imageA !== check.imageB ? `${check.imageA} vs ${check.imageB}: ` : '';
+  const pairPrefix =
+    mergePrefix + (check.imageA !== check.imageB ? `${check.imageA} vs ${check.imageB}: ` : '');
   if (check.regressions.length > 0 || check.status === 'FAIL') {
     return {
       check: label,
@@ -247,13 +249,17 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
   const isCore = bundle.repoInfo.kind === 'civicrm-core';
   const proofCheckLabel = isCore ? 'A/B Proof-of-Fix' : 'CiviKitchen A/B Proof-of-Fix';
 
+  const merge = bundle.abReport.testedMerge;
+  const mergePrefix = merge ? `PR merged into ${merge.base.slice(0, 10)}: ` : '';
+
   // 2. A/B Proof-of-Fix
   const proofCheck = bundle.abReport.checks.find((c) => c.name === 'proof-of-fix');
   if (proofCheck) {
     const pairPrefix =
-      proofCheck.imageA !== proofCheck.imageB
+      mergePrefix +
+      (proofCheck.imageA !== proofCheck.imageB
         ? `${proofCheck.imageA} vs ${proofCheck.imageB}: `
-        : '';
+        : '');
     const tautological = proofCheck.tautologicalTests ?? [];
     if (proofCheck.regressions.length > 0 || proofCheck.status === 'FAIL') {
       matrix.push({
@@ -336,7 +342,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
   // 3. Base-Test Regression, and the version matrix of an extension
   const baseCheck = bundle.abReport.checks.find((c) => c.name === 'base-test-regression');
   if (baseCheck) {
-    const row = regressionRow('Base-Test Regression', baseCheck, isCore);
+    const row = regressionRow('Base-Test Regression', baseCheck, isCore, mergePrefix);
     if (row) matrix.push(row);
   } else if (!bundle.abReport.executed || !isCore) {
     matrix.push({
