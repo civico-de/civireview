@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { AddedTestMethod } from '../diff-filter.ts';
+import { parseXmlTag } from '../repo-detect.ts';
 import type { DiffFile } from '../types.ts';
 
 /**
@@ -271,13 +272,29 @@ export function buildPerFileFilterArgs(
  * targets are executed sequentially in one stack boot and their JUnit XML
  * reports are merged into `/tmp/ck-ab.xml`.
  */
+/** A test file to run; `e2e` runs it against the dev site (`ckcoretest --e2e`) instead of headless. */
+export interface TestTarget {
+  path: string;
+  filterArgs?: string[];
+  e2e?: boolean;
+}
+
 export function buildMultiTargetTestCommand(
   runnerBin: 'ckcoretest' | 'phpunit',
-  targets: Array<{ path: string; filterArgs?: string[] }>,
+  targets: TestTarget[],
 ): string[] {
+  const runner = (t: TestTarget) => (t.e2e ? [runnerBin, '--e2e'] : [runnerBin]);
+  // Browser tests start slower; like a single target, they run under the invocation's limit alone.
+  const limited = (t: TestTarget) => (t.e2e ? runner(t) : ['_ck_run', ...runner(t)]);
   if (targets.length === 1) {
     const only = targets[0]!;
-    return [runnerBin, '--log-junit', '/tmp/ck-ab.xml', ...(only.filterArgs ?? []), only.path];
+    return [
+      ...runner(only),
+      '--log-junit',
+      '/tmp/ck-ab.xml',
+      ...(only.filterArgs ?? []),
+      only.path,
+    ];
   }
 
   const lines: string[] = [
@@ -289,8 +306,7 @@ export function buildMultiTargetTestCommand(
     const partXml = `/tmp/ck-ab-part-${idx}.xml`;
     const filterPart = (t.filterArgs ?? []).map(shellQuote).join(' ');
     const filteredCmd = [
-      '_ck_run',
-      runnerBin,
+      ...limited(t),
       '--log-junit',
       partXml,
       ...(filterPart ? [filterPart] : []),
@@ -298,7 +314,7 @@ export function buildMultiTargetTestCommand(
     ].join(' ');
     lines.push(`${filteredCmd} || rc=$?`);
     if (filterPart) {
-      const unfilteredCmd = `_ck_run ${runnerBin} --log-junit ${partXml} ${shellQuote(t.path)}`;
+      const unfilteredCmd = `${limited(t).join(' ')} --log-junit ${partXml} ${shellQuote(t.path)}`;
       lines.push(
         `if [ ! -f ${partXml} ] || ! grep -q '<testcase' ${partXml}; then ${unfilteredCmd} || rc=$?; fi`,
       );
@@ -364,6 +380,43 @@ export function isCoreTestPath(filePath: string): boolean {
   return filePath.startsWith('tests/') || /^ext\/[^/]+(?:\/[^/]+)*\/tests\//.test(filePath);
 }
 
+/**
+ * Maps a file to the root of the bundled extension holding it when that extension declares itself
+ * development-only in info.xml (core's afform/mock): its files are test fixtures, mounted like tests.
+ */
+export function devOnlyExtensionRoots(
+  worktreeA: string,
+  worktreeB: string,
+): (p: string) => string | null {
+  const byDir = new Map<string, boolean>();
+  return (p) => {
+    if (!p.startsWith('ext/')) return null;
+    const parts = p.split('/');
+    for (let i = parts.length - 1; i >= 2; i--) {
+      const dir = parts.slice(0, i).join('/');
+      let devOnly = byDir.get(dir);
+      if (devOnly === undefined) {
+        const info = [worktreeB, worktreeA].map((w) => join(w, dir, 'info.xml')).find(existsSync);
+        if (!info) continue;
+        devOnly = /^\(DEVELOPMENT ONLY\)/i.test(
+          parseXmlTag(readFileSync(info, 'utf8'), 'description') ?? '',
+        );
+        byDir.set(dir, devOnly);
+      }
+      return devOnly ? dir : null;
+    }
+    return null;
+  };
+}
+
+/** The directory B lays over A for a test file or fixture: a development-only extension, else its `tests/`. */
+function testOverlayRoot(p: string, devOnlyRoot: string | null): string | null {
+  if (devOnlyRoot) return devOnlyRoot;
+  const parts = p.split('/');
+  const i = parts.indexOf('tests', 2);
+  return i > 0 ? parts.slice(0, i + 1).join('/') : null;
+}
+
 export interface CoreMountPlan {
   abMounts: string[];
   mountsAOnly: string[];
@@ -373,6 +426,8 @@ export interface CoreMountPlan {
   useFileMounts: boolean;
   /** Files the base lacks that stay visible from the image. */
   staleImageFiles: string[];
+  /** Test files and fixtures the PR adds, deletes or renames where the proof cannot give both sides the PR's. */
+  unmatchedTestFiles: string[];
   /** PR-deleted or renamed-away files of extensions with build output; B still sees the image's copy. */
   prDeletedImageFiles: string[];
 }
@@ -465,10 +520,13 @@ export function buildCoreMountPlan(
   let baseTestMounts: string[] = [];
   let staleImageFiles: string[] = [];
   const prDeletedImageFiles: string[] = [];
+  const unmatchedTestFiles: string[] = [];
 
+  const devOnlyRoot = devOnlyExtensionRoots(worktreeA, worktreeB);
+  const isTestish = (p: string) => isCoreTestPath(p) || devOnlyRoot(p) !== null;
   const mountableCoreFiles = diffFiles.filter((f) => isMountableCorePath(f.path));
-  const coreProdFiles = mountableCoreFiles.filter((f) => !isCoreTestPath(f.path));
-  const coreTestFiles = mountableCoreFiles.filter((f) => isCoreTestPath(f.path));
+  const coreProdFiles = mountableCoreFiles.filter((f) => !isTestish(f.path));
+  const coreTestFiles = mountableCoreFiles.filter((f) => isTestish(f.path));
   const hasDeletedCoreFile = mountableCoreFiles.some(
     (f) => f.status === 'deleted' || f.status === 'renamed',
   );
@@ -548,7 +606,6 @@ export function buildCoreMountPlan(
     }
     const isTestOnlyPr = coreProdFiles.length === 0 && !prComposer && coreTestFiles.length > 0;
     for (const f of coreTestFiles) {
-      if (isE2eMinkTestPath(f.path)) continue;
       if (isTestOnlyPr) {
         // Test-only PR (0 production files changed): mount base A's test into A and PR B's test into B
         // so `ck ab` compares old vs refactored test instead of exiting 2 ("same mounts; nothing to compare").
@@ -606,7 +663,9 @@ export function buildCoreMountPlan(
       const specB = `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`;
       const inA = existsSync(join(worktreeA, pathA));
       const inB = existsSync(join(worktreeB, f.path));
-      if (isCoreTestPath(f.path)) {
+      if (isTestish(f.path)) {
+        // The image keeps a test file or fixture the PR deletes or renames away.
+        if (inA && (!inB || pathA !== f.path)) unmatchedTestFiles.push(pathA);
         if (testOnly) {
           const sides = [
             ...(inA ? ['--mount-a', specA] : []),
@@ -657,6 +716,57 @@ export function buildCoreMountPlan(
         mountsBOnly.push('--mount', `${join(worktreeB, dir)}:/var/www/html/core/${dir}:ro`);
       }
     }
+    // Tests and fixtures inside a directory mounted from the base on A (a drift directory on B too) come
+    // from B's overlay root; a root missing on either side cannot be matched.
+    const overlaid = new Set<string>();
+    for (const f of coreTestFiles.filter((t) => unitOf(t.path).isDir)) {
+      const { unit } = unitOf(f.path);
+      if (dirs.has(unit) || driftDirs.has(unit)) {
+        // A test-only PR mounts the directory per side, so its tests come with it.
+        if (testOnly && dirs.has(unit)) continue;
+        const side = testOnly ? '--mount-b' : dirs.has(unit) ? '--mount-a' : '--mount';
+        for (const p of new Set([f.path, f.oldPath ?? f.path])) {
+          const root = testOverlayRoot(p, devOnlyRoot(p));
+          if (!root || !existsSync(join(worktreeA, root)) || !existsSync(join(worktreeB, root))) {
+            unmatchedTestFiles.push(p);
+          } else if (!overlaid.has(root)) {
+            overlaid.add(root);
+            extTestMounts.proof.push(
+              side,
+              `${join(worktreeB, root)}:/var/www/html/core/${root}:ro`,
+            );
+          }
+        }
+        continue;
+      }
+      // The image keeps a file the PR deletes or renames away, so each side gets its overlay root.
+      const oldPath = f.oldPath ?? f.path;
+      if (existsSync(join(worktreeA, oldPath)) && !existsSync(join(worktreeB, oldPath))) {
+        const root = testOverlayRoot(oldPath, devOnlyRoot(oldPath));
+        if (!root || !existsSync(join(worktreeA, root)) || !existsSync(join(worktreeB, root))) {
+          unmatchedTestFiles.push(oldPath);
+        } else if (!overlaid.has(root)) {
+          overlaid.add(root);
+          const rootA = `${join(worktreeA, root)}:/var/www/html/core/${root}:ro`;
+          const rootB = `${join(worktreeB, root)}:/var/www/html/core/${root}:ro`;
+          const sides = testOnly ? ['--mount-a', rootA, '--mount-b', rootB] : null;
+          extTestMounts.proof.push(...(sides ?? ['--mount', rootB]));
+          extTestMounts.base.push(...(sides ?? ['--mount', rootA]));
+        }
+      }
+      const inA = existsSync(join(worktreeA, f.path));
+      const specB = `${join(worktreeB, f.path)}:/var/www/html/core/${f.path}:ro`;
+      const specA = `${join(worktreeA, f.path)}:/var/www/html/core/${f.path}:ro`;
+      const inB = existsSync(join(worktreeB, f.path));
+      if (testOnly) {
+        const sides = [...(inA ? ['--mount-a', specA] : []), ...(inB ? ['--mount-b', specB] : [])];
+        extTestMounts.proof.push(...sides);
+        extTestMounts.base.push(...sides);
+      } else {
+        if (inB) extTestMounts.proof.push('--mount', specB);
+        if (inA) extTestMounts.base.push('--mount', specA);
+      }
+    }
     const testsA = `${join(worktreeA, 'tests')}:/var/www/html/core/tests:ro`;
     const testsB = `${join(worktreeB, 'tests')}:/var/www/html/core/tests:ro`;
     const hasA = existsSync(join(worktreeA, 'tests'));
@@ -685,5 +795,6 @@ export function buildCoreMountPlan(
     useFileMounts,
     staleImageFiles,
     prDeletedImageFiles,
+    unmatchedTestFiles,
   };
 }

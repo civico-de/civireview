@@ -51,6 +51,7 @@ import {
   buildMultiTargetTestCommand,
   buildPerFileFilterArgs,
   deriveRegressionTargets,
+  devOnlyExtensionRoots,
   isE2eMinkTestPath,
   stripFilterArgs,
 } from './ab/test-targets.ts';
@@ -431,17 +432,24 @@ export async function runCiviKitchenAb(
     const allTouchedTestPhp = diffFiles
       .filter((f) => f.flags.isTest && f.status !== 'deleted' && /Test\.php$/i.test(f.path))
       .map((f) => f.path);
-    const skippedE2eTests = allTouchedTestPhp.filter((p) => isE2eMinkTestPath(p));
+    // Core's browser tests run in the proof with `ck ab --browser`; an extension's are not run.
+    const runsE2e = repoInfo.kind === 'civicrm-core';
+    const skippedE2eTests = runsE2e ? [] : allTouchedTestPhp.filter((p) => isE2eMinkTestPath(p));
     if (skippedE2eTests.length > 0) {
       notVerified.push(
         `Skipped ${skippedE2eTests.length} E2E/Mink test file(s) from headless PHPUnit proof-of-fix (requires Selenium/WebDriver): ${skippedE2eTests.join(', ')}`,
       );
     }
-    const touchedTestFiles = allTouchedTestPhp.filter((p) => !isE2eMinkTestPath(p));
+    const touchedTestFiles = allTouchedTestPhp.filter((p) => runsE2e || !isE2eMinkTestPath(p));
     const addedTestMethods = extractAddedTestMethods(diffFiles).filter(
-      (m) => !isE2eMinkTestPath(m.file),
+      (m) => runsE2e || !isE2eMinkTestPath(m.file),
     );
-    const hasProductionCodeChange = diffFiles.some((f) => !f.flags.isTest && !f.flags.isDocsOnly);
+    // Files of a development-only core extension are test fixtures.
+    const devOnlyRoot =
+      repoInfo.kind === 'civicrm-core' ? devOnlyExtensionRoots(worktreeA, worktreeB) : () => null;
+    const hasProductionCodeChange = diffFiles.some(
+      (f) => !f.flags.isTest && !f.flags.isDocsOnly && devOnlyRoot(f.path) === null,
+    );
     const uiTouched = diffFiles.some((f) => f.flags.isFrontendAsset);
 
     const runAbInvocation = async (
@@ -655,6 +663,11 @@ export async function runCiviKitchenAb(
           `Files the base lacks stay visible from ${imageA}: ${mountPlan.staleImageFiles.join(', ')}`,
         );
       }
+      if (mountPlan.unmatchedTestFiles.length > 0) {
+        notVerified.push(
+          `Proof of fix not run: test files or fixtures the PR adds, deletes or renames cannot be given to both sides: ${mountPlan.unmatchedTestFiles.join(', ')}`,
+        );
+      }
       if (mountPlan.prDeletedImageFiles.length > 0) {
         notVerified.push(
           `Files the PR deletes or renames stay in ${imageA} on B: ${mountPlan.prDeletedImageFiles.join(', ')}`,
@@ -668,30 +681,56 @@ export async function runCiviKitchenAb(
       if (isCheckEnabled(effectiveCfg, 'ab-tests')) {
         if (
           touchedTestFiles.length > 0 &&
+          mountPlan.unmatchedTestFiles.length === 0 &&
           (useFileMounts || existsSync(join(worktreeB, 'tests')))
         ) {
-          const proofTargets = touchedTestFiles.slice(0, MAX_PROOF_TEST_FILES);
-          noteSkippedProofTargets(touchedTestFiles, notVerified);
-          const proofCmd = buildMultiTargetTestCommand(
-            'ckcoretest',
-            proofTargets.map((targetPath) => ({
-              path: targetPath,
-              filterArgs: buildPerFileFilterArgs(
-                targetPath,
-                diffFiles,
-                addedTestMethods,
-                worktreeB,
-              ),
-            })),
-          );
-          const { check } = await runAbInvocation(
-            'proof-of-fix',
-            imageA,
-            imageB,
-            [...proofTestMounts, ...abMounts],
-            proofCmd,
-          );
-          checks.push(check);
+          const browserOff = !isCheckEnabled(effectiveCfg, 'browser');
+          const eligible = browserOff
+            ? touchedTestFiles.filter((t) => !isE2eMinkTestPath(t))
+            : touchedTestFiles;
+          const proofTargets = eligible.slice(0, MAX_PROOF_TEST_FILES);
+          noteSkippedProofTargets(eligible, notVerified);
+          const toTarget = (targetPath: string) => ({
+            path: targetPath,
+            filterArgs: buildPerFileFilterArgs(targetPath, diffFiles, addedTestMethods, worktreeB),
+            e2e: isE2eMinkTestPath(targetPath),
+          });
+          const e2eTargets = proofTargets.filter(isE2eMinkTestPath);
+          const headless = touchedTestFiles
+            .filter((t) => !isE2eMinkTestPath(t))
+            .slice(0, MAX_PROOF_TEST_FILES);
+          const browserTests = touchedTestFiles.filter(isE2eMinkTestPath);
+          const proofMounts = [...proofTestMounts, ...abMounts];
+          const runProof = async (targets: string[], browser: boolean) =>
+            targets.length === 0
+              ? undefined
+              : runAbInvocation(
+                  'proof-of-fix',
+                  imageA,
+                  imageB,
+                  proofMounts,
+                  buildMultiTargetTestCommand('ckcoretest', targets.map(toTarget)),
+                  browser ? ['--browser'] : [],
+                );
+          let proof: Awaited<ReturnType<typeof runAbInvocation>> | undefined;
+          if (browserOff && browserTests.length > 0) {
+            notVerified.push(
+              `Browser checks are off; browser tests not run: ${browserTests.join(', ')}`,
+            );
+            proof = await runProof(headless, false);
+          } else {
+            proof = await runProof(proofTargets, e2eTargets.length > 0);
+            if (
+              e2eTargets.length > 0 &&
+              /unknown option --browser/.test(`${proof?.stdout}\n${proof?.stderr}`)
+            ) {
+              notVerified.push(
+                `This civikitchen has no \`ck ab --browser\`; browser tests not run: ${browserTests.join(', ')}`,
+              );
+              proof = await runProof(headless, false);
+            }
+          }
+          if (proof) checks.push(proof.check);
         } else if (skippedE2eTests.length === 0) {
           notVerified.push('No added/modified PHPUnit tests in PR; Proof-of-Fix A/B test skipped.');
         }

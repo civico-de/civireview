@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import yaml from 'js-yaml';
 import type { RepoInfo } from './types.ts';
 
-function parseXmlTag(xml: string, tag: string): string | undefined {
+export function parseXmlTag(xml: string, tag: string): string | undefined {
   const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, 'i'));
   return match?.[1]?.trim();
 }

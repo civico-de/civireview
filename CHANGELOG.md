@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Core browser tests run in the proof of fix**: a PR's tests under `tests/phpunit/E2E/` run on both sides with `ck ab --browser`, so a new browser test can prove its fix. Files of a development-only extension (its `info.xml` description starts with "(DEVELOPMENT ONLY)", like afform's mock forms) count as test fixtures and come from the head on both sides. Where A's copy of an extension comes from the base through a directory mount, the head's development-only extension or `tests/` directory is laid over it; a test file or fixture that cannot be given to both sides stops the proof of fix with a note under *Not verified*. A civikitchen without `ck ab --browser` runs the other tests and names the browser tests under *Not verified*.
+
 ### Fixed
 
 - **An incremental review runs A/B on the whole PR**: a review of the commits since the last civireview review mounted only the files those commits changed, so B ran the head's version of them next to the image's copy of files the PR changed earlier, and the earlier tests that prove the fix were not run. The proof then counted a new guard test as tautological and capped the score. The A/B run now always mounts the whole PR; the review itself still reads only the new commits.

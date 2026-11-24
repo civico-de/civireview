@@ -83,7 +83,7 @@ Every check below runs the same command on A and on B and compares the outcome.
 
 | Check | What runs | Result |
 | --- | --- | --- |
-| Proof of fix | PHPUnit files the PR adds or changes (the first five; further ones are named under *Not verified*), limited to the changed test methods | A test that fails on A and passes on B proves the fix. A new test that already passes on A proves nothing and is reported as tautological. |
+| Proof of fix | PHPUnit files the PR adds or changes (the first five; further ones are named under *Not verified*), limited to the changed test methods. In core, browser tests under `tests/phpunit/E2E/` run too, with a headless Chrome on each side. Files of a development-only extension, such as afform's mock forms, are test fixtures and come from the head on both sides, like the tests; when that is impossible, the proof of fix is not run | A test that fails on A and passes on B proves the fix. A new test that already passes on A proves nothing and is reported as tautological. |
 | Base-test regression | Existing tests next to the changed code | A test that passes on A and fails on B is a regression. |
 | Live surface diff | APIv4 entities, actions and fields, APIv3, routes and Afforms as each instance reports them | What really changed at runtime, with risk flags for permission and route changes. |
 | Browser A/B | A headless browser loads routes on both sides | New console errors, page errors, failed requests, accessibility violations and render differences; before/after screenshots. |
