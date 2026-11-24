@@ -97,6 +97,11 @@ describe('diff-filter', () => {
     expect(classifyFilePath('managed/my_entities.mgd.php').isManaged).toBe(true);
     expect(classifyFilePath('templates/CRM/Contact/Page/View.tpl').isSmartyTemplate).toBe(true);
     expect(classifyFilePath('ang/afsearchFoo.aff.html').isAfform).toBe(true);
+    expect(classifyFilePath('ext/afform/mock/ang/mockForm.aff.php').isAfform).toBe(true);
+    expect(classifyFilePath('ext/afform/core/ang/af/afJoin.directive.js').isAfform).toBe(true);
+    const afformPhp = classifyFilePath('ext/afform/core/Civi/Api4/Action/Afform/Submit.php');
+    expect(afformPhp.isAfform).toBe(false);
+    expect(afformPhp.isFrontendAsset).toBe(false);
     expect(classifyFilePath('js/widget.js').isFrontendAsset).toBe(true);
     expect(classifyFilePath('tests/phpunit/CRM/Contact/ContactTest.php').isTest).toBe(true);
     expect(classifyFilePath('xml/Menu/myext.xml').isMenuXml).toBe(true);

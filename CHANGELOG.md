@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Bundled extensions with build output keep it in large PRs**: in directory-mount mode, a PR touching `ext/greenwich`, `ext/chart_kit` or another extension with composer downloads or compiled assets mounted the whole extension directory and hid that output on both sides. Its changed files and tests are now mounted one by one; a file the PR deletes or renames there is named under *Not verified*.
+- **A PHP change in the afform extension no longer triggers the Standalone browser A/B on every FormBuilder form**: only `*.aff.html`, `*.aff.json`, `*.aff.php` and files under `ang/` count as Afform UI, not every path containing `/afform/`. Forms such as the mock search pages, which render only with their E2E fixtures, are no longer probed for a backend fix.
 
 ## [0.6.0] - 2026-11-24
 

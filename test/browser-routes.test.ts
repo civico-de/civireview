@@ -207,6 +207,33 @@ new file mode 100644
     expect(res.pages).toEqual([]);
   });
 
+  test('a PHP change inside the afform extension probes none of its forms', () => {
+    const diff =
+      parseUnifiedDiff(`diff --git a/ext/afform/core/Civi/Api4/Action/Afform/Submit.php b/ext/afform/core/Civi/Api4/Action/Afform/Submit.php
+--- a/ext/afform/core/Civi/Api4/Action/Afform/Submit.php
++++ b/ext/afform/core/Civi/Api4/Action/Afform/Submit.php
+@@ -1,2 +1,3 @@
+ <?php
++// change
+`);
+    const res = discoverStandaloneRoutes({
+      diffFiles: diff,
+      extensionRouteSources: [
+        {
+          repoPrefix: 'ext/afform/core/',
+          files: [
+            {
+              path: 'ang/afformMockSearch.aff.php',
+              content: "<?php return ['server_route' => 'civicrm/mock-search'];",
+            },
+          ],
+        },
+      ],
+      config: { browser: BrowserConfigSchema.parse({}) },
+    });
+    expect(res.pages).toEqual([]);
+  });
+
   test('flags the dashboard fallback so it is not reported as a verified UI probe', () => {
     const res = discoverStandaloneRoutes({
       diffFiles: editorDiff(),

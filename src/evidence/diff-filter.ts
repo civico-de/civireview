@@ -85,10 +85,7 @@ export function classifyFilePath(filePath: string): FileSurfaceFlags {
 
   const isSmartyTemplate = lower.endsWith('.tpl');
   const isAfform =
-    lower.endsWith('.aff.html') ||
-    lower.endsWith('.aff.json') ||
-    p.includes('/afform/') ||
-    p.startsWith('ang/');
+    /\.aff\.(html|json|php)$/.test(lower) || p.startsWith('ang/') || p.includes('/ang/');
 
   const isFrontendAsset =
     isSmartyTemplate ||
