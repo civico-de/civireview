@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { FinalReview } from '../src/engine/schemas.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import { extractAllReviewedMarkers } from '../src/evidence/github.ts';
-import type { EvidenceBundle } from '../src/evidence/types.ts';
+import { BrowserDiffReportSchema, type EvidenceBundle } from '../src/evidence/types.ts';
 import { formatReviewMarkdown } from '../src/github/formatter.ts';
 import {
   publishReview,
@@ -637,5 +637,87 @@ describe('publishing limits and fallbacks', () => {
 
     expect(body).toContain('````text\nbefore\n```\nafter\n````');
     expect(body).toContain('`` echo `date` ``');
+  });
+});
+
+const body = (review: FinalReview, bundle: EvidenceBundle, mentionUsers = false) =>
+  formatReviewMarkdown(review, bundle, { mentionUsers }).summaryBody;
+
+describe('formatter reference sections', () => {
+  test('a clean browser probe is folded and lists its routes', () => {
+    const bundle = makeSampleBundle();
+    bundle.abReport.browserDiff = BrowserDiffReportSchema.parse({
+      probedRoutes: ['civicrm/admin/thing'],
+      probedAnonymousRoutes: ['civicrm/thing/public'],
+    });
+    const out = body(makeSampleReview(), bundle);
+    expect(out).toContain('<summary>Standalone Browser A/B (2 route(s), 0 regressions)</summary>');
+    expect(out).toContain('`civicrm/admin/thing`, `civicrm/thing/public`');
+    expect(out).not.toContain('### Standalone Browser A/B');
+  });
+
+  test('a browser regression is shown unfolded with its detail', () => {
+    const bundle = makeSampleBundle();
+    bundle.abReport.browserDiff = BrowserDiffReportSchema.parse({
+      probedRoutes: ['civicrm/admin/thing'],
+      new_console_errors: ['TypeError: x is undefined'],
+    });
+    const out = body(makeSampleReview(), bundle);
+    expect(out).toContain('### Standalone Browser A/B');
+    expect(out).toContain('- **Console regressions:** TypeError: x is undefined');
+  });
+
+  test('a failed probe shows its error unfolded', () => {
+    const bundle = makeSampleBundle();
+    bundle.abReport.browserDiff = BrowserDiffReportSchema.parse({
+      error: 'could not enable widgets',
+    });
+    const out = body(makeSampleReview(), bundle);
+    expect(out).toContain('### Standalone Browser A/B');
+    expect(out).toContain('- **Error:** could not enable widgets');
+  });
+
+  test('related items are a table whose cells cannot break out of it', () => {
+    const review: FinalReview = {
+      ...makeSampleReview(),
+      relatedItems: [
+        {
+          kind: 'pr',
+          ref: '#123',
+          title: 'Fix a | b',
+          url: 'https://github.com/civicrm/civicrm-core/pull/123',
+          relationship: 'duplicate',
+          confidence: 91.4,
+          reason: 'same file',
+        },
+      ],
+    };
+    const out = body(review, makeSampleBundle());
+    expect(out).toContain('### Related Open PRs & Issues');
+    expect(out).toContain('[PR #123](https://github.com/civicrm/civicrm-core/pull/123)');
+    expect(out).toContain('**91%**');
+    expect(out).not.toContain('Fix a | b');
+  });
+
+  const withThreads: FinalReview = {
+    ...makeSampleReview(),
+    threadResolutions: [
+      { author: '@bob', topic: 'Why public?', status: 'open', detail: 'Still public.' },
+      { author: 'carol', topic: 'Add a test', status: 'addressed', detail: 'Test added.' },
+    ],
+  };
+
+  test('reviewers are not mentioned unless asked for', () => {
+    const out = body(withThreads, makeSampleBundle());
+    expect(out).toContain('Reviewer Questions & Thread Resolution (1 open, 1 addressed/answered)');
+    expect(out).toContain('| `bob` | Why public? | ⏳ Open | Still public. |');
+    expect(out).not.toContain('@bob');
+    expect(out).not.toContain('@carol');
+  });
+
+  test('mentionUsers turns reviewer names into mentions', () => {
+    const out = body(withThreads, makeSampleBundle(), true);
+    expect(out).toContain('| @bob | Why public? |');
+    expect(out).toContain('| @carol | Add a test | ✅ Addressed |');
   });
 });

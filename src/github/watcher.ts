@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import { BudgetExceededError } from '../engine/budget.ts';
 import { resolveModels } from '../config/loader.ts';
 import type { AuthorAssociation, ResolvedCiviReviewConfig } from '../config/schema.ts';
 import { runReviewPipeline, runThreadReply } from '../engine/pipeline.ts';
@@ -656,7 +657,10 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
       const message = err instanceof Error ? err.message : String(err);
       failed.push(mention);
       const attempts = (state.failedAttempts?.[key] ?? 0) + 1;
-      const giveUp = attempts >= MAX_MENTION_ATTEMPTS;
+      // A review over its budget would spend the same again on every retry.
+      const overBudget = err instanceof BudgetExceededError;
+      if (overBudget) estimatedUsd = err.estimatedUsd;
+      const giveUp = overBudget || attempts >= MAX_MENTION_ATTEMPTS;
       options.logger?.warn(
         `Failed ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}, attempt ${attempts}/${MAX_MENTION_ATTEMPTS})${giveUp ? '; giving up on this mention' : ''}: ${message}`,
       );

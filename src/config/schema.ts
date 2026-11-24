@@ -161,7 +161,6 @@ export const BrowserConfigSchema = z
     pages: z.array(z.string()).default([]),
     anonymousPages: z.array(z.string()).default([]),
     maxAutoPages: z.number().int().min(1).max(20).default(5),
-    viewport: z.string().default('1280x800'),
     sendScreenshotsToLlm: z.boolean().default(true),
     playwrightMcpCommand: z.string().min(1).optional(),
   })

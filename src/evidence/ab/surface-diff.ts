@@ -112,7 +112,7 @@ export function computeSurfaceDiff(diffFiles: DiffFile[], repoInfo: RepoInfo): S
 
     // Inspect added/removed lines for permission/hook markers
     const patch = file.rawPatch;
-    if (/^[+-].*checkPermissions/m.test(patch)) {
+    if (/^[+-].*checkPermissions/im.test(patch)) {
       changes.push({
         kind: 'permission-check',
         change: 'modified',

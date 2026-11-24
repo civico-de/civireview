@@ -54,7 +54,6 @@ browser:
   # Anonymous routes to probe without login
   anonymousPages: []
   maxAutoPages: 5
-  viewport: 1280x800
   sendScreenshotsToLlm: true
   # playwrightMcpCommand: npx -y @playwright/mcp@latest
 
@@ -77,6 +76,8 @@ review:
   # only to override the profile.
   depth: deep
   # maxSteps: 35
+  # Stop a review whose estimated cost reaches this amount (USD); unset = no cap.
+  # maxBudgetUsd: 2
   # Reasoning effort: auto (dynamic per stage & PR risk) | low | medium | high | xhigh | max
   effort: auto
   # Optional per-stage effort overrides:

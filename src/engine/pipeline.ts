@@ -60,6 +60,7 @@ import {
   type TriageOutput,
   type VerifiedFinding,
 } from './schemas.ts';
+import { assertWithinBudget } from './budget.ts';
 import { collectVerdicts, withUniqueIds } from './verdicts.ts';
 
 export {
@@ -538,6 +539,7 @@ async function executeReviewPipeline(
     const prompt = buildSpecialistPrompt(lens, bundle, triage);
     const isUi = lens === 'ui';
     const stageName = `specialist:${lens}`;
+    assertWithinBudget(tokenTotals.estimatedUsd, config.review.maxBudgetUsd, stageName);
     const res = await runStage(
       {
         stage: stageName,
@@ -626,6 +628,7 @@ async function executeReviewPipeline(
       prompt: StagePromptPair,
       effort: EffortLevel,
     ) => {
+      assertWithinBudget(tokenTotals.estimatedUsd, config.review.maxBudgetUsd, stage);
       const res = await runStage(
         {
           stage,
@@ -743,6 +746,7 @@ async function executeReviewPipeline(
           `\nFocus ONLY on this specific lead. Do not repeat previously checked findings unless you have new evidence.`;
         const isUi = lead.lens === 'ui';
         const stageName = `specialist:${lead.lens}:followup-${round}`;
+        assertWithinBudget(tokenTotals.estimatedUsd, config.review.maxBudgetUsd, stageName);
         const res = await runStage(
           {
             stage: stageName,

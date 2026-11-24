@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { BudgetExceededError } from '../src/engine/budget.ts';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -799,7 +800,7 @@ describe('github watcher polling & execution', () => {
   });
 });
 
-function makeFailingSetup(commentIds: number[]) {
+function makeFailingSetup(commentIds: number[], pipelineError?: Error) {
   const dir = makeTempDir();
   const config = loadConfig(dir);
   const octokit = {
@@ -858,6 +859,7 @@ function makeFailingSetup(commentIds: number[]) {
     }),
     runReviewPipeline: async () => {
       pipelineRuns.push(pipelineRuns.length + 1);
+      if (pipelineError) throw pipelineError;
       return { verdict: 'READY', tokenUsage: { estimatedUsd: 1.5 } };
     },
     publishReview: async (opts: { commentId?: number }) => {
@@ -895,6 +897,19 @@ describe('watcher failure handling and state file', () => {
     expect(third.failed).toHaveLength(0);
     expect(third.throttled).toHaveLength(1);
     expect(pipelineRuns).toHaveLength(2);
+  });
+
+  test('a review stopped by its budget is not retried and its cost is recorded', async () => {
+    const { pass, statePath, pipelineRuns } = makeFailingSetup(
+      [101],
+      new BudgetExceededError(2, 2, 'verifier'),
+    );
+    await pass();
+    await pass();
+    expect(pipelineRuns).toHaveLength(1);
+    const state = loadSeenState(statePath);
+    expect(state.seenCommentKeys).toContain('o/r#101');
+    expect((state.recentRuns ?? []).map((r) => r.estimatedUsd)).toEqual([2]);
   });
 
   test('gives up on a mention after repeated failures and keeps processing the others', async () => {

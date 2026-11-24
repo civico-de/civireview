@@ -45,6 +45,13 @@ Depth also sets the step, token and time budget per stage; the values are in
 `maxOutputTokens`, `maxFollowUpRounds` and `stageTimeoutMs` override single values, so
 leave them out unless a profile value needs changing.
 
+`review.maxBudgetUsd` caps one review: before each specialist and verifier call the
+estimated cost so far is compared with it, and the review fails without posting once
+the cap is reached. The watcher does not retry such a review and counts its cost
+against `watch.maxDailyUsd`. The cap follows the cost estimate in the review footer: a run through a CLI
+subscription is counted at API prices, and a model without a known price is not
+capped.
+
 `review.effort` (`--effort`) is the reasoning effort passed to the models. `auto`
 derives it per stage from the depth and, at `balanced`, from the risk of the PR.
 `review.stageEffort` fixes it for one stage.
@@ -83,7 +90,6 @@ with `live-prove` the verifier may issue HTTP GET requests and APIv4 `get`,
 | `browser.pages` | none | routes always probed as a logged-in user |
 | `browser.anonymousPages` | none | routes probed without a login |
 | `browser.maxAutoPages` | 5 | limit for discovered routes |
-| `browser.viewport` | `1280x800` | |
 | `browser.sendScreenshotsToLlm` | on | hand the screenshots to the `ui` lens and the verifier |
 
 For a repository whose main screens are known, list them in `browser.pages`; route

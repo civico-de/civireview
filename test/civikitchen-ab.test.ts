@@ -922,3 +922,58 @@ diff --git a/tests/phpunit/api/v3/ReportTemplateTest.php b/tests/phpunit/api/v3/
     expect(proofArgs[filterIdx + 1]).toBe('/(^|::)(testLybuntReportWithFYData)(\\s|$)/');
   });
 });
+
+describe('bundled extension detection from the PR head', () => {
+  const SCHEMA_NOTE = 'schema change (xml/schema) not rebuilt by container mount';
+  const diffFiles =
+    parseUnifiedDiff(`diff --git a/ext/widgets/schema/Thing.entityType.php b/ext/widgets/schema/Thing.entityType.php
+--- a/ext/widgets/schema/Thing.entityType.php
++++ b/ext/widgets/schema/Thing.entityType.php
+@@ -1,2 +1,3 @@
+ <?php
++// column
+`);
+
+  /** Runs the A/B with a checkout that lacks ext/widgets; the worktrees have it when `inHead`. */
+  async function runWithHead(inHead: boolean) {
+    const repoDir = makeTempDir();
+    const gateCalls: string[][] = [];
+    const execFn: ExecFn = async (args) => {
+      if (args[0] === 'git' && args[3] === 'worktree' && args[4] === 'add') {
+        const target = args[args.length - 2]!;
+        mkdirSync(join(target, 'ext/widgets/schema'), { recursive: true });
+        writeFileSync(join(target, 'ext/widgets/schema/Thing.entityType.php'), '<?php\n');
+        if (inHead) {
+          writeFileSync(join(target, 'ext/widgets/info.xml'), '<extension key="widgets"/>');
+        }
+      }
+      if (args[0] === 'ck' && args[1] === 'run') gateCalls.push(args);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+    const outcome = await runCiviKitchenAb({
+      repoRoot: repoDir,
+      repoInfo: { kind: 'civicrm-core', root: repoDir, recommendedImage: 'standalone-master' },
+      baseSha: 'aaaaaaa',
+      headSha: 'bbbbbbb',
+      diffFiles,
+      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      execFn,
+      worktreeBaseDir: join(repoDir, '.worktrees'),
+    });
+    return { notVerified: outcome.abReport.notVerified ?? [], gateCalls };
+  }
+
+  test('an extension missing from the local checkout still gets its gates', async () => {
+    const { notVerified, gateCalls } = await runWithHead(true);
+    expect(gateCalls.some((c) => c.join(' ').includes('/var/www/html/core/ext/widgets'))).toBe(
+      true,
+    );
+    expect(notVerified).not.toContain(SCHEMA_NOTE);
+  });
+
+  test('a schema change under ext/ outside any extension keeps the schema note', async () => {
+    const { notVerified, gateCalls } = await runWithHead(false);
+    expect(gateCalls).toEqual([]);
+    expect(notVerified).toContain(SCHEMA_NOTE);
+  });
+});

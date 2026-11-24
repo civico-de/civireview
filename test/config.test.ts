@@ -139,7 +139,6 @@ models:
     expect(cfg.checks.matrix).toBe(false);
     expect(cfg.checks.liveProve).toBe(false);
     expect(cfg.browser.maxAutoPages).toBe(5);
-    expect(cfg.browser.viewport).toBe('1280x800');
     expect(cfg.browser.sendScreenshotsToLlm).toBe(true);
 
     expect(isCheckEnabled(cfg, 'browser')).toBe(true);
