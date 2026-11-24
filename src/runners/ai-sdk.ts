@@ -153,6 +153,7 @@ function noStructuredOutputError(
 
 export class AiSdkRunner implements StageRunner {
   readonly providers = ['anthropic', 'openai', 'google', 'openrouter', 'openai-compat'] as const;
+  readonly supportsExtraTools = true;
 
   async run<T>(req: StageRequest<T>): Promise<StageResult<T>> {
     const start = Date.now();

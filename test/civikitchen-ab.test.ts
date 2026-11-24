@@ -227,6 +227,8 @@ diff --git a/tests/phpunit/CRM/Contact/ContactTest.php b/tests/phpunit/CRM/Conta
       headSha: 'bbbbbbb',
       diffFiles,
       abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      // No kept stacks: the count covers the --json fallback only.
+      checksConfig: ChecksConfigSchema.parse({ liveProve: false }),
       execFn,
       worktreeBaseDir: join(repoDir, '.worktrees'),
     });
@@ -400,7 +402,7 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
       baseSha: 'aaaaaaa',
       headSha: 'bbbbbbb',
       diffFiles,
-      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck', liveProve: true }),
+      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
       checksConfig: ChecksConfigSchema.parse({ a11y: false, liveProve: true }),
       browserConfig: BrowserConfigSchema.parse({}),
       reviewConfig: ReviewSettingsSchema.parse({}),

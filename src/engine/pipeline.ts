@@ -18,7 +18,7 @@ import { buildUiPrompt } from '../prompts/specialist-ui.ts';
 import { buildThreadReplyPrompt, type ThreadReplyInput } from '../prompts/thread-reply.ts';
 import { buildTriagePrompt, type StagePromptPair } from '../prompts/triage.ts';
 import { buildVerifierPrompt } from '../prompts/verifier.ts';
-import { createLiveProbeTool } from '../runners/live-prove.ts';
+import { createStageLiveTools } from '../runners/live-prove.ts';
 import { estimateStageCostUsd, formatUsd, roundUsd } from '../runners/pricing.ts';
 import { createRunnerRegistry, runStage, type RunnerRegistry } from '../runners/registry.ts';
 import type { ExtraMcpServerConfig, StageImageInput, StageUsage } from '../runners/types.ts';
@@ -523,6 +523,13 @@ async function executeReviewPipeline(
   const liveUrlsNote = interactiveBrowser
     ? `\nLive Standalone A/B URLs available for Playwright inspection: A=${effectiveUrlA ?? 'N/A'}, B=${effectiveUrlB ?? 'N/A'}`
     : '';
+  const liveFor = createStageLiveTools({
+    enabled: isCheckEnabled(config, 'live-prove'),
+    stageTimeoutMs: config.review.stageTimeoutMs,
+    registry,
+    urls: { A: effectiveUrlA, B: effectiveUrlB },
+    composeFiles: options.composeFiles,
+  });
 
   // Stage 1: Sequential Specialist Lenses
   // Run sequentially so specialist #1 writes the sharedPrefix+tools KV cache once
@@ -551,6 +558,7 @@ async function executeReviewPipeline(
     const model = config.models.specialists[lens];
     const prompt = buildSpecialistPrompt(lens, bundle, triage);
     const isUi = lens === 'ui';
+    const live = liveFor(model);
     const stageName = `specialist:${lens}`;
     assertWithinBudget(tokenTotals.estimatedUsd, config.review.maxBudgetUsd, stageName);
     const res = await runStage(
@@ -560,14 +568,14 @@ async function executeReviewPipeline(
         cwd,
         systemPrompt: prompt.systemPrompt,
         sharedPrefix,
-        userPrompt:
-          isUi && liveUrlsNote ? `${prompt.userPrompt}${liveUrlsNote}` : prompt.userPrompt,
+        userPrompt: `${prompt.userPrompt}${isUi ? liveUrlsNote : ''}${live.note}`,
         schema: SpecialistOutputSchema,
         schemaName: `SpecialistOutput_${lens}`,
         mcpScope,
         effort,
         ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
         ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
+        ...(live.tools ? { extraTools: live.tools } : {}),
         maxSteps: config.review.maxSteps,
         maxOutputTokens,
         timeoutMs: config.review.stageTimeoutMs,
@@ -605,6 +613,7 @@ async function executeReviewPipeline(
   let blastRadius = mergeBlastRadius(blastRadiusLists);
   let threadResolutions: ThreadResolution[] | undefined;
   const shouldRunVerifier = candidates.length > 0 || (config.review.depth ?? 'deep') === 'deep';
+  const verifierLive = liveFor(config.models.verifier);
   if (shouldRunVerifier) {
     const verifierEffort = resolveStageEffort({
       stage: 'verifier',
@@ -619,21 +628,11 @@ async function executeReviewPipeline(
     );
     const verifierPrompt = buildVerifierPrompt(bundle, candidates, standards, {
       allowFollowUpLeads: maxFollowUpRounds > 0,
+      liveTools: Boolean(verifierLive.tools),
       triageBullets: walkthrough,
       blastRadius,
       confidenceThreshold: config.review.confidenceThreshold,
     });
-    const liveProveEnabled =
-      isCheckEnabled(config, 'live-prove') &&
-      Boolean(effectiveUrlA || effectiveUrlB || options.composeFiles?.A || options.composeFiles?.B);
-    const extraTools = liveProveEnabled
-      ? createLiveProbeTool({
-          urlA: effectiveUrlA,
-          urlB: effectiveUrlB,
-          composeFileA: options.composeFiles?.A,
-          composeFileB: options.composeFiles?.B,
-        })
-      : undefined;
 
     const runVerifier = async (
       stage: string,
@@ -649,13 +648,13 @@ async function executeReviewPipeline(
           cwd,
           systemPrompt: prompt.systemPrompt,
           sharedPrefix,
-          userPrompt: liveUrlsNote ? `${prompt.userPrompt}${liveUrlsNote}` : prompt.userPrompt,
+          userPrompt: `${prompt.userPrompt}${liveUrlsNote}${verifierLive.note}`,
           schema: VerifierOutputSchema,
           schemaName,
           mcpScope,
           effort,
           ...(browserImages.length > 0 ? { images: browserImages } : {}),
-          ...(extraTools ? { extraTools } : {}),
+          ...(verifierLive.tools ? { extraTools: verifierLive.tools } : {}),
           ...(extraMcpServers ? { extraMcpServers } : {}),
           maxSteps: config.review.maxSteps,
           maxOutputTokens,
@@ -758,6 +757,7 @@ async function executeReviewPipeline(
           `\nReason: ${lead.reason}${targetPathsNote}` +
           `\nFocus ONLY on this specific lead. Do not repeat previously checked findings unless you have new evidence.`;
         const isUi = lead.lens === 'ui';
+        const live = liveFor(model);
         const stageName = `specialist:${lead.lens}:followup-${round}`;
         assertWithinBudget(tokenTotals.estimatedUsd, config.review.maxBudgetUsd, stageName);
         const res = await runStage(
@@ -767,13 +767,14 @@ async function executeReviewPipeline(
             cwd,
             systemPrompt: basePrompt.systemPrompt,
             sharedPrefix,
-            userPrompt: `${basePrompt.userPrompt}${isUi && liveUrlsNote ? liveUrlsNote : ''}${followUpDirective}`,
+            userPrompt: `${basePrompt.userPrompt}${isUi ? liveUrlsNote : ''}${live.note}${followUpDirective}`,
             schema: SpecialistOutputSchema,
             schemaName: `SpecialistOutput_${lead.lens}_followup_${round}`,
             mcpScope,
             effort,
             ...(isUi && browserImages.length > 0 ? { images: browserImages } : {}),
             ...(isUi && extraMcpServers ? { extraMcpServers } : {}),
+            ...(live.tools ? { extraTools: live.tools } : {}),
             maxSteps: config.review.maxSteps,
             maxOutputTokens,
             timeoutMs: config.review.stageTimeoutMs,
@@ -819,6 +820,7 @@ async function executeReviewPipeline(
       const fuStageName = `verifier:followup-${round}`;
       const fuVerifierPrompt = buildVerifierPrompt(bundle, followUpCandidates, standards, {
         allowFollowUpLeads: round < maxFollowUpRounds,
+        liveTools: Boolean(verifierLive.tools),
         triageBullets: walkthrough,
         blastRadius,
         confidenceThreshold: config.review.confidenceThreshold,

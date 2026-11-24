@@ -259,11 +259,10 @@ function buildConfigOverrides(opts: {
     preset,
     models: Object.keys(models).length > 0 ? models : undefined,
     ab:
-      opts.ab !== undefined || opts.demo !== undefined || opts.liveProve
+      opts.ab !== undefined || opts.demo !== undefined
         ? {
             ...(opts.ab !== undefined ? { enabled: opts.ab } : {}),
             ...(opts.demo !== undefined ? { runDemo: opts.demo } : {}),
-            ...(opts.liveProve ? { liveProve: true } : {}),
           }
         : undefined,
     checks: Object.keys(checks).length > 0 ? checks : undefined,
@@ -404,12 +403,13 @@ async function main(): Promise<void> {
         demo: values.demo ? true : undefined,
         browser: browserFlag,
         interactiveBrowser: values['interactive-browser'] ? true : undefined,
-        liveProve: values['live-prove'] ? true : undefined,
         include: includeList,
         exclude: excludeList,
         pages: pageList,
       }),
     );
+    // The stacks end with this job, so a later review job could not reach them.
+    config.review.exclude = [...config.review.exclude, 'live-prove'];
 
     const outDir = resolve(values.out);
     const { bundle, cleanup } = await collectEvidence({

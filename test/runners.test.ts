@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { createLiveProbeTool } from '../src/runners/live-prove.ts';
+import {
+  createLiveProbeTool,
+  createStageLiveTools,
+  execWithCappedOutput,
+} from '../src/runners/live-prove.ts';
 import { createRunnerRegistry, runStage } from '../src/runners/registry.ts';
 import { createRepoTools, resolveSafeRepoPath } from '../src/runners/repo-tools.ts';
 import { parseModelSpec, type StageRunner } from '../src/runners/types.ts';
@@ -22,6 +26,25 @@ afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const execPrefix = (f: string) => [
+  'docker',
+  'compose',
+  '-f',
+  f,
+  'exec',
+  '-T',
+  '-u',
+  'www-data',
+  '-w',
+  '/var/www/html',
+  'app',
+  'sh',
+  '-c',
+  't=$1; shift; if command -v timeout >/dev/null 2>&1; then exec timeout -k 5 "$t" "$@"; fi; exec "$@"',
+  'live-probe',
+  '120',
+];
 
 describe('runners', () => {
   test('parseModelSpec parses all 8 supported providers and preserves colons in modelId', () => {
@@ -142,7 +165,7 @@ describe('runners', () => {
     expect(calls).toEqual(['verifier:openai:gpt-5.2']);
   });
 
-  test('createLiveProbeTool enforces localhost-only URLs and read-only cv api4 probes', async () => {
+  test('createLiveProbeTool keeps HTTP on localhost and runs exec argv inside the A/B containers', async () => {
     const dir = makeTempDir();
     const composeA = join(dir, 'compose-a.yml');
     const composeB = join(dir, 'compose-b.yml');
@@ -176,7 +199,7 @@ describe('runners', () => {
     expect(probe.execute).toBeDefined();
 
     const httpRes = (await probe.execute!(
-      { mode: 'http-get', route: 'civicrm/dashboard?reset=1', action: 'get' },
+      { mode: 'http-get', route: 'civicrm/dashboard?reset=1', target: 'both', timeoutSeconds: 60 },
       { toolCallId: 'p1', messages: [], context: undefined },
     )) as { a: { status: number }; b: { status: number }; differs: boolean };
     expect(httpRes.a.status).toBe(500);
@@ -196,7 +219,7 @@ describe('runners', () => {
       execFn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     }).live_probe_ab!;
     const longRes = (await longProbe.execute!(
-      { mode: 'http-get', route: 'civicrm/dashboard', action: 'get' },
+      { mode: 'http-get', route: 'civicrm/dashboard', target: 'both', timeoutSeconds: 60 },
       { toolCallId: 'p1b', messages: [], context: undefined },
     )) as { differs: boolean; a: Record<string, unknown> };
     expect(longRes.differs).toBe(true);
@@ -205,24 +228,125 @@ describe('runners', () => {
     // Rejects off-origin URL injection
     await expect(
       probe.execute!(
-        { mode: 'http-get', route: 'https://evil.example/steal', action: 'get' },
+        {
+          mode: 'http-get',
+          route: 'https://evil.example/steal',
+          target: 'both',
+          timeoutSeconds: 60,
+        },
         { toolCallId: 'p2', messages: [], context: undefined },
       ),
     ).rejects.toThrow(/Invalid route/);
 
-    const api4Res = (await probe.execute!(
-      { mode: 'api4-read', entity: 'Contact', action: 'get', paramsJson: '{"limit":2}' },
+    const execCalls: string[][] = [];
+    const execProbe = createLiveProbeTool({
+      composeFileA: composeA,
+      composeFileB: composeB,
+      execFn: async (args, opts) => {
+        execCalls.push([...args, `timeout=${opts?.timeoutMs}`]);
+        const isA = args.includes(composeA);
+        return {
+          exitCode: isA ? 1 : 0,
+          stdout: isA ? 'DB Error: syntax error' : 'sent 1',
+          stderr: '',
+        };
+      },
+    }).live_probe_ab!;
+    const argv = ['cv', 'api3', 'Job.process_action_schedule'];
+    const execRes = (await execProbe.execute!(
+      { mode: 'exec', argv, target: 'both', timeoutSeconds: 120 },
       { toolCallId: 'p3', messages: [], context: undefined },
-    )) as { differs: boolean; command: string };
-    expect(api4Res.differs).toBe(true);
-    expect(api4Res.command).toContain('cv api4 Contact.get');
+    )) as { differs: boolean; a: { exitCode: number }; b: { output: string } };
+    expect(execRes.differs).toBe(true);
+    expect(execRes.a.exitCode).toBe(1);
+    expect(execRes.b.output).toBe('sent 1');
+    // argv goes through positionally, bounded by `timeout` inside the container
+    expect(execCalls).toEqual([
+      [...execPrefix(composeA), ...argv, 'timeout=135000'],
+      [...execPrefix(composeB), ...argv, 'timeout=135000'],
+    ]);
 
-    // Rejects unsafe entity names
+    execCalls.length = 0;
+    const onlyB = (await execProbe.execute!(
+      {
+        mode: 'exec',
+        argv: ['cv', 'api4', 'Contact.create', '{"values":{}}'],
+        target: 'B',
+        timeoutSeconds: 60,
+      },
+      { toolCallId: 'p4', messages: [], context: undefined },
+    )) as Record<string, unknown>;
+    expect(execCalls).toHaveLength(1);
+    expect(execCalls[0]).toContain(composeB);
+    expect(onlyB.a).toBeUndefined();
+    expect(onlyB.differs).toBeUndefined();
+
     await expect(
-      probe.execute!(
-        { mode: 'api4-read', entity: 'Contact; rm -rf /', action: 'get' },
-        { toolCallId: 'p4', messages: [], context: undefined },
+      execProbe.execute!(
+        { mode: 'exec', argv: [], target: 'both', timeoutSeconds: 60 },
+        { toolCallId: 'p5', messages: [], context: undefined },
       ),
-    ).rejects.toThrow(/Invalid APIv4 entity/);
+    ).rejects.toThrow(/non-empty argv/);
+
+    // Outputs that differ only in the truncated middle still differ.
+    const middleProbe = createLiveProbeTool({
+      composeFileA: composeA,
+      composeFileB: composeB,
+      execFn: async (args) => ({
+        exitCode: 0,
+        stdout: 'x'.repeat(5000) + (args.includes(composeA) ? 'A' : 'B') + 'y'.repeat(5000),
+        stderr: '',
+      }),
+    }).live_probe_ab!;
+    const middle = (await middleProbe.execute!(
+      { mode: 'exec', argv: ['cv', 'api4', 'Contact.get'], target: 'both', timeoutSeconds: 60 },
+      { toolCallId: 'p6', messages: [], context: undefined },
+    )) as { differs: boolean; a: { output: string; raw?: string }; b: { output: string } };
+    expect(middle.a.output).toBe(middle.b.output);
+    expect(middle.differs).toBe(true);
+    expect(middle.a.raw).toBeUndefined();
+  });
+
+  test('execWithCappedOutput stops an endless command at the capture limit', async () => {
+    const res = await execWithCappedOutput(['yes'], { timeoutMs: 20_000 });
+    expect(res.timedOut).toBe(false);
+    expect(res.stdout.length).toBeLessThan(1_100_000);
+    expect(res.stdout).toContain('[output stopped at 1000000 bytes; command killed]');
+
+    // Exactly at the limit is complete output, not an overflow.
+    const exact = await execWithCappedOutput(['head', '-c', '1000000', '/dev/zero'], {
+      timeoutMs: 20_000,
+    });
+    expect(exact.exitCode).toBe(0);
+    expect(exact.stdout.length).toBe(1_000_000);
+    expect(exact.stdout).not.toContain('output stopped');
+  });
+
+  test('createStageLiveTools caps one exec at half the stage timeout', () => {
+    const dir = makeTempDir();
+    const A = join(dir, 'a.yml');
+    const B = join(dir, 'b.yml');
+    writeFileSync(A, 'services: {}');
+    writeFileSync(B, 'services: {}');
+    const runner = {
+      providers: ['anthropic'] as const,
+      supportsExtraTools: true,
+      run: async () => {
+        throw new Error('not called');
+      },
+    };
+    const liveFor = createStageLiveTools({
+      enabled: true,
+      stageTimeoutMs: 360_000,
+      registry: createRunnerRegistry({ anthropic: runner as unknown as StageRunner }),
+      urls: {},
+      composeFiles: { A, B },
+    });
+    const schema = liveFor('anthropic:claude-opus-5-5').tools!.live_probe_ab!
+      .inputSchema as z.ZodType;
+    const parse = (timeoutSeconds: number) =>
+      schema.safeParse({ mode: 'exec', argv: ['true'], timeoutSeconds }).success;
+    expect(parse(180)).toBe(true);
+    expect(parse(181)).toBe(false);
   });
 });

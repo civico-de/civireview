@@ -16,6 +16,7 @@ export function buildVerifierPrompt(
     triageBullets?: string[];
     blastRadius?: BlastRadiusItem[];
     confidenceThreshold?: number;
+    liveTools?: boolean;
   },
 ): StagePromptPair {
   const allowFollowUp = options?.allowFollowUpLeads ?? true;
@@ -32,7 +33,12 @@ export function buildVerifierPrompt(
     triageBullets && triageBullets.length > 0
       ? `\n9. Walkthrough Reconciliation (\`reconciledWalkthrough\`):
    - Reconcile Stage 0's initial \`walkthrough\` bullets against your verified evidence and Stage 1 findings: replace any early \`NEEDS_QUESTION: I did not confirm...\` bullet whose question was answered by your code inspection with a factual \`CONFIRMED:\` or \`PROVEN:\` bullet, strip any bullet that merely repeats third-party bot comments (e.g. Greptile/CodeRabbit), and keep 3–6 crisp, non-contradictory bullets.
-   - CONSISTENCY RULE: Only state \`CONFIRMED:\` for a defect in \`reconciledWalkthrough\` if that defect is also emitted in \`verifiedFindings\` with \`confidence >= ${threshold}\` (otherwise it will be filtered out by the posting gate and contradict a \`READY\` verdict).`
+   - CONSISTENCY RULE: Only state \`CONFIRMED:\` for a defect in \`reconciledWalkthrough\` if that defect is also emitted in \`verifiedFindings\` with \`confidence >= ${threshold}\` (otherwise it will be filtered out by the posting gate and contradict a \`READY\` verdict).${
+     options?.liveTools
+       ? `
+   - SETTLE GAPS LIVE: before you keep a \`NOT VERIFIED:\` or \`NEEDS_QUESTION:\` bullet, try to settle it with \`live_probe_ab\` (set up the scenario on A and B, run the job or call, compare). Replace it with what you observed; keep it only when the stacks cannot reach the question, and say why.`
+       : ''
+   }`
       : '';
   const blastRadiusRule =
     blastRadius && blastRadius.length > 0
@@ -87,7 +93,7 @@ VERIFICATION PROTOCOL (for every candidate finding):
    - STATE EACH DEFECT ONCE: the finding carries the explanation. In \`reconciledWalkthrough\`, \`reconciledStandards\` notes and \`reconciledBlastRadius\`, refer to a finding by its title in a few words instead of explaining it again.
 4. Visual & Live Probing (when available):
    - If BEFORE (A) / AFTER (B) screenshots are attached, visually compare them to verify or disprove claimed UI/CSS/layout regressions.
-   - If \`live_probe_ab\` (or Playwright MCP tools) are available, run targeted read-only A-vs-B checks to verify claims; when a failure is reproduced live, assign verdict='PROVEN' and record exact \`liveProofCommand\` and \`liveProofOutput\`.
+   - If \`live_probe_ab\` (or Playwright MCP tools) are available, reproduce claims on A and B: create the records a scenario needs, run the job or API call, and compare; when a failure is reproduced live, assign verdict='PROVEN' and record exact \`liveProofCommand\` and \`liveProofOutput\`.
 5. Set \`reassessedSeverity\` accurately (downgrade overblown severities; keep critical/high only for real impact).
 6. Preserve exact \`path\`, \`startLine\`, \`endLine\`, and \`side\` verified against the file/diff.
 7. Standards Reconciliation:

@@ -8,12 +8,15 @@ repository. The design keeps each pair apart.
 
 The evidence layer runs code from the PR: its tests, its upgrade steps, its pages in a
 browser. This happens inside disposable CiviKitchen containers; the PR's files are
-mounted read-only. The containers are removed after the run unless a check that keeps
-them was requested (`--interactive-browser`, `--live-prove`).
+mounted read-only. The containers are removed after the run, or at the end of the
+review when `live-prove` or `--interactive-browser` keeps them.
 
-The review layer executes nothing from the PR. Models get three repository tools, all
-read-only and confined to the checkout: read a file, search, list files. Path traversal
-and symlinks that leave the checkout are rejected, and `.git/` cannot be read.
+Models get three repository tools, all read-only and confined to the checkout: read a
+file, search, list files. Path traversal and symlinks that leave the checkout are
+rejected, and `.git/` cannot be read. With `live-prove` they can also run commands inside
+the kept containers, through `docker compose exec` with an argument list, never a host
+shell. The containers hold no credentials, and the PR's code already runs in them, so
+this adds no access a PR author does not have.
 
 ## Job isolation in the GitHub workflow
 

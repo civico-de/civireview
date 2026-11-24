@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Live instances**: `live-prove` is on by default. The specialists, follow-up rounds and verifier can run any command in the kept A/B containers, including `cv api4` writes and scheduled jobs, to reproduce a scenario on both sides; the verifier tries open *Not verified* points there before keeping them. The split `evidence` job switches it off.
+
+### Removed
+- **Config**: `ab.liveProve`; `checks.liveProve` is the only switch. A config that still sets `ab.liveProve` is refused.
+
 ## [0.4.1] - 2026-11-24
 
 ### Added

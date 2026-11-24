@@ -78,7 +78,7 @@ derives it per stage from the depth and, at `balanced`, from the risk of the PR.
 | `browser` | `browser` | on | browser A/B |
 | `a11y` | `a11y` | on | accessibility scan within the browser A/B |
 | `interactiveBrowser` | `interactive-browser` | off | browser the `ui` lens and the verifier can drive |
-| `liveProve` | `live-prove` | off | read-only probes of both instances for the verifier |
+| `liveProve` | `live-prove` | on | keeps both instances running so the specialists and the verifier can run commands in them |
 | `matrix` | `matrix` | off | extension repositories: run the head's tests on the floor image and on the beta image |
 
 `ab.enabled: false` (`--no-ab`) switches all instance checks off at once.
@@ -87,10 +87,13 @@ derives it per stage from the depth and, at `balanced`, from the risk of the PR.
 the lens names `correctness`, `security`, `tests`, `ui`. A non-empty `include` runs
 only what it lists; `exclude` always wins.
 
-The two opt-in checks that keep the instances running change what a finding can be:
-with `live-prove` the verifier may issue HTTP GET requests and APIv4 `get`,
-`getActions` and `getFields` calls against A and B and attach the output, which turns a
-`CONFIRMED` finding into a `PROVEN` one.
+With `live-prove`, the specialists, the follow-up rounds and the verifier can run any
+command inside the app containers of A and B (as `www-data`, without a shell), such as
+`cv api4` calls including writes, scheduled jobs or `cv ev`, and fetch routes over HTTP.
+They use it to reproduce a scenario on both sides; a defect observed this way is
+`PROVEN`, and the verifier tries it on open *Not verified* points before keeping them.
+The stages share the two instances. The split `evidence` job switches `live-prove`
+off, since its instances end with the job.
 
 ## Browser
 

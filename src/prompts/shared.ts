@@ -204,3 +204,7 @@ ${bundle.notVerified.map((n) => `- ${n}`).join('\n') || '- none'}`);
 
   return sections.join('\n\n');
 }
+
+export const LIVE_INSTANCE_NOTE = `
+
+LIVE INSTANCES: \`live_probe_ab\` runs commands in the running, disposable CiviCRM Standalone stacks A (base) and B (PR head). Use it when reading code leaves a question open: create the records a scenario needs on both, run the job or API call, and compare A with B. A result observed on both stacks is evidence; quote the command and its output. Other stages use the same stacks, so create your own records and filter by their IDs instead of relying on totals.`;

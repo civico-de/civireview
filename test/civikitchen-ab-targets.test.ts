@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AbConfigSchema } from '../src/config/schema.ts';
+import { AbConfigSchema, ChecksConfigSchema } from '../src/config/schema.ts';
 import { formatAbDiagnosticTail } from '../src/evidence/ab/parsers.ts';
 import {
   buildCoreMountPlan,
@@ -360,6 +360,8 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
       headSha: 'bbbbbbb',
       diffFiles,
       abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      // No kept stacks: the count covers the proof-of-fix retry only.
+      checksConfig: ChecksConfigSchema.parse({ liveProve: false }),
       execFn,
       worktreeBaseDir: join(repoDir, '.worktrees'),
     });

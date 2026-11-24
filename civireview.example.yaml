@@ -32,7 +32,6 @@ ab:
   runDemo: false
   runMatrix: false
   keepStacks: false
-  liveProve: false
   # civikitchenPath: /path/to/civikitchen
   # ckCommand: ck
 
@@ -47,7 +46,7 @@ checks:
   a11y: true
   interactiveBrowser: false # Tier 2 Playwright MCP (local/opt-in)
   matrix: false
-  liveProve: false
+  liveProve: true # keep A/B running so review stages can run commands in them
 
 # Standalone browser A/B configuration
 browser:

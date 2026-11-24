@@ -85,5 +85,7 @@ export interface StageResult<T> {
 
 export interface StageRunner {
   readonly providers: readonly ModelProvider[];
+  /** True when the runner hands `extraTools` to the model; CLI runners do not. */
+  readonly supportsExtraTools?: boolean;
   run<T>(req: StageRequest<T>): Promise<StageResult<T>>;
 }

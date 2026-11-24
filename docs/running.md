@@ -71,8 +71,8 @@ bun run bin/civireview.ts pr 12345 --repo civicrm/civicrm-core --dry-run
 # Models through a local CLI subscription instead of an API key
 bun run bin/civireview.ts pr 12345 --repo civicrm/civicrm-core --preset subscription
 
-# Keep the A/B instances up for the models: interactive browser, read-only probes
-bun run bin/civireview.ts pr 12345 --repo civicrm/civicrm-core --interactive-browser --live-prove
+# Additionally give the models a browser on the kept A/B instances
+bun run bin/civireview.ts pr 12345 --repo civicrm/civicrm-core --interactive-browser
 
 # Review a local branch against its base without GitHub
 bun run bin/civireview.ts local --base master --preset local-gpu

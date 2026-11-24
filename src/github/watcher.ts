@@ -152,7 +152,6 @@ function applyMentionFlagsToConfig(
       ...baseConfig.ab,
       ...(flags.ab !== undefined ? { enabled: flags.ab } : {}),
       ...(flags.demo !== undefined ? { runDemo: flags.demo } : {}),
-      ...(flags.liveProve !== undefined ? { liveProve: flags.liveProve } : {}),
     },
     checks: {
       ...baseConfig.checks,
@@ -192,7 +191,6 @@ function buildLightweightReplyConfig(config: ResolvedCiviReviewConfig): Resolved
       runDemo: false,
       runMatrix: false,
       keepStacks: false,
-      liveProve: false,
     },
     checks: {
       ...config.checks,

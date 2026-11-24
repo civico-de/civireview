@@ -150,7 +150,7 @@ export const ChecksConfigSchema = z
     a11y: z.boolean().default(true),
     interactiveBrowser: z.boolean().default(false),
     matrix: z.boolean().default(false),
-    liveProve: z.boolean().default(false),
+    liveProve: z.boolean().default(true),
   })
   .strict();
 
@@ -183,7 +183,6 @@ export const AbConfigSchema = z
     runDemo: z.boolean().default(false),
     runMatrix: z.boolean().default(false),
     keepStacks: z.boolean().default(false),
-    liveProve: z.boolean().default(false),
     civikitchenPath: z.string().min(1).optional(),
     ckCommand: z.string().min(1).optional(),
   })
@@ -378,7 +377,7 @@ export function isCheckEnabled(
     case 'matrix':
       return config.checks.matrix || config.ab.runMatrix;
     case 'live-prove':
-      return config.checks.liveProve || config.ab.liveProve;
+      return config.checks.liveProve;
   }
 }
 

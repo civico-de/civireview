@@ -125,6 +125,16 @@ models:
     expect(() => loadConfig(dir)).toThrow();
   });
 
+  test('live-prove is switched by checks.liveProve alone; the old ab.liveProve key is refused', () => {
+    const off = makeTempDir();
+    writeFileSync(join(off, 'civireview.yaml'), 'checks:\n  liveProve: false\n', 'utf8');
+    expect(isCheckEnabled(loadConfig(off), 'live-prove')).toBe(false);
+
+    const legacy = makeTempDir();
+    writeFileSync(join(legacy, 'civireview.yaml'), 'ab:\n  liveProve: false\n', 'utf8');
+    expect(() => loadConfig(legacy)).toThrow(/liveProve/);
+  });
+
   test('the example config loads, also with its commented overrides switched on', () => {
     const example = readFileSync(join(import.meta.dir, '..', 'civireview.example.yaml'), 'utf8');
     for (const text of [
@@ -149,7 +159,7 @@ models:
     expect(cfg.checks.lifecycle).toBe(true);
     expect(cfg.checks.interactiveBrowser).toBe(false);
     expect(cfg.checks.matrix).toBe(false);
-    expect(cfg.checks.liveProve).toBe(false);
+    expect(cfg.checks.liveProve).toBe(true);
     expect(cfg.browser.maxAutoPages).toBe(5);
     expect(cfg.browser.sendScreenshotsToLlm).toBe(true);
 
