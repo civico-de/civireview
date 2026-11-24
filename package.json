@@ -1,6 +1,6 @@
 {
   "name": "civireview",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "CiviCRM-native multi-model AI pull request reviewer built on CiviKitchen A/B verification and civicrm-knowledge MCP",
   "license": "AGPL-3.0-or-later",
   "type": "module",

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-24
+
 ### Added
 - **Profiles**: a review states where its change could be verified: `core`, `core-extension` (a core PR inside a bundled extension, `ext/<name>`), `extension` or `generic`. The profile is in the review header and in the model context.
 - **Bundled core extensions**: a core PR that touches `ext/<name>` gets the extension gates (taint delta, lifecycle, upgrade parity) for that extension, and the extension is enabled before the browser probe.
