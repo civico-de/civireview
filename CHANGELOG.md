@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-24
+
 ### Changed
 
 - **Core A/B runs on the base itself**: civireview reads the core commit of the CiviKitchen image and mounts every top-level directory in which it differs from the PR's base into both instances. This replaces the time-window overlay of up to 50 recently merged files. Changed composer dependencies in between are listed under *Not verified*.
