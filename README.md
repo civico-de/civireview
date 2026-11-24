@@ -1,4 +1,10 @@
 <p align="center">
+  <img src="assets/cover.jpg" alt="The Siege of CiviCRM: maintainers review a pull request while an army of automatons buries them in sealed scrolls" width="100%" />
+  <br />
+  <em>The Siege of CiviCRM</em>
+</p>
+
+<p align="center">
   <img src="assets/logo.png" alt="CiviReview logo" width="140" />
 </p>
 
