@@ -33,8 +33,8 @@ up to three reasons, the deciding one first.
 | --- | --- |
 | 1 | a confirmed critical finding; two or more confirmed high findings |
 | 2 | one confirmed high finding; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
-| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed |
-| 4 | any other finding; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; no A/B tests ran at all (except for docs-only and refactoring PRs) |
+| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed |
+| 4 | any other finding; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
 
 "Confirmed" in this table covers `PROVEN` and `CONFIRMED`. When the finding that
 decides the score is only `CONFIRMED`, the rationale adds "from reading the code, not
@@ -50,7 +50,7 @@ Each finding is tagged `[SEVERITY | VERDICT]` and carries a confidence.
 
 | Verdict | Established by |
 | --- | --- |
-| `PROVEN` | a run: the A/B evidence or a live probe shows the defect; the proof output is attached |
+| `PROVEN` | a run: the A/B evidence, the extension gates or a live probe show the defect. When no run produced a result, a `PROVEN` from the verifier is lowered to `CONFIRMED` |
 | `CONFIRMED` | reading the code; the verification evidence names the lines read and ends with what was not run |
 | `NEEDS_QUESTION` | plausible, but depends on intent; phrased as a question to the author |
 
@@ -84,10 +84,11 @@ One row per deterministic check from the evidence layer.
 | CI / Jenkins | all commit statuses succeeded |
 | A/B Proof-of-Fix | at least one test of the PR fails on the base and passes on the head |
 | Base-Test Regression | existing tests pass on both sides |
-| Live Surface Diff | the runtime surface was captured on both sides and no risk flag was raised |
+| Version Matrix | extension repositories with `matrix` on: the head's tests pass on the floor image and on the beta image |
+| Live Surface Diff | the runtime surface was captured on both sides and no risk flag was raised; without a capture the row is `NOT_VERIFIED`, or `WARN` when the diff itself touches the surface (routes, API classes, schema, upgrader, managed entities, dependencies, templates, permission checks, hooks) |
 | Static / Taint Delta | the extension gates ran and found nothing new on the head |
 | Browser A/B (Standalone) | the listed routes load on both sides without new errors, failed requests, a11y violations or render differences |
-| Demo | the recorded demo ran without runtime errors (opt-in) |
+| Demo | the recording with the PR logged no script error the base recording lacks (opt-in) |
 | Reviewer Thread | questions of human reviewers in the PR are answered by the current head |
 
 A row is absent when the check does not apply to the profile.
@@ -116,14 +117,14 @@ has not been exercised by anything.
 | Standalone browser A/B | probed routes, counts per regression type, screenshots |
 | Reviewer questions & thread resolution | open questions of human reviewers and whether the head answers them |
 | Lower-confidence notes | findings between 50 and the gate |
-| Rejected by the Verifier | candidates the verifier rejected or rated below 50, each with its reason |
+| Rejected or below 50% confidence | candidates the verifier rejected or rated below 50, each with its verdict and reason |
 
-The line after them gives the number of duplicate candidates that were merged into
-other findings. The footer names the preset, token count and cost.
+The line after them gives the number of candidates that are not listed at all:
+duplicates of a listed finding, and lower-confidence notes beyond the five shown. The footer names the preset, token count and cost.
 
 ## Disagreeing with a finding
 
 Reply in the thread of the inline comment with `@civireview` and the objection or
-question. The answer is posted into the same thread and uses the saved evidence; it does
-not re-run the checks. To re-run everything on a new commit, comment `@civireview` on
+question. The answer is posted into the same thread from the PR, its diff and the
+thread; it does not run the checks. To re-run everything on a new commit, comment `@civireview` on
 the PR.

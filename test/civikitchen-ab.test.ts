@@ -10,6 +10,7 @@ import {
 } from '../src/config/schema.ts';
 import {
   buildMultiTargetTestCommand,
+  noteSkippedProofTargets,
   parseCkAbJsonReport,
   runCiviKitchenAb,
   type ExecFn,
@@ -384,7 +385,11 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
         };
       }
       if (args[0] === 'ck' && args[1] === 'run' && args.includes(UPGRADE_PARITY_SCRIPT)) {
-        return { exitCode: 0, stdout: 'ckschemadiff: the two schemas match.', stderr: '' };
+        return {
+          exitCode: 0,
+          stdout: 'ckschemadiff: the two schemas match.\nupgrade-parity: schemas identical\n',
+          stderr: '',
+        };
       }
       return { exitCode: 0, stdout: '', stderr: '' };
     };
@@ -701,6 +706,17 @@ diff --git a/tests/phpunit/CRM/MyExt/FooTest.php b/tests/phpunit/CRM/MyExt/FooTe
     const proofCheck = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
     expect(proofCheck?.fixed).toEqual(['FooTest::testNewCase']);
     expect(proofCheck?.tautologicalTests).toEqual([]);
+  });
+
+  test('test files beyond the proof-of-fix limit are named, five or fewer leave no note', () => {
+    const files = [1, 2, 3, 4, 5, 6].map((n) => `tests/T${n}Test.php`);
+    const notVerified: string[] = [];
+    noteSkippedProofTargets(files.slice(0, 5), notVerified);
+    expect(notVerified).toEqual([]);
+    noteSkippedProofTargets(files, notVerified);
+    expect(notVerified).toEqual([
+      'Proof of fix ran the first 5 changed test files; not run: tests/T6Test.php',
+    ]);
   });
 
   test('buildMultiTargetTestCommand uses direct argv for 1 file and merges JUnit XML for multiple files', () => {

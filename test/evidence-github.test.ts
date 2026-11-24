@@ -191,4 +191,13 @@ describe('civireview marker parsing', () => {
     const last = extractLastReviewedMarker([{ body: marker(OLD_HEAD) }, { body: marker(HEAD) }]);
     expect(last?.headSha).toBe(HEAD);
   });
+
+  test('with a trusted login a marker posted by anyone else is ignored', () => {
+    const comments = [
+      { body: marker(OLD_HEAD), author: 'Reviewer-Bot' },
+      { body: marker(HEAD), author: 'contributor' },
+    ];
+    expect(extractLastReviewedMarker(comments, 'reviewer-bot')?.headSha).toBe(OLD_HEAD);
+    expect(extractLastReviewedMarker(comments)?.headSha).toBe(HEAD);
+  });
 });

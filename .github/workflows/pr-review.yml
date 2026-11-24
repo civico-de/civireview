@@ -315,7 +315,16 @@ jobs:
             }
 
             const flags = parsed.flags || {};
-            const isReviewReply = eventName === 'pull_request_review_comment';
+            // An inline comment is a question to answer unless it asks for a review run.
+            const listed = (v) => Array.isArray(v) && v.length > 0;
+            const asksForReview = Boolean(
+              flags.full || flags.preset || flags.effort || flags.model || flags.verifier ||
+              flags.ab !== undefined || flags.demo !== undefined || flags.browser !== undefined ||
+              flags.interactiveBrowser || flags.liveProve ||
+              listed(flags.include) || listed(flags.exclude) || listed(flags.pages)
+            );
+            const isReviewReply = eventName === 'pull_request_review_comment' &&
+              String(parsed.question || '').trim() !== '' && !asksForReview;
             const mergedInclude = Array.isArray(flags.include) && flags.include.length > 0
               ? flags.include.join(',')
               : (process.env.INPUT_INCLUDE || '');

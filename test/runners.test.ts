@@ -183,6 +183,25 @@ describe('runners', () => {
     expect(httpRes.b.status).toBe(200);
     expect(httpRes.differs).toBe(true);
 
+    // A difference below the displayed snippet still counts.
+    const longProbe = createLiveProbeTool({
+      urlA: 'http://127.0.0.1:41001',
+      urlB: 'http://localhost:41002',
+      composeFileA: composeA,
+      composeFileB: composeB,
+      fetchFn: (async (input: string | URL | Request) =>
+        new Response(
+          'x'.repeat(5000) + (String(input).includes('41001') ? 'a' : 'b'),
+        )) as typeof fetch,
+      execFn: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    }).live_probe_ab!;
+    const longRes = (await longProbe.execute!(
+      { mode: 'http-get', route: 'civicrm/dashboard', action: 'get' },
+      { toolCallId: 'p1b', messages: [], context: undefined },
+    )) as { differs: boolean; a: Record<string, unknown> };
+    expect(longRes.differs).toBe(true);
+    expect(longRes.a.body).toBeUndefined();
+
     // Rejects off-origin URL injection
     await expect(
       probe.execute!(

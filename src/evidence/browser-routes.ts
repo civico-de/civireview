@@ -244,10 +244,13 @@ export function discoverStandaloneRoutes(
       const routeRe = file.path.endsWith('.xml')
         ? /<path>\s*([^<]+?)\s*<\/path>/gi
         : /["']server_route["']\s*(?::|=>)\s*["']([^"']+)["']/gi;
+      const isPublic =
+        !file.path.endsWith('.xml') && /["']is_public["']\s*(?::|=>)\s*true\b/i.test(file.content);
       for (const m of file.content.matchAll(routeRe)) {
         const beforeLen = autoPages.length;
         addAutoPage(m[1]);
         if (autoPages.length > beforeLen) extensionRouteCount++;
+        if (isPublic) addAutoAnon(m[1]);
       }
     }
   }

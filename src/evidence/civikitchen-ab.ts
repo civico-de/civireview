@@ -30,6 +30,7 @@ import {
   isUnsupportedCkFlagError,
   parseCkAbJsonReport,
   parseCkAbOutput,
+  parseDemoErrors,
   parseTaintFindings,
   validateLocalhostUrl,
   type ExecFn,
@@ -287,6 +288,18 @@ export async function resolveAvailableCivikitchenImage(
 
 async function noopCleanup(): Promise<void> {}
 
+const MAX_PROOF_TEST_FILES = 5;
+
+/** Names the changed test files that proof of fix leaves out. */
+export function noteSkippedProofTargets(testFiles: string[], notVerified: string[]): void {
+  const skipped = testFiles.slice(MAX_PROOF_TEST_FILES);
+  if (skipped.length > 0) {
+    notVerified.push(
+      `Proof of fix ran the first ${MAX_PROOF_TEST_FILES} changed test files; not run: ${skipped.join(', ')}`,
+    );
+  }
+}
+
 export async function runCiviKitchenAb(
   options: RunCiviKitchenAbOptions,
 ): Promise<CiviKitchenAbOutcome> {
@@ -407,6 +420,7 @@ export async function runCiviKitchenAb(
   const wantSurface = isCheckEnabled(effectiveCfg, 'surface');
 
   let worktreesCreated = false;
+  let completed = false;
 
   try {
     let wtA = await execFn(
@@ -703,7 +717,8 @@ export async function runCiviKitchenAb(
           touchedTestFiles.length > 0 &&
           (useFileMounts || existsSync(join(worktreeB, 'tests')))
         ) {
-          const proofTargets = touchedTestFiles.slice(0, 5);
+          const proofTargets = touchedTestFiles.slice(0, MAX_PROOF_TEST_FILES);
+          noteSkippedProofTargets(touchedTestFiles, notVerified);
           const proofCmd = buildMultiTargetTestCommand(
             'ckcoretest',
             proofTargets.map((targetPath) => ({
@@ -761,6 +776,7 @@ export async function runCiviKitchenAb(
         });
         if (demoRes.exitCode === 0) {
           demoArtifactsDir = demoOut;
+          demoConsoleErrors.push(...parseDemoErrors(demoRes.stdout));
         } else {
           notVerified.push(`ck demo exited with ${demoRes.exitCode}`);
         }
@@ -788,7 +804,8 @@ export async function runCiviKitchenAb(
               `${join(worktreeB, tf)}:/var/www/html/ext/${extName}/${tf}:ro`,
             );
           }
-          const extProofTargets = existingBTests.slice(0, 5);
+          const extProofTargets = existingBTests.slice(0, MAX_PROOF_TEST_FILES);
+          noteSkippedProofTargets(existingBTests, notVerified);
           const extProofCmd = buildMultiTargetTestCommand(
             'phpunit',
             extProofTargets.map((tf) => ({
@@ -897,12 +914,13 @@ export async function runCiviKitchenAb(
       keptUrls = browserOutcome.keptUrls;
       keptComposeFiles = browserOutcome.keptComposeFiles;
     }
+    completed = true;
   } finally {
-    if (!keepLive) {
-      if (worktreesCreated) {
-        await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeA]);
-        await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeB]);
-      }
+    // Kept for a live probe only after a complete run; each worktree is removed on its own,
+    // since the first can exist without the second.
+    if (!keepLive || !completed) {
+      await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeA]);
+      await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeB]);
       rmSync(workDir, { recursive: true, force: true });
     }
   }

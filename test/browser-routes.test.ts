@@ -160,6 +160,31 @@ new file mode 100644
     expect(res.reason).toContain('extension routes (2)');
   });
 
+  test('a public form of the extension is probed anonymously as well, a private one is not', () => {
+    const res = discoverStandaloneRoutes({
+      diffFiles: editorDiff(),
+      extensionRouteSources: [
+        {
+          repoPrefix: 'ext/widgets/',
+          files: [
+            {
+              path: 'ang/widgetPublic.aff.json',
+              content: '{"server_route": "civicrm/widgets/signup", "is_public": true}',
+            },
+            {
+              path: 'ang/widgetAdmin.aff.php',
+              content:
+                "<?php return ['server_route' => 'civicrm/admin/widgets', 'is_public' => FALSE];",
+            },
+          ],
+        },
+      ],
+      config: { browser: BrowserConfigSchema.parse({}) },
+    });
+    expect(res.pages).toEqual(['civicrm/widgets/signup', 'civicrm/admin/widgets']);
+    expect(res.anonymousPages).toEqual(['civicrm/widgets/signup']);
+  });
+
   test('leaves the routes of an extension alone when the diff touches no UI file of it', () => {
     const diff =
       parseUnifiedDiff(`diff --git a/ext/widgets/CRM/Widgets/BAO/Widget.php b/ext/widgets/CRM/Widgets/BAO/Widget.php

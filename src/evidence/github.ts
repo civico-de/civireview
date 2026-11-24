@@ -24,14 +24,30 @@ export interface ParsedCivireviewMarker {
   triggerCommentId?: number;
 }
 
+export interface MarkerSource {
+  body?: string | null;
+  author?: string;
+}
+
+/** With a trusted login only its comments remain; a marker is plain text anyone can post. */
+export function writtenBy<T extends { author?: string }>(
+  comments: T[],
+  trustedLogin?: string,
+): T[] {
+  if (!trustedLogin) return comments;
+  const login = trustedLogin.toLowerCase();
+  return comments.filter((c) => c.author?.toLowerCase() === login);
+}
+
 /**
  * Extracts all `<!-- civireview:v1 ... -->` markers from PR comments/reviews in order.
  */
 export function extractAllReviewedMarkers(
-  comments: Array<{ body: string }>,
+  comments: MarkerSource[],
+  trustedLogin?: string,
 ): ParsedCivireviewMarker[] {
   const markers: ParsedCivireviewMarker[] = [];
-  for (const item of comments) {
+  for (const item of writtenBy(comments, trustedLogin)) {
     const body = item?.body ?? '';
     const match = [...body.matchAll(MARKER_RE)].at(-1);
     if (!match?.[1]) continue;
@@ -62,9 +78,10 @@ export function extractAllReviewedMarkers(
  * Extracts the latest `<!-- civireview:v1 head=... base=... -->` marker from PR comments.
  */
 export function extractLastReviewedMarker(
-  comments: Array<{ body: string }>,
+  comments: MarkerSource[],
+  trustedLogin?: string,
 ): ParsedCivireviewMarker | undefined {
-  const all = extractAllReviewedMarkers(comments);
+  const all = extractAllReviewedMarkers(comments, trustedLogin);
   return all.length > 0 ? all[all.length - 1] : undefined;
 }
 
@@ -539,7 +556,7 @@ export async function fetchGitHubPrContext(
       })),
   ].toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  const marker = extractLastReviewedMarker(comments);
+  const marker = extractLastReviewedMarker(comments, options.config?.botLogin);
   const lastReviewedHeadSha = marker?.headSha;
 
   let diffText = '';
@@ -590,6 +607,7 @@ export async function fetchGitHubPrContext(
       owner,
       repo,
       ref: prData.head.sha,
+      per_page: 100,
     });
     for (const s of combined.statuses) {
       statuses.push({

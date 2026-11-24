@@ -102,8 +102,8 @@ export function truncateForGitHub(text: string, max = MAX_GITHUB_BODY_CHARS): st
   return text.slice(0, Math.max(0, max - note.length)) + note;
 }
 
-/** Drops optional `<details>` sections from the end, then truncates the largest remaining one. */
-function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHARS): string[] {
+/** Drops optional `<details>` sections from the end, then truncates the largest remaining ones. */
+export function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHARS): string[] {
   const out = [...sections];
   const total = () => out.join('\n\n').length;
   // The last section holds the footer and dedup marker and always stays.
@@ -121,14 +121,14 @@ function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHARS): st
       `_${omitted} detail section(s) omitted to fit GitHub's size limit._`,
     );
   }
-  const excess = total() - max;
-  if (excess > 0) {
+  // One pass per section is enough: each pass cuts the largest one left.
+  for (let pass = 0; pass < out.length && total() > max; pass++) {
     let largest = 0;
     for (let i = 1; i < out.length - 1; i++) {
       if ((out[i]?.length ?? 0) > (out[largest]?.length ?? 0)) largest = i;
     }
     const section = out[largest] ?? '';
-    out[largest] = truncateForGitHub(section, Math.max(0, section.length - excess));
+    out[largest] = truncateForGitHub(section, Math.max(0, section.length - (total() - max)));
   }
   return out;
 }
@@ -589,7 +589,7 @@ export function formatReviewMarkdown(
       )
       .join('\n');
     sections.push(
-      `<details>\n<summary>Rejected by the Verifier (${review.rejectedFindings.length})</summary>\n\n${rejectedBody}\n</details>`,
+      `<details>\n<summary>Rejected or below 50% confidence (${review.rejectedFindings.length})</summary>\n\n${rejectedBody}\n</details>`,
     );
   }
 
@@ -601,7 +601,7 @@ export function formatReviewMarkdown(
   );
   if (hiddenDroppedCount > 0) {
     sections.push(
-      `_Note: ${hiddenDroppedCount} duplicate candidate finding(s) were merged into the findings above._`,
+      `_Note: ${hiddenDroppedCount} further candidate finding(s) are not listed: duplicates of the findings above, or lower-confidence notes beyond the five shown._`,
     );
   }
 

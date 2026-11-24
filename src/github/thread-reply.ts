@@ -1,5 +1,6 @@
 import type { EvidenceBundle } from '../evidence/types.ts';
 import type { ThreadReplyInput } from '../prompts/thread-reply.ts';
+import { MAX_GITHUB_BODY_CHARS, truncateForGitHub } from './formatter.ts';
 
 /**
  * Reconstructs the inline review thread context around `commentId` from the
@@ -61,9 +62,11 @@ export function formatThreadReplyBody(
   },
   options: { triggerCommentId?: number } = {},
 ): string {
-  const lines = [reply.reply.trim()];
+  // The status line and the dedup marker must survive, so the answer itself is cut.
+  const lines = [truncateForGitHub(reply.reply.trim(), MAX_GITHUB_BODY_CHARS - 5_000)];
   if (reply.references.length > 0) {
-    lines.push('', `**References:** ${reply.references.map((r) => `\`${r}\``).join(', ')}`);
+    const refs = reply.references.map((r) => `\`${r}\``).join(', ');
+    lines.push('', `**References:** ${truncateForGitHub(refs, 4_000)}`);
   }
   lines.push(
     '',

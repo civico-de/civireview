@@ -209,7 +209,7 @@ export function stripAnsi(str: string): string {
   return str.replace(/\x1B\[[0-9;]*[mGKHF]|\x1B\]8;;[^\x1B\x07]*(?:\x1B\\|\x07)/g, '');
 }
 
-const PSALM_ISSUE_RE = /^(ERROR|INFO): (\w+) - (\S+?):(\d+):\d+ - (.+)$/;
+const PSALM_ISSUE_RE = /^(ERROR|INFO): (\w+) - (.+?):(\d+):\d+ - (.+)$/;
 
 /**
  * Reads the issue lines of `cktaint` (Psalm console format); trace and summary lines are skipped.
@@ -239,33 +239,51 @@ export function parseTaintFindings(rawOutput: string): ParsedTaintItem[] {
   return items;
 }
 
-function countIds(ids: string[]): Map<string, number> {
-  const pool = new Map<string, number>();
-  for (const id of ids) pool.set(id, (pool.get(id) ?? 0) + 1);
-  return pool;
-}
-
-/** Removes one `id` from the pool; false when none is left. */
-function take(pool: Map<string, number>, id: string): boolean {
-  const left = pool.get(id) ?? 0;
-  if (left > 0) pool.set(id, left - 1);
-  return left > 0;
-}
-
 /**
- * Items of `head` beyond the number of equal-keyed items in `base`. An occurrence still on
- * its base line counts as the old one before any other is matched.
+ * Items of `head` that `base` does not have. A head item is paired with a base item on the
+ * same line first, then with a moved one; a pair counts as new only when `INFO` became `ERROR`.
  */
 export function newTaintFindings(
   base: ParsedTaintItem[],
   head: ParsedTaintItem[],
 ): ParsedTaintItem[] {
-  const sameLine = countIds(base.map((item) => `${item.key}:${item.line}`));
-  const moved = head.filter((item) => !take(sameLine, `${item.key}:${item.line}`));
-  const unmatched = countIds(
-    base.flatMap((item) => (take(sameLine, `${item.key}:${item.line}`) ? [item.key] : [])),
-  );
-  return moved.filter((item) => !take(unmatched, item.key));
+  const pool = [...base];
+  const takeBase = (matches: (b: ParsedTaintItem) => boolean): ParsedTaintItem | undefined => {
+    const i = pool.findIndex(matches);
+    return i < 0 ? undefined : pool.splice(i, 1)[0];
+  };
+  // Equal severity pairs first, so an unchanged error is never paired with a base info.
+  let rest = head;
+  for (const sameLine of [true, false]) {
+    rest = rest.filter(
+      (h) =>
+        !takeBase(
+          (b) => b.key === h.key && b.severity === h.severity && (!sameLine || b.line === h.line),
+        ),
+    );
+  }
+  return rest.filter((h) => {
+    const b = takeBase((x) => x.key === h.key);
+    return !b || (h.severity === 'error' && b.severity !== 'error');
+  });
+}
+
+/**
+ * Script errors `ck demo` prints for the recordings with the PR applied, leaving out
+ * those the recording of the base printed as well.
+ */
+export function parseDemoErrors(stdout: string): string[] {
+  const byPhase: Record<'before' | 'after', string[]> = { before: [], after: [] };
+  let phase: 'before' | 'after' | undefined;
+  for (const line of stripAnsi(stdout).split(/\r?\n/)) {
+    if (line.startsWith('ck demo:')) {
+      phase = /^ck demo: .* (before|after): \d+ script errors$/.exec(line)?.[1] as typeof phase;
+    } else if (phase && line.startsWith('  ')) {
+      byPhase[phase].push(line.trim());
+    }
+  }
+  const onBase = new Set(byPhase.before);
+  return byPhase.after.filter((error) => !onBase.has(error));
 }
 
 const COMPOSE_PROGRESS_RE =
@@ -405,10 +423,22 @@ export function buildAbCheckFromJson(params: {
     (parsedJson.exitCodeA ?? 0) !== 0 &&
     (parsedJson.exitCodeB ?? 0) !== 0;
 
+  // A JUnit comparison without a single test case compared nothing.
+  const noResult =
+    parsedJson.mode === 'junit' &&
+    [
+      parsedJson.fixed,
+      parsedJson.regressions,
+      parsedJson.passedBoth,
+      parsedJson.bothFail,
+      parsedJson.gone,
+      parsedJson.onlyOnB ?? [],
+    ].every((group) => group.length === 0);
+
   const status: AbCheckResult['status'] =
     parsedJson.regressions.length > 0
       ? 'FAIL'
-      : bootstrapCrash || exitStatusBothNonZero
+      : bootstrapCrash || exitStatusBothNonZero || noResult
         ? 'ERROR'
         : effectiveExit === 0
           ? 'PASS'
@@ -451,8 +481,11 @@ export function buildAbCheckFromJson(params: {
                     ? `0 new regressions (${parsedJson.bothFail.length} pre-existing failure(s) on both A and B)`
                     : `ck ab (${parsedJson.mode}) exited with ${effectiveExit}`;
 
-  const summary =
-    tautSummary && baseSummary !== tautSummary ? `${baseSummary}; ${tautSummary}` : baseSummary;
+  const summary = noResult
+    ? 'the report of the run lists no test'
+    : tautSummary && baseSummary !== tautSummary
+      ? `${baseSummary}; ${tautSummary}`
+      : baseSummary;
 
   const anyNonZeroExit =
     effectiveExit !== 0 || (parsedJson.exitCodeA ?? 0) !== 0 || (parsedJson.exitCodeB ?? 0) !== 0;
@@ -501,10 +534,7 @@ export function buildAbCheckFromStdout(params: {
       command: args.join(' '),
       imageA,
       imageB,
-      status: 'PASS',
-      mode: 'exit-status',
-      exitCodeA: 1,
-      exitCodeB: 0,
+      status: 'ERROR',
       fixed: parsed.fixed,
       regressions: [],
       bothFail: [],
@@ -512,7 +542,7 @@ export function buildAbCheckFromStdout(params: {
       passedBoth: [],
       tautologicalTests: [],
       addedTestMethods,
-      summary: 'base A failed before JUnit output, PR B completed cleanly',
+      summary: 'the base stopped before its tests ran; the result on the PR was not compared',
       outputSnippet: formatAbOutputSnippet(res.stdout, res.stderr, res.exitCode),
     };
   }

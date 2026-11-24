@@ -2,6 +2,8 @@
 # Place as `civireview.yaml` or `.civireview.yaml` in your repository root.
 
 trigger: "@civireview"
+# Login the reviews are posted as; only its comments then count as review markers.
+# botLogin: my-review-bot
 
 # Named model presets:
 #   sonnet       -> Sonnet triage, specialists & verifier (API)
@@ -14,9 +16,9 @@ preset: sonnet
 # Optional per-stage model overrides (<provider>:<modelId>):
 # Supported providers: anthropic, openai, google, openrouter, openai-compat,
 #                      claude-cli, codex-cli, opencode-cli
-models:
+# models:
   # triage: anthropic:claude-haiku-5-5
-  specialists:
+  # specialists:
     # correctness: anthropic:claude-sonnet-5-5
     # security: openai:gpt-5.2
     # tests: anthropic:claude-sonnet-5-5

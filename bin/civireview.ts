@@ -89,6 +89,7 @@ Watch Options:
   --wait-for-ci                        Defer full PR reviews while CI/Jenkins statuses are pending
   --wait-for-ci-max-minutes <n>        Max minutes to wait for pending CI before reviewing anyway (default: 90)
   --state <path>                       Path to persistent seen/budget state file
+  --out <dir>                          Save each finished review of a public repo as <dir>/<owner>-<repo>-<pr>-<comment>/review.json
   --check-only                         Poll for pending mentions and print JSON without reviewing
   --include-closed                     Include closed/merged PRs in search mode (default)
   --open-only                          Only scan open PRs in search mode
@@ -892,6 +893,7 @@ async function main(): Promise<void> {
       once: values.once || checkOnly,
       checkOnly,
       statePath: values.state ? resolve(values.state) : config.watch?.statePath,
+      outDir: values.out ? resolve(values.out) : undefined,
       config,
       repoRoot: cwd,
       dryRun: values['dry-run'],

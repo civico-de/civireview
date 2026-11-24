@@ -162,7 +162,8 @@ jobs:
           PRESET_VAL: ${{ inputs.preset || vars.CIVIREVIEW_PRESET || 'sonnet-opus' }}
           EFFORT_VAL: ${{ inputs.effort || vars.CIVIREVIEW_EFFORT || 'auto' }}
           DEPTH_VAL: ${{ inputs.depth || vars.CIVIREVIEW_DEPTH || 'deep' }}
-          AB_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.ab_enabled || 'true' }}
+          # `a && b || 'true'` would turn an unchecked box back into true.
+          AB_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.ab_enabled }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           MAX_PER_HOUR: ${{ vars.CIVIREVIEW_MAX_PER_HOUR || '10' }}
           MAX_DAILY_USD: ${{ vars.CIVIREVIEW_MAX_DAILY_USD || '15' }}
@@ -186,6 +187,7 @@ jobs:
             --max-age-minutes "$MAX_AGE_MINUTES"
             --lock-models
             --state "$PWD/.civireview-state/seen.json"
+            --out "$PWD/review-out"
             --once
           )
           if [ "$WAIT_FOR_CI" = "true" ]; then
@@ -206,6 +208,16 @@ jobs:
             ARGS+=(--dry-run)
           fi
           bun run bin/civireview.ts "${ARGS[@]}"
+
+      # Public artifact: the watcher saves reviews of public repositories only.
+      - name: Upload saved reviews
+        if: always() && steps.check.outputs.pending_count != '0'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: civireview-reviews-${{ github.run_id }}-${{ github.run_attempt }}
+          path: review-out/
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Save watcher state cache
         if: >

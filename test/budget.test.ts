@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { loadConfig } from '../src/config/loader.ts';
-import { assertWithinBudget } from '../src/engine/budget.ts';
+import { assertBudgetEnforceable, assertWithinBudget } from '../src/engine/budget.ts';
 import { runReviewPipeline } from '../src/engine/pipeline.ts';
 import { createRunnerRegistry } from '../src/runners/registry.ts';
 import type { StageRunner } from '../src/runners/types.ts';
@@ -89,5 +89,29 @@ describe('review.maxBudgetUsd', () => {
   test('the cap applies to the verifier as well', () => {
     expect(() => assertWithinBudget(2, 2, 'verifier')).toThrow(/before verifier/);
     expect(() => assertWithinBudget(1.99, 2, 'verifier')).not.toThrow();
+  });
+});
+
+const withVerifier = (maxBudgetUsd?: number) =>
+  loadConfig('/tmp/nonexistent-cfg-dir', {
+    preset: 'sonnet',
+    models: { verifier: 'codex-cli:some-model' },
+    ...(maxBudgetUsd === undefined ? {} : { review: { maxBudgetUsd } }),
+  });
+
+describe('assertBudgetEnforceable', () => {
+  test('a cap with a runner that reports no usage is rejected', () => {
+    expect(() => assertBudgetEnforceable(withVerifier(5))).toThrow(
+      /cannot be enforced for codex-cli:some-model/,
+    );
+  });
+
+  test('no cap, or a cap with metered runners only, is accepted', () => {
+    expect(() => assertBudgetEnforceable(withVerifier())).not.toThrow();
+    expect(() =>
+      assertBudgetEnforceable(
+        loadConfig('/tmp/nonexistent-cfg-dir', { preset: 'sonnet', review: { maxBudgetUsd: 5 } }),
+      ),
+    ).not.toThrow();
   });
 });

@@ -13,8 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Upgrade parity**: when schema or upgrader files change, the base version of the extension is installed, switched to the head and upgraded; its schema is compared with a fresh install of the head. A difference is a warning with the schema diff.
 - **Browser routes**: when UI files of an extension change, the routes it defines in `xml/Menu/*.xml` and `ang/*.aff.json` / `ang/*.aff.php` are probed.
 - **Documentation**: `docs/` with how a review is produced, the profiles, how to read a review, running, configuration and the security model.
-- **Review**: findings the verifier rejects or rates below 50% are listed in a collapsed "Rejected by the Verifier" section with the verifier's reason.
+- **Review**: findings the verifier rejects or rates below 50% are listed in a collapsed "Rejected or below 50% confidence" section with the verifier's verdict and reason.
 - **Logs**: every verifier verdict is logged as a `[finding]` line with its reason; retries and ignored unknown ids are logged as warnings.
+- **Config**: `botLogin` names the login the reviews are posted as; only its comments then count as the marker of an earlier review. Without it a marker in any comment is accepted, so a commenter could make a mention skip or move the start of an incremental review.
+- **Watcher**: `watch --out <dir>` saves each finished review of a public repository as `review.json`, and the watch workflow uploads them as an artifact kept for 90 days, so rejected candidates can be read later without running the review again.
 
 ### Changed
 - **Config**: `browser.viewport` is removed; it was never passed to the browser probe. A config that still sets it is rejected.
@@ -24,6 +26,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Verifier**: confidence is the probability that a finding is true, independent of its severity; a defect is described once.
 
 ### Fixed
+- **Verification matrix**: Live Surface Diff is `NOT_VERIFIED` when no live capture exists; it passed on the diff alone. A browser report that compared no route is `NOT_VERIFIED`.
+- **Verdicts**: `PROVEN` is lowered to `CONFIRMED` when no run produced a result and the finding carries no live proof.
+- **Upgrade parity**: a run counts only when the script reports the comparison itself; exit code 0 alone is not enough. An extension the PR adds is named as skipped.
+- **Extension gates**: a detected extension without a usable `info.xml` in the head, or without mountable head files, is named under *Not verified*.
+- **Taint delta**: an issue that turns from `INFO` into `ERROR` is new, the other direction is not; paths with spaces and issues written to stderr are read.
+- **Browser A/B**: a run that leaves no report cannot show that the extension was enabled and is reported as failed setup. Public forms of an extension are probed anonymously too.
+- **Proof of fix**: changed test files beyond the first five are named under *Not verified*.
+- **Verification matrix**: an extension's version matrix is its own row, `Version Matrix`; it was reported as Base-Test Regression. Exit codes of a proof run that errored no longer count as proof. A tautological test stays an issue in the standards table of a review that is otherwise ready.
+- **Triage**: a skip reason is honoured for a docs-only PR only; on a code PR the specialists run. A review whose lenses are all disabled says under *Not verified* that the code was not reviewed.
+- **Findings**: two findings of the same specialist on overlapping lines are both kept; they were merged as duplicates.
+- **Watcher**: thread replies count against `maxDailyUsd`. In `notifications` mode a failed mention with attempts left is fetched again; the cursor used to move past it.
+- **GitHub limits**: a review with several oversized sections and a long thread reply are cut to fit.
+- **Workflows**: unchecking `ab_enabled` on a manual watcher run disables A/B; an inline comment with review flags starts a review in the reusable workflow, as it does in the watcher.
+- **Watcher**: a review that fails midway counts the cost of its finished stages against `maxDailyUsd`.
+- **Merge confidence**: capped at 4 whenever neither proof of fix nor base-test regression ran a test; a skipped or missing row escaped the cap.
+- **A/B results**: a report that lists no test is no result. A run where only the PR side wrote results is not a proof of fix; it was reported as passed.
+- **Proof of fix**: a test file with a new and a changed existing test runs both; a change in a helper runs the whole file.
+- **Taint delta**: an unchanged blocking issue that moved is not paired with an advisory one of the base.
+- **Triage**: a docs-only skip also requires that every changed file is documentation.
+- **Findings**: a finding repeated by the same specialist under the same title is one finding.
+- **Demo**: script errors of the recording are read; the row passed without looking. Errors the base recording shows too do not count.
+- **Budget**: `review.maxBudgetUsd` together with a `codex-cli` or `opencode-cli` model is rejected, since those runs report no usage and were silently uncapped.
+- **Live probe**: two responses differ when their bodies differ anywhere, not only in the first 1500 characters.
+- **A/B clean-up**: worktrees and the work directory are removed when the run fails midway or only one worktree could be created.
+- **CI status**: up to 100 commit statuses are read; the default page held 30.
+- **Verifier**: a candidate is rejected as disproved only on a fact read or run in the review; recalled knowledge about unreadable code yields a question.
+- **Example config**: `civireview.example.yaml` loads as it is; the empty `models:` block was rejected.
 - **Extension gates**: taint and lifecycle run from the extension's directory. Started from the web root, lifecycle stopped at its precondition and was reported as a failed lifecycle, and taint scanned the whole instance until it timed out. A gate that does not reach its check is now listed as not verified and never becomes a finding.
 - **Taint delta**: only issue lines of the analysis are read. Timing and type-coverage lines, which differ between any two runs, and the trace lines of an issue were reported as new findings; an existing issue moved to another line was reported as new. A run that fails without an issue is listed as not verified.
 - **Extension gates**: each gate runs in an instance of its own name, and an instance left behind by a gate that timed out is removed. Before, one timeout made every later gate refuse to start. A failed analysis on the base, more bundled extensions than the gates cover, an extension that cannot be enabled for the browser probe and a PR mounted as whole directories are reported under *Not verified*.

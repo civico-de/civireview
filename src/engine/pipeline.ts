@@ -60,8 +60,14 @@ import {
   type TriageOutput,
   type VerifiedFinding,
 } from './schemas.ts';
-import { assertWithinBudget } from './budget.ts';
-import { collectVerdicts, withUniqueIds } from './verdicts.ts';
+import { assertBudgetEnforceable, assertWithinBudget } from './budget.ts';
+import {
+  acceptedSkipReason,
+  collectVerdicts,
+  hasRunEvidence,
+  withoutUnprovenProof,
+  withUniqueIds,
+} from './verdicts.ts';
 
 export {
   buildShortSummary,
@@ -88,12 +94,16 @@ export interface RunReviewPipelineOptions {
   logger?: PipelineLogger;
   liveUrls?: { A?: string; B?: string };
   composeFiles?: { A?: string; B?: string };
+  /** Filled stage by stage, so a caller can read the cost of a review that threw. */
+  usage?: TokenUsageTotals;
 }
 
 export interface RunThreadReplyOptions {
   bundle: EvidenceBundle;
   filteredPatch: string;
   threadContext: ThreadReplyInput;
+  /** Receives the cost of the reply. */
+  usage?: TokenUsageTotals;
   config: ResolvedCiviReviewConfig;
   cwd: string;
   registry?: RunnerRegistry;
@@ -343,6 +353,7 @@ export async function materializeHeadWorktree(
 export async function runReviewPipeline(options: RunReviewPipelineOptions): Promise<FinalReview> {
   const { bundle, filteredPatch, config, cwd } = options;
   const registry = options.registry ?? createRunnerRegistry();
+  assertBudgetEnforceable(config);
 
   const mcpScope = resolveMcpScope({
     isPrivateRepo: bundle.pr.isPrivateRepo,
@@ -377,7 +388,7 @@ async function executeReviewPipeline(
 
   const pipelineStart = Date.now();
   const modelsUsed: Record<string, ModelSpec> = {};
-  const tokenTotals: TokenUsageTotals = {
+  const tokenTotals: TokenUsageTotals = options.usage ?? {
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
@@ -442,15 +453,17 @@ async function executeReviewPipeline(
   );
   const activeLenses = candidateLenses.filter((lens) => isLensEnabled(config, lens));
 
-  if (!triage.skipReason && candidateLenses.length === 0) {
+  const skipReason = acceptedSkipReason(triage, bundle, (m) => logger?.warn?.(m));
+  if (!skipReason && candidateLenses.length === 0) {
     throw new Error(
       'Triage returned no active lenses and no skipReason; refusing to report an unreviewed PR as ready.',
     );
   }
 
-  if ((triage.skipReason && !browserSignal) || activeLenses.length === 0) {
+  if ((skipReason && !browserSignal) || activeLenses.length === 0) {
     const skippedReason =
-      triage.skipReason ?? 'All specialist lenses selected by triage are disabled by config.';
+      skipReason ?? 'All specialist lenses selected by triage are disabled by config.';
+    if (!skipReason) notVerified.push(`The code was not reviewed: ${skippedReason}`);
     logger?.info?.(`Triage skipped specialists: ${skippedReason}`);
     const skipVerdict = computeFinalVerdict([], verificationMatrix);
     const skipScore = computeConfidenceScore({
@@ -485,7 +498,7 @@ async function executeReviewPipeline(
       // already implied by its summary.
       walkthrough:
         triage.summaryBullets.length > 0
-          ? [...triage.summaryBullets, ...(triage.skipReason ? [] : [skippedReason])]
+          ? [...triage.summaryBullets, ...(skipReason ? [] : [skippedReason])]
           : [skippedReason],
       verificationMatrix,
       notVerified,
@@ -841,6 +854,7 @@ async function executeReviewPipeline(
   }
 
   // Stage 3: Confidence Gate, Dedup, Ranking & Inline Cap
+  rawVerified = withoutUnprovenProof(rawVerified, hasRunEvidence(bundle), (m) => logger?.warn?.(m));
   for (const f of rawVerified) {
     logger?.info?.(
       `[finding] ${f.id} lens=${f.lens} ${f.verdict} confidence=${f.confidence} severity=${f.reassessedSeverity} "${f.title}" — ${f.verificationEvidence.slice(0, 300)}`,
@@ -975,6 +989,7 @@ export async function runThreadReply(options: RunThreadReplyOptions): Promise<Th
     },
     registry,
   );
+  if (options.usage) accumulateUsage(options.usage, 'thread-reply', res.model, res.usage);
 
   return res.output;
 }

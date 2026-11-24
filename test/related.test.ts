@@ -275,14 +275,24 @@ describe('related open PRs & GitLab issue discovery', () => {
     const mockRunner: StageRunner = {
       providers: ['anthropic'],
       async run(req) {
+        if (req.stage !== 'triage') {
+          const output = req.stage.startsWith('specialist')
+            ? { lens: 'correctness', summary: 'none', findings: [], checkedWithoutFindings: [] }
+            : { verifiedFindings: [], notes: 'none' };
+          return {
+            output: req.schema.parse(output),
+            model: req.model,
+            provider: 'anthropic',
+            durationMs: 1,
+          };
+        }
         return {
           output: req.schema.parse({
-            prKind: 'docs-only',
+            prKind: 'core-bugfix',
             riskLevel: 'low',
-            activeLenses: [],
+            activeLenses: ['correctness'],
             summaryBullets: ['Fixes min=0 attribute'],
             recommendedAbTests: [],
-            skipReason: 'Test skip',
             relatedItems: [
               {
                 kind: 'pr',

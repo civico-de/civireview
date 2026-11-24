@@ -3,7 +3,12 @@ import type { FinalReview } from '../src/engine/schemas.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import { extractAllReviewedMarkers } from '../src/evidence/github.ts';
 import { BrowserDiffReportSchema, type EvidenceBundle } from '../src/evidence/types.ts';
-import { formatReviewMarkdown } from '../src/github/formatter.ts';
+import {
+  fitSectionsToLimit,
+  formatReviewMarkdown,
+  MAX_GITHUB_BODY_CHARS,
+} from '../src/github/formatter.ts';
+import { formatThreadReplyBody } from '../src/github/thread-reply.ts';
 import {
   publishReview,
   publishThreadReply,
@@ -719,5 +724,31 @@ describe('formatter reference sections', () => {
     const out = body(withThreads, makeSampleBundle(), true);
     expect(out).toContain('| @bob | Why public? |');
     expect(out).toContain('| @carol | Add a test | ✅ Addressed |');
+  });
+});
+
+describe('GitHub body limit', () => {
+  test('two oversized sections are both cut and the footer stays', () => {
+    const footer = '<!-- civireview:v1 head_sha=abc -->';
+    const out = fitSectionsToLimit(['# Title', 'a'.repeat(70_000), 'b'.repeat(70_000), footer]);
+    expect(out.join('\n\n').length).toBeLessThanOrEqual(MAX_GITHUB_BODY_CHARS);
+    expect(out.at(-1)).toBe(footer);
+  });
+
+  test('a body within the limit is left alone', () => {
+    const sections = ['# Title', 'short', 'footer'];
+    expect(fitSectionsToLimit(sections)).toEqual(sections);
+  });
+
+  test('an oversized thread reply is cut and keeps its dedup marker', () => {
+    const replyBody = formatThreadReplyBody(
+      { reply: 'x'.repeat(80_000), resolved: false, references: ['CRM/Foo.php:1'] },
+      { triggerCommentId: 7 },
+    );
+    expect(replyBody.length).toBeLessThanOrEqual(MAX_GITHUB_BODY_CHARS);
+    expect(replyBody).toContain('<!-- civireview:reply trigger_comment=7 -->');
+    expect(formatThreadReplyBody({ reply: 'ok', resolved: true, references: [] })).not.toContain(
+      'truncated',
+    );
   });
 });

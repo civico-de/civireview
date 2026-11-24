@@ -202,14 +202,23 @@ export function findEnclosingModifiedTestMethods(
   targetDiff: DiffFile,
   worktreeRoot?: string,
 ): string[] {
-  if (!worktreeRoot) return [];
+  return enclosingTestMethods(targetDiff, worktreeRoot).methods;
+}
+
+/** `outsideTest` is set when a hunk starts in a helper, where no method filter is safe. */
+function enclosingTestMethods(
+  targetDiff: DiffFile,
+  worktreeRoot?: string,
+): { methods: string[]; outsideTest: boolean } {
+  const none = { methods: [], outsideTest: false };
+  if (!worktreeRoot) return none;
   const fullPath = join(worktreeRoot, targetDiff.path);
-  if (!existsSync(fullPath)) return [];
+  if (!existsSync(fullPath)) return none;
   let lines: string[];
   try {
     lines = readFileSync(fullPath, 'utf8').split(/\r?\n/);
   } catch {
-    return [];
+    return none;
   }
   const found = new Set<string>();
   const methodRe =
@@ -228,11 +237,11 @@ export function findEnclosingModifiedTestMethods(
       }
       if (anyFuncRe.test(line)) {
         // Inside a non-test helper/setUp/dataProvider method — cannot safely filter
-        return [];
+        return { methods: [], outsideTest: true };
       }
     }
   }
-  return Array.from(found);
+  return { methods: Array.from(found), outsideTest: false };
 }
 
 export function buildPerFileFilterArgs(
@@ -246,8 +255,11 @@ export function buildPerFileFilterArgs(
   const added = Array.from(
     new Set(addedTestMethods.filter((m) => m.file === targetPath).map((m) => m.method)),
   );
-  const methods =
-    added.length > 0 ? added : findEnclosingModifiedTestMethods(targetDiff, worktreeB);
+  // Added methods alone would leave out an existing test the PR also changes; a change
+  // in a helper can affect any test, so then the whole file runs.
+  const enclosing = enclosingTestMethods(targetDiff, worktreeB);
+  if (enclosing.outsideTest) return [];
+  const methods = Array.from(new Set([...added, ...enclosing.methods]));
   if (methods.length < 1 || methods.length > 10) return [];
   return ['--filter', `/(^|::)(${methods.join('|')})(\\s|$)/`];
 }

@@ -28,6 +28,7 @@ const EMPIRICAL_BLOCKING_CHECKS = new Set<string>([
   'A/B Proof-of-Fix',
   'CiviKitchen A/B Proof-of-Fix',
   'Base-Test Regression',
+  'Version Matrix',
   'Browser A/B (Standalone)',
   'Static / Taint Delta',
   'Demo',
@@ -61,6 +62,10 @@ export function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd
   return aLo <= bHi && bLo <= aHi;
 }
 
+function sameTitle(a: VerifiedFinding, b: VerifiedFinding): boolean {
+  return a.title.trim().toLowerCase() === b.title.trim().toLowerCase();
+}
+
 export function deduplicateVerifiedFindings(findings: VerifiedFinding[]): VerifiedFinding[] {
   const sorted = findings.toSorted(compareVerifiedFindings);
   const kept: VerifiedFinding[] = [];
@@ -71,6 +76,8 @@ export function deduplicateVerifiedFindings(findings: VerifiedFinding[]): Verifi
       (existing) =>
         normalizePath(existing.path) === normPath &&
         existing.side === candidate.side &&
+        // Within one lens only a repeated title is the same defect reported again.
+        (existing.lens !== candidate.lens || sameTitle(existing, candidate)) &&
         rangesOverlap(existing.startLine, existing.endLine, candidate.startLine, candidate.endLine),
     );
     if (!duplicate) {

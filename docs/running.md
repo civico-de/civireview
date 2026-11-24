@@ -130,8 +130,30 @@ The watcher keeps processed comment ids and the budget records in a state file
 review is skipped unless the mention says `--full`. A mention whose processing fails
 counts against the budget and is given up after three attempts.
 
+Limits of the watcher:
+
+- `--max-daily-usd` is checked before a review starts, so the day can end above it by
+  the cost of the last review. `review.maxBudgetUsd` limits that amount to its own
+  value plus one model call.
+- One watcher per state file. Two processes on the same file review a mention twice and
+  overwrite each other's budget records; the workflow uses a concurrency group for this.
+- A poll reads the 30 most recently updated PRs that mention the trigger (`search`) or
+  50 notifications (`notifications`), and the first 500 comments of each kind per PR.
+  A mention beyond these is not seen.
+- A PR counts as reviewed when a comment on it carries the review marker for the
+  current head. Without `botLogin` in the config the author of that comment is not
+  checked: anyone who can comment can make a plain mention skip, or move the start of
+  an incremental review. Set `botLogin`; `--full` reviews everything regardless.
+
+With `--out <dir>` every finished review is also saved as
+`<dir>/<owner>-<repo>-<pr>-<comment id>/review.json`, before it is posted. The file
+holds the whole review including the candidates the verifier rejected, which the
+posted comment and the log only summarise. Reviews of a private repository are not
+saved, so the directory can be published.
+
 [`.github/workflows/watch-core.yml`](../.github/workflows/watch-core.yml) runs the
-watcher on a schedule. It does nothing until the repository variable
+watcher on a schedule. It uploads the saved reviews of a run as the workflow artifact
+`civireview-reviews-<run id>-<attempt>`, kept for 90 days. It does nothing until the repository variable
 `CIVIREVIEW_WATCH_ENABLED` is `true`; the token of the bot account goes into the secret
 `CIVIREVIEW_GITHUB_TOKEN`. The other variables and their defaults are at the top of the
 workflow's steps. [`scripts/external-cron-trigger.sh`](../scripts/external-cron-trigger.sh)

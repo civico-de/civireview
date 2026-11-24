@@ -5,6 +5,7 @@ import {
   computeConfidenceScore,
   mergeStandards,
   reconcileMatrixForTriage,
+  reconcileStandardsDeterministically,
 } from '../src/engine/matrix.ts';
 import type {
   TriageOutput,
@@ -157,6 +158,40 @@ describe('buildVerificationMatrix: A/B rows', () => {
     });
   });
 
+  test('exit codes of a run that errored prove nothing', () => {
+    const b = bundleWithChecks([
+      { mode: 'exit-status', exitCodeA: 1, exitCodeB: 0, status: 'ERROR', fixed: [], summary: 's' },
+    ]);
+    expect(rowOf(b, 'A/B Proof-of-Fix')?.status).toBe('NOT_VERIFIED');
+  });
+
+  test('a tautological test stays an issue of a review that is otherwise ready', () => {
+    const b = bundleWithChecks([
+      {
+        name: 'proof-of-fix',
+        status: 'PASS',
+        fixed: [],
+        tautologicalTests: [
+          { method: 'testX', file: 'tests/XTest.php', line: 3, testCaseName: 'XTest::testX' },
+        ],
+      },
+    ]);
+    const standards = reconcileStandardsDeterministically({
+      standards: [
+        { code: 'r-maint', status: 'PASS', note: 'ok' },
+        { code: 'r-code', status: 'ISSUE', note: 'a finding that did not survive' },
+      ],
+      verdict: 'READY',
+      survivingFindings: [],
+      verificationMatrix: buildVerificationMatrix(b).verificationMatrix,
+      bundle: b,
+    })!;
+    expect(Object.fromEntries(standards.map((s) => [s.code, s.status]))).toEqual({
+      'r-maint': 'ISSUE',
+      'r-code': 'PASS',
+    });
+  });
+
   test('tests failing on both sides only warn, an internal runner error is not verified', () => {
     const both = bundleWithChecks([{ status: 'PASS', fixed: [], bothFail: ['X::y'] }]);
     expect(rowOf(both, 'A/B Proof-of-Fix')?.status).toBe('WARN');
@@ -205,12 +240,12 @@ describe('buildVerificationMatrix: A/B rows', () => {
       status: 'FAIL',
       detail: expect.stringContaining('A::a, B::b'),
     });
-    expect(
-      rowOf(
-        bundleWithChecks([{ name: 'floor-vs-beta-matrix', status: 'PASS', fixed: [] }]),
-        'Base-Test Regression',
-      )?.status,
-    ).toBe('PASS');
+    // The head on two CiviCRM versions says nothing about base against head.
+    const versions = bundleWithChecks([
+      { name: 'floor-vs-beta-matrix', status: 'PASS', fixed: [] },
+    ]);
+    expect(rowOf(versions, 'Version Matrix')?.status).toBe('PASS');
+    expect(rowOf(versions, 'Base-Test Regression')?.status).not.toBe('PASS');
     expect(
       rowOf(
         bundleWithChecks([{ name: 'base-test-regression', status: 'ERROR', fixed: [] }]),
@@ -235,6 +270,12 @@ describe('buildVerificationMatrix: surface, static, browser and demo rows', () =
       )?.detail,
     ).toContain('perm-removed(Foo.get)');
     expect(rowOf(withLive({ risk_flags: [] }), 'Live Surface Diff')?.status).toBe('PASS');
+  });
+
+  test('live surface diff: without a capture the row cannot pass', () => {
+    const row = rowOf(base, 'Live Surface Diff')!;
+    expect(row.status).toBe('NOT_VERIFIED');
+    expect(row.detail).toContain('Live surface not captured');
   });
 
   test('static delta: errors fail, other findings warn, not executed is omitted on core', () => {
@@ -391,12 +432,22 @@ describe('computeConfidenceScore rationale', () => {
     const result = computeConfidenceScore({
       verdict: 'READY',
       findings: [],
-      verificationMatrix: [entry('CI / Jenkins', 'PASS'), entry('Live Surface Diff', 'PASS')],
+      verificationMatrix: [entry('CI / Jenkins', 'PASS'), entry('Base-Test Regression', 'PASS')],
     });
     expect(result).toEqual({
       score: 5,
-      rationale: 'No verified issues; passed CI / Jenkins, Live Surface Diff.',
+      rationale: 'No verified issues; passed CI / Jenkins, Base-Test Regression.',
     });
+  });
+
+  test('without any test run a code PR is capped at 4, a docs-only PR is not', () => {
+    const noTests = {
+      verdict: 'READY' as const,
+      findings: [],
+      verificationMatrix: [entry('CI / Jenkins', 'PASS'), entry('A/B Proof-of-Fix', 'SKIPPED')],
+    };
+    expect(computeConfidenceScore(noTests)).toEqual({ score: 4, rationale: 'No A/B test ran.' });
+    expect(computeConfidenceScore({ ...noTests, prKind: 'docs-only' }).score).toBe(5);
   });
 });
 
@@ -439,6 +490,18 @@ describe('browser smoke probe and score basis', () => {
     expect(smoke.status).toBe('NOT_VERIFIED');
     expect(smoke.detail).toContain('--page <route>');
     expect(rowOf(browser({}), 'Browser A/B (Standalone)')?.status).toBe('PASS');
+  });
+
+  test('a clean browser report that compared no route is not verified', () => {
+    const none = { status: 'NOT_VERIFIED', detail: 'The browser run compared no route.' };
+    expect(rowOf(browser({ probedRoutes: [] }), 'Browser A/B (Standalone)')).toMatchObject(none);
+    // The requested routes are listed, but the report counts none as compared.
+    expect(rowOf(browser({ counts: { routes: 0 } }), 'Browser A/B (Standalone)')).toMatchObject(
+      none,
+    );
+    expect(rowOf(browser({ counts: { routes: 1 } }), 'Browser A/B (Standalone)')?.status).toBe(
+      'PASS',
+    );
   });
 
   test('a regression on the dashboard still fails a smoke-only probe', () => {

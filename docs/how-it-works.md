@@ -74,7 +74,7 @@ Every check below runs the same command on A and on B and compares the outcome.
 
 | Check | What runs | Result |
 | --- | --- | --- |
-| Proof of fix | PHPUnit files the PR adds or changes, limited to the changed test methods | A test that fails on A and passes on B proves the fix. A new test that already passes on A proves nothing and is reported as tautological. |
+| Proof of fix | PHPUnit files the PR adds or changes (the first five; further ones are named under *Not verified*), limited to the changed test methods | A test that fails on A and passes on B proves the fix. A new test that already passes on A proves nothing and is reported as tautological. |
 | Base-test regression | Existing tests next to the changed code | A test that passes on A and fails on B is a regression. |
 | Live surface diff | APIv4 entities, actions and fields, APIv3, routes and Afforms as each instance reports them | What really changed at runtime, with risk flags for permission and route changes. |
 | Browser A/B | A headless browser loads routes on both sides | New console errors, page errors, failed requests, accessibility violations and render differences; before/after screenshots. |
@@ -94,7 +94,8 @@ so, but it is measured rather than read from the upgrader code.
 
 ### 2.6 Which routes the browser probes
 
-Routes are collected in this order, up to `browser.maxAutoPages`:
+Routes are collected in this order. Named routes are always probed; discovered routes
+are cut off at `browser.maxAutoPages`, separately for logged-in and anonymous probes:
 
 1. routes named with `--page` or in `browser.pages`,
 2. routes and Afforms that the live surface diff reports as changed,
@@ -173,7 +174,8 @@ It also reassesses the severity, sets a confidence from 0 to 100 that the findin
 true, merges duplicates and reconciles the summary and the standards table with what
 survived.
 
-At depth `deep` the verifier runs even if the specialists found nothing, and it may hand
+At depth `deep` the verifier runs even if the specialists found nothing (not when triage
+skipped them, e.g. for a docs-only PR), and it may hand
 back leads ("check whether X also happens in Y"). Each lead goes to the matching
 specialist for another round and the results come back to the verifier, for at most
 `review.maxFollowUpRounds` rounds.
@@ -204,5 +206,5 @@ model chooses them.
   incremental review reads.
 
 A reply to `@civireview <question>` inside a review thread takes a shorter path: one
-model call with the thread and the saved evidence, posted into that thread. No instance
+model call with the thread, the PR and its diff, posted into that thread. No instance
 is started.

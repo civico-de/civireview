@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../src/config/loader.ts';
+import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import { runReviewPipeline, runThreadReply } from '../src/engine/pipeline.ts';
 import { FinalReviewSchema } from '../src/engine/schemas.ts';
 import { makeBundle, SAMPLE_PATCH } from './helpers/bundle.ts';
@@ -350,7 +351,16 @@ describe('review pipeline', () => {
 
     const registry = createRunnerRegistry({ anthropic: mockRunner });
     const review = await runReviewPipeline({
-      bundle: makeBundle(),
+      bundle: makeBundle({
+        diffFiles: parseUnifiedDiff(`diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,3 @@
+ # Title
++One more sentence.
+ End.
+`),
+      }),
       filteredPatch: '',
       config,
       cwd: process.cwd(),

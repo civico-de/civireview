@@ -315,6 +315,7 @@ export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 export const CiviReviewConfigSchema = z
   .object({
     trigger: z.string().min(1).default('@civireview'),
+    botLogin: z.string().min(1).optional(),
     preset: PresetNameSchema.default('sonnet'),
     models: ModelOverridesSchema.optional(),
     ab: AbConfigSchema.optional(),
@@ -331,6 +332,8 @@ export type CiviReviewConfig = z.infer<typeof CiviReviewConfigSchema>;
 
 export interface ResolvedCiviReviewConfig {
   trigger: string;
+  /** Login the reviews are posted as; when set, only its comments count as markers. */
+  botLogin?: string;
   preset: PresetName;
   models: PresetModels;
   ab: AbConfig;

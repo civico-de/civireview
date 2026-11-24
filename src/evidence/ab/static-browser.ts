@@ -132,14 +132,23 @@ step "disable" cv ext:disable "$key"
 step "uninstall" cv ext:uninstall "$key"
 step "fresh install" cv ext:enable "$key"
 step "dump fresh" ckschemadiff dump "$db" /tmp/cr-fresh.sql
-ckschemadiff diff /tmp/cr-fresh.sql /tmp/cr-upgraded.sql
+ckschemadiff diff /tmp/cr-fresh.sql /tmp/cr-upgraded.sql; rc=$?
+[ "$rc" -eq 0 ] && echo "upgrade-parity: schemas identical"
+exit "$rc"
 `;
+const PARITY_IDENTICAL = /^upgrade-parity: schemas identical$/m;
+
+/** Container path of a `src:dst[:ro]` mount spec; the host path may itself contain a colon. */
+function mountDestination(spec: string): string {
+  const withoutMode = spec.replace(/:(ro|rw)$/, '');
+  return withoutMode.slice(withoutMode.lastIndexOf(':') + 1);
+}
 
 /** Drops `--mount src:dst` pairs whose destination lies inside `containerDir`. */
 function mountsOutside(mounts: string[], containerDir: string): string[] {
   const kept: string[] = [];
   for (let i = 0; i + 1 < mounts.length; i += 2) {
-    const dst = mounts[i + 1]!.split(':')[1] ?? '';
+    const dst = mountDestination(mounts[i + 1]!);
     if (dst !== containerDir && !dst.startsWith(`${containerDir}/`)) {
       kept.push(mounts[i]!, mounts[i + 1]!);
     }
@@ -203,15 +212,25 @@ export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): 
     );
   }
 
-  for (const target of resolveExtensionTargets(ctx.repoInfo, ctx.worktreeA, ctx.worktreeB)) {
+  const targets = resolveExtensionTargets(ctx.repoInfo, ctx.worktreeA, ctx.worktreeB);
+  for (const dir of (ctx.repoInfo.bundledExtensions ?? []).slice(0, MAX_BUNDLED_TARGETS)) {
+    if (!targets.some((t) => t.repoPrefix === `${dir}/`)) {
+      notVerified.push(`${dir} not checked: no info.xml with a valid key in the PR head`);
+    }
+  }
+
+  for (const target of targets) {
     const files = diffFiles.filter((f) => f.path.startsWith(target.repoPrefix));
     const inDir = [...IN_DIR, target.containerDir];
 
-    if (
-      isCheckEnabled(effectiveCfg, 'static-delta') &&
-      ctx.mountsAOnly.length > 0 &&
-      ctx.mountsBOnly.length > 0
-    ) {
+    // A change to tests alone leaves the extension's code as it is in the image.
+    if (files.every((f) => f.flags.isTest)) continue;
+    if (ctx.mountsBOnly.length === 0) {
+      notVerified.push(`${target.key} not checked: no file of the PR head could be mounted`);
+      continue;
+    }
+
+    if (isCheckEnabled(effectiveCfg, 'static-delta')) {
       const taintCmd = [...inDir, 'ck', 'taint'];
       const taintA = await ckRun('taint-a', imageA, ctx.mountsAOnly, taintCmd, 300_000);
       const taintB = await ckRun('taint-b', imageB, ctx.mountsBOnly, taintCmd, 300_000);
@@ -225,7 +244,7 @@ export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): 
       } else {
         const sides = [taintA, taintB].map((res) => ({
           res,
-          items: parseTaintFindings(res.stdout || res.stderr),
+          items: parseTaintFindings(`${res.stdout}\n${res.stderr}`),
         }));
         // A non-zero exit without an error-level issue is a tool failure, not a taint finding.
         const failed = sides.find(
@@ -264,10 +283,7 @@ export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): 
       continue;
     }
 
-    if (
-      (needsLifecycle || effectiveCfg.review.include.includes('lifecycle')) &&
-      ctx.mountsBOnly.length > 0
-    ) {
+    if (needsLifecycle || effectiveCfg.review.include.includes('lifecycle')) {
       const lcRes = await ckRun(
         'lifecycle',
         imageB,
@@ -296,13 +312,16 @@ export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): 
     }
 
     // A directory mount over a parent keeps the extension directory read-only.
-    const coveredByMount = ctx.mountsBOnly.some((m) => {
-      const dst = m.split(':')[1];
-      return dst !== undefined && target.containerDir.startsWith(`${dst}/`);
-    });
+    const coveredByMount = ctx.mountsBOnly.some(
+      (m) => m !== '--mount' && target.containerDir.startsWith(`${mountDestination(m)}/`),
+    );
     if (needsParity && target.hostA && coveredByMount) {
       notVerified.push(
         `Upgrade parity skipped for ${target.key}: the PR is mounted as whole directories, so the extension cannot be replaced in the instance.`,
+      );
+    } else if (needsParity && !target.hostA) {
+      notVerified.push(
+        `Upgrade parity skipped for ${target.key}: the PR adds the extension, there is no base version to upgrade from.`,
       );
     } else if (needsParity && target.hostA) {
       const res = await ckRun(
@@ -319,7 +338,7 @@ export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): 
         420_000,
       );
       const out = gateOutput(res);
-      if (res.exitCode === 0 && !res.timedOut) {
+      if (res.exitCode === 0 && !res.timedOut && PARITY_IDENTICAL.test(out)) {
         markRun('ckschemaparity');
       } else if (res.exitCode === 1 && /the two schemas differ/.test(out)) {
         markRun('ckschemaparity');
@@ -565,13 +584,13 @@ export async function runStandaloneBrowserAb(
     keptComposeFiles = { A: candidateComposeA, B: candidateComposeB };
   }
 
+  // A missing report leaves the exit codes undefined: the setup is then unproven, not passed.
   const setupFailed =
-    bundledKeys.length > 0 &&
-    ((parsedJson?.exitCodeA ?? 0) !== 0 || (parsedJson?.exitCodeB ?? 0) !== 0);
+    bundledKeys.length > 0 && (parsedJson?.exitCodeA !== 0 || parsedJson?.exitCodeB !== 0);
   if (setupFailed) {
     // Without the extension enabled on both sides its routes do not exist; the probe compares nothing.
     browserDiff = BrowserDiffReportSchema.parse({
-      error: `could not enable ${bundledKeys.join(', ')} (exit ${parsedJson?.exitCodeA} on base, ${parsedJson?.exitCodeB} on head)`,
+      error: `could not enable ${bundledKeys.join(', ')} (exit ${parsedJson?.exitCodeA ?? 'unknown'} on base, ${parsedJson?.exitCodeB ?? 'unknown'} on head)`,
       probedRoutes: routes.pages,
       probedAnonymousRoutes: routes.anonymousPages,
     });

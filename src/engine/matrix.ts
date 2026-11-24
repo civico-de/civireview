@@ -93,6 +93,7 @@ export function isStandardBackedByMatrixFail(
         failedChecks.has('A/B Proof-of-Fix') ||
         failedChecks.has('CiviKitchen A/B Proof-of-Fix') ||
         failedChecks.has('Base-Test Regression') ||
+        failedChecks.has('Version Matrix') ||
         failedChecks.has('Browser A/B (Standalone)') ||
         failedChecks.has('Demo')
       );
@@ -134,6 +135,19 @@ export function reconcileStandardsDeterministically(params: {
   }
   if (byCode.size === 0) return undefined;
 
+  // Runs before the measured issues below are set, which no missing finding can clear.
+  if (verdict === 'READY' && survivingFindings.length === 0) {
+    for (const [code, item] of byCode.entries()) {
+      if (item.status === 'ISSUE' && !isStandardBackedByMatrixFail(code, verificationMatrix)) {
+        byCode.set(code, {
+          ...item,
+          status: 'PASS',
+          note: `${item.note} (Reconciled: no surviving verified findings.)`,
+        });
+      }
+    }
+  }
+
   const proofCheck = bundle.abReport.checks.find((c) => c.name === 'proof-of-fix');
   const tautological = proofCheck?.tautologicalTests ?? [];
   if (tautological.length > 0 && (proofCheck?.fixed.length ?? 0) === 0) {
@@ -153,19 +167,34 @@ export function reconcileStandardsDeterministically(params: {
     }
   }
 
-  if (verdict === 'READY' && survivingFindings.length === 0) {
-    for (const [code, item] of byCode.entries()) {
-      if (item.status === 'ISSUE' && !isStandardBackedByMatrixFail(code, verificationMatrix)) {
-        byCode.set(code, {
-          ...item,
-          status: 'PASS',
-          note: `${item.note} (Reconciled: no surviving verified findings.)`,
-        });
-      }
-    }
-  }
-
   return Array.from(byCode.values());
+}
+
+type AbCheck = EvidenceBundle['abReport']['checks'][number];
+
+/** Row of a check that runs the same tests on two sides and looks for pass-to-fail. */
+function regressionRow(
+  label: string,
+  check: AbCheck,
+  hideSkipped: boolean,
+): VerificationMatrixEntry | undefined {
+  const pairPrefix = check.imageA !== check.imageB ? `${check.imageA} vs ${check.imageB}: ` : '';
+  if (check.regressions.length > 0 || check.status === 'FAIL') {
+    return {
+      check: label,
+      status: 'FAIL',
+      detail: `${pairPrefix}${check.regressions.slice(0, 5).join(', ') || check.summary}`,
+    };
+  }
+  if (check.status === 'ERROR') {
+    return {
+      check: label,
+      status: 'NOT_VERIFIED',
+      detail: `${pairPrefix}The test run gave no usable result (not a PR failure): ${check.summary}`,
+    };
+  }
+  if (check.status === 'SKIPPED' && hideSkipped) return undefined;
+  return { check: label, status: check.status, detail: `${pairPrefix}${check.summary}` };
 }
 
 /**
@@ -254,6 +283,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         detail: `${pairPrefix}${tautological.length} added test method(s) passed on unfixed base (tautological: ${names})`,
       });
     } else if (
+      proofCheck.status === 'PASS' &&
       proofCheck.mode === 'exit-status' &&
       proofCheck.exitCodeA !== undefined &&
       proofCheck.exitCodeA !== 0 &&
@@ -282,7 +312,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       matrix.push({
         check: proofCheckLabel,
         status: 'NOT_VERIFIED',
-        detail: `${pairPrefix}Internal A/B test runner error — could not execute test file (not a PR failure).`,
+        detail: `${pairPrefix}The test run gave no usable result (not a PR failure): ${proofCheck.summary}`,
       });
     } else {
       matrix.push({
@@ -303,46 +333,11 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     });
   }
 
-  // 3. Base-Test Regression
-  const baseCheck = bundle.abReport.checks.find(
-    (c) => c.name === 'base-test-regression' || c.name === 'floor-vs-beta-matrix',
-  );
+  // 3. Base-Test Regression, and the version matrix of an extension
+  const baseCheck = bundle.abReport.checks.find((c) => c.name === 'base-test-regression');
   if (baseCheck) {
-    const pairPrefix =
-      baseCheck.imageA !== baseCheck.imageB ? `${baseCheck.imageA} vs ${baseCheck.imageB}: ` : '';
-    if (baseCheck.regressions.length > 0 || baseCheck.status === 'FAIL') {
-      matrix.push({
-        check: 'Base-Test Regression',
-        status: 'FAIL',
-        detail: `${pairPrefix}${baseCheck.regressions.slice(0, 5).join(', ') || baseCheck.summary}`,
-      });
-    } else if (baseCheck.status === 'PASS') {
-      matrix.push({
-        check: 'Base-Test Regression',
-        status: 'PASS',
-        detail: `${pairPrefix}${baseCheck.summary}`,
-      });
-    } else if (baseCheck.status === 'SKIPPED') {
-      if (!isCore) {
-        matrix.push({
-          check: 'Base-Test Regression',
-          status: 'SKIPPED',
-          detail: `${pairPrefix}${baseCheck.summary}`,
-        });
-      }
-    } else if (baseCheck.status === 'ERROR') {
-      matrix.push({
-        check: 'Base-Test Regression',
-        status: 'NOT_VERIFIED',
-        detail: `${pairPrefix}Internal A/B test runner error — could not execute base regression tests (not a PR failure).`,
-      });
-    } else {
-      matrix.push({
-        check: 'Base-Test Regression',
-        status: 'WARN',
-        detail: `${pairPrefix}${baseCheck.summary}`,
-      });
-    }
+    const row = regressionRow('Base-Test Regression', baseCheck, isCore);
+    if (row) matrix.push(row);
   } else if (!bundle.abReport.executed || !isCore) {
     matrix.push({
       check: 'Base-Test Regression',
@@ -352,6 +347,9 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         : 'Base-test regression A/B did not run.',
     });
   }
+  const versionCheck = bundle.abReport.checks.find((c) => c.name === 'floor-vs-beta-matrix');
+  const versionRow = versionCheck && regressionRow('Version Matrix', versionCheck, false);
+  if (versionRow) matrix.push(versionRow);
 
   // 4. Live Surface Diff
   const liveSurf = bundle.abReport.surfaceDiff.liveSurfaceDiff;
@@ -380,10 +378,11 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     }
   } else {
     const staticChanges = bundle.abReport.surfaceDiff.changes;
+    // Without a live capture the row rests on the diff alone and cannot pass.
     matrix.push({
       check: 'Live Surface Diff',
-      status: staticChanges.length > 0 ? 'WARN' : 'PASS',
-      detail: bundle.abReport.surfaceDiff.summary,
+      status: staticChanges.length > 0 ? 'WARN' : 'NOT_VERIFIED',
+      detail: `Live surface not captured; from the diff: ${bundle.abReport.surfaceDiff.summary}`,
     });
   }
 
@@ -444,6 +443,12 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
           check: 'Browser A/B (Standalone)',
           status: consoleErrs + pageErrs + netFails + renderReg > 0 ? 'FAIL' : 'WARN',
           detail: `Probed ${routesCount} route(s): ${consoleErrs} console, ${pageErrs} page, ${netFails} network, ${a11yViol} a11y, ${renderReg} render regression(s).`,
+        });
+      } else if ((typeof bd.counts?.routes === 'number' ? bd.counts.routes : routesCount) === 0) {
+        matrix.push({
+          check: 'Browser A/B (Standalone)',
+          status: 'NOT_VERIFIED',
+          detail: 'The browser run compared no route.',
         });
       } else if (bd.smokeOnly) {
         matrix.push({
@@ -593,6 +598,11 @@ function isConfirmedFinding(f: VerifiedFinding): boolean {
  * - 2/5: High risk — confirmed high-severity defect or empirical CI/taint/browser/proof regression.
  * - 1/5: Critical blocker — confirmed critical defect or multiple confirmed high-severity defects.
  */
+/** True when the row stands for tests that ran, whatever their outcome. */
+function ranTests(row?: VerificationMatrixEntry): boolean {
+  return row?.status === 'PASS' || row?.status === 'WARN' || row?.status === 'FAIL';
+}
+
 export function computeConfidenceScore(params: {
   verdict: FinalVerdict;
   findings: VerifiedFinding[];
@@ -704,6 +714,9 @@ export function computeConfidenceScore(params: {
   } else if (baseReg?.status === 'WARN') {
     capAt(4, 'Base-Test Regression completed with warnings');
   }
+  if (byCheck.get('Version Matrix')?.status === 'FAIL') {
+    capAt(3, 'tests fail on the newer CiviCRM version');
+  }
 
   if (surface?.status === 'WARN') {
     capAt(4, 'Live Surface Diff flagged permission/route changes');
@@ -717,8 +730,8 @@ export function computeConfidenceScore(params: {
   }
 
   const isLowRiskKind = prKind === 'docs-only' || prKind === 'core-ref-nfc';
-  if (!isLowRiskKind && proof?.status === 'NOT_VERIFIED' && baseReg?.status === 'NOT_VERIFIED') {
-    capAt(4, 'A/B verification did not run');
+  if (!isLowRiskKind && !ranTests(proof) && !ranTests(baseReg)) {
+    capAt(4, 'no A/B test ran');
   }
 
   if (reasons.length === 0) {

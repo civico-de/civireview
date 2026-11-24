@@ -47,8 +47,9 @@ freshly cut release branch), the beta, master and stable images are tried in tur
 
 **Code.** Changed files are bind-mounted one by one over the image's core tree, base
 files into A and head files into B. Files merged to the base branch after the image was
-built are mounted into both sides, so A matches the PR's base commit rather than last
-night's build. A PR that deletes or renames core files, or changes more than 40, mounts
+built are mounted into both sides, to bring A close to the PR's base commit rather than
+last night's build. This looks back 40 commits at most, so an older image can still
+differ from the base. A PR that deletes or renames core files, or changes more than 40, mounts
 the affected top-level directories instead.
 
 **Tests.** PHPUnit files the PR adds or changes are run on both sides, limited to the

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, resolveModels } from '../src/config/loader.ts';
@@ -123,6 +123,18 @@ models:
     );
 
     expect(() => loadConfig(dir)).toThrow();
+  });
+
+  test('the example config loads, also with its commented overrides switched on', () => {
+    const example = readFileSync(join(import.meta.dir, '..', 'civireview.example.yaml'), 'utf8');
+    for (const text of [
+      example,
+      example.replace(/^(\s*)# (models:|specialists:|correctness: )/gm, '$1$2'),
+    ]) {
+      const dir = makeTempDir();
+      writeFileSync(join(dir, 'civireview.yaml'), text, 'utf8');
+      expect(loadConfig(dir).preset).toBe('sonnet');
+    }
   });
 
   test('defaults browser & a11y checks to ON and resolves include/exclude for checks and lenses', () => {

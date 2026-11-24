@@ -79,6 +79,7 @@ export interface WatcherOctokit extends PublisherOctokit {
         data: Array<{
           id: number;
           body?: string | null;
+          user?: { login?: string } | null;
           submitted_at?: string;
         }>;
       }>;

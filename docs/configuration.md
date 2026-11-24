@@ -3,14 +3,19 @@
 civireview reads `civireview.yaml` or `.civireview.yaml` from the root of the reviewed
 repository. Every key is optional. Command line flags override the file; the file
 overrides the defaults. Unknown keys are an error.
-[`civireview.example.yaml`](../civireview.example.yaml) shows every key with its
-default.
+[`civireview.example.yaml`](../civireview.example.yaml) shows every key. Its values are
+the defaults except in the `watch` block, which is an example policy: by default no
+repository is watched, nobody is allowed and no limit is set.
 
 ## Models
 
 A model is written `<provider>:<model>`. Providers: `anthropic`, `openai`, `google`,
 `openrouter`, `openai-compat` (any OpenAI-compatible endpoint), and the CLI-backed
 `claude-cli`, `codex-cli`, `opencode-cli`.
+
+`botLogin` is the GitHub login the reviews are posted as. When set, only comments of
+that login count as the marker of an earlier review; without it a marker in anyone's
+comment is accepted.
 
 `preset` picks a model per stage:
 
@@ -38,7 +43,7 @@ two-model presets: a finding has to convince a model that did not produce it.
 | --- | --- | --- | --- |
 | `fast` | only when specialists report candidates | 0 | quick pass, small PRs |
 | `balanced` | only when specialists report candidates | 1 | |
-| `deep` (default) | always | 2 | full review |
+| `deep` (default) | whenever a specialist ran | 2 | full review |
 
 Depth also sets the step, token and time budget per stage; the values are in
 `REVIEW_DEPTH_PROFILES` in the same file. `review.maxSteps`, `triageMaxSteps`,
@@ -49,8 +54,10 @@ leave them out unless a profile value needs changing.
 estimated cost so far is compared with it, and the review fails without posting once
 the cap is reached. The watcher does not retry such a review and counts its cost
 against `watch.maxDailyUsd`. The cap follows the cost estimate in the review footer: a run through a CLI
-subscription is counted at API prices, and a model without a known price is not
-capped.
+subscription is counted at API prices. The check runs before a call, so a review can
+end above the cap by the cost of one call. A model without a known price is not
+capped. A runner that reports no token usage (`codex-cli`, `opencode-cli`) cannot be
+capped at all: a config that sets the cap and uses such a model is rejected.
 
 `review.effort` (`--effort`) is the reasoning effort passed to the models. `auto`
 derives it per stage from the depth and, at `balanced`, from the risk of the PR.

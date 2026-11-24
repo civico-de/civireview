@@ -120,6 +120,7 @@ export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSe
             });
             const body = await resp.text();
             return {
+              body,
               url: target.toString(),
               status: resp.status,
               contentType: resp.headers.get('content-type') ?? '',
@@ -128,9 +129,12 @@ export function createLiveProbeTool(options: CreateLiveProbeToolOptions): ToolSe
             };
           };
 
-          const [a, b] = await Promise.all([probeHttp(targetA), probeHttp(targetB)]);
-          const differs =
-            a.status !== b.status || a.location !== b.location || a.bodySnippet !== b.bodySnippet;
+          const [{ body: bodyA, ...a }, { body: bodyB, ...b }] = await Promise.all([
+            probeHttp(targetA),
+            probeHttp(targetB),
+          ]);
+          // The snippets are for display; a difference further down still counts.
+          const differs = a.status !== b.status || a.location !== b.location || bodyA !== bodyB;
           return {
             mode,
             route: targetRoute,

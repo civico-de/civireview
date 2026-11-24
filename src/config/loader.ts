@@ -166,6 +166,7 @@ export function loadConfig(
 
   const mergedInput: CiviReviewConfigInput = {
     trigger: overrides.trigger ?? parsedFile.trigger,
+    botLogin: parsedFile.botLogin,
     preset,
     ab: {
       ...parsedFile.ab,
@@ -203,6 +204,7 @@ export function loadConfig(
 
   return {
     trigger: validated.trigger,
+    botLogin: validated.botLogin,
     preset: validated.preset,
     models,
     ab: AbConfigSchema.parse(validated.ab ?? {}),

@@ -1,10 +1,18 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Octokit } from '@octokit/rest';
 import { BudgetExceededError } from '../engine/budget.ts';
+import type { TokenUsageTotals } from '../engine/schemas.ts';
 import { resolveModels } from '../config/loader.ts';
 import type { AuthorAssociation, ResolvedCiviReviewConfig } from '../config/schema.ts';
 import { runReviewPipeline, runThreadReply } from '../engine/pipeline.ts';
 import { collectEvidence } from '../evidence/collector.ts';
-import { extractAllReviewedMarkers, resolveGitHubToken } from '../evidence/github.ts';
+import {
+  extractAllReviewedMarkers,
+  resolveGitHubToken,
+  writtenBy,
+  type MarkerSource,
+} from '../evidence/github.ts';
 import type { ParsedMentionFlags } from './commands.ts';
 import { publishReview, publishThreadReply } from './publisher.ts';
 import {
@@ -84,6 +92,8 @@ export interface WatcherOptions {
   once?: boolean;
   checkOnly?: boolean;
   statePath?: string;
+  /** Directory that receives one `review.json` per finished review of a public repository. */
+  outDir?: string;
   config: ResolvedCiviReviewConfig;
   repoRoot: string;
   token?: string;
@@ -228,6 +238,31 @@ async function addEyesReaction(octokit: WatcherOctokit, mention: WatcherMention)
 /**
  * Executes a single poll-and-review pass for `civireview watch`.
  */
+/**
+ * Writes the full review to `<outDir>/<owner>-<repo>-<pr>-<commentId>/review.json`.
+ * Only for a repository known to be public: the directory may be published.
+ */
+function saveReviewJson(
+  options: Pick<WatcherOptions, 'outDir' | 'logger'>,
+  mention: WatcherMention,
+  review: unknown,
+  isPrivateRepo: boolean | undefined,
+): void {
+  if (!options.outDir) return;
+  if (isPrivateRepo !== false) {
+    options.logger?.info(
+      `review.json not written for ${mention.repoFullName}#${mention.prNumber}: the repository is not public`,
+    );
+    return;
+  }
+  const dir = join(
+    options.outDir,
+    `${mention.owner}-${mention.repo}-${mention.prNumber}-${mention.commentId}`,
+  );
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'review.json'), JSON.stringify(review, null, 2), 'utf8');
+}
+
 export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPassResult> {
   const allowedAuthors = options.allowedAuthors ?? options.config.watch?.allowedAuthors ?? [];
   const allowedOrgs = options.allowedOrgs ?? options.config.watch?.allowedOrgs ?? [];
@@ -253,6 +288,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
   const nowFn = options.now ?? Date.now;
   const nowMs = nowFn();
   const trigger = options.trigger ?? options.config.trigger ?? '@civireview';
+  const botLogin = options.config.botLogin;
   const statePath =
     options.statePath ?? options.config.watch?.statePath ?? '.civireview-state/seen.json';
   const maxReviewsPerHour = options.maxReviewsPerHour ?? options.config.watch?.maxReviewsPerHour;
@@ -281,7 +317,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
   const prCommentsCache = new Map<string, PrCommentsCacheEntry>();
   const prReviewsCache = new Map<
     string,
-    Array<{ id: number; body?: string | null; submitted_at?: string }>
+    Array<{ id: number; body?: string | null; user?: { login?: string } | null }>
   >();
   const prHeadShaCache = new Map<string, string | undefined>();
 
@@ -352,15 +388,21 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
     if (isThreadReply) {
       if (
         cachedComments &&
-        hasExistingThreadReplyMarker(cachedComments.reviewComments, mention.commentId)
+        hasExistingThreadReplyMarker(
+          writtenBy(
+            cachedComments.reviewComments.map((c) => ({ body: c.body, author: c.user?.login })),
+            botLogin,
+          ),
+          mention.commentId,
+        )
       ) {
         preflightDuplicateReason = `thread reply for comment ${mention.commentId} already posted`;
       }
     } else if (!options.onProcessMention) {
-      const markerSources: Array<{ body: string; createdAt?: string }> = [];
+      const markerSources: MarkerSource[] = [];
       for (const c of cachedComments?.issueComments ?? []) {
         if (c.body) {
-          markerSources.push({ body: c.body, createdAt: c.created_at });
+          markerSources.push({ body: c.body, author: c.user?.login });
         }
       }
       if (octokit.rest.pulls.listReviews) {
@@ -381,12 +423,12 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
         }
         for (const r of reviews) {
           if (r.body) {
-            markerSources.push({ body: r.body, createdAt: r.submitted_at });
+            markerSources.push({ body: r.body, author: r.user?.login });
           }
         }
       }
 
-      const markers = extractAllReviewedMarkers(markerSources);
+      const markers = extractAllReviewedMarkers(markerSources, botLogin);
       if (markers.some((m) => m.triggerCommentId === mention.commentId)) {
         preflightDuplicateReason = `comment ${mention.commentId} already triggered a posted review`;
       } else if (!mention.flags.full && markers.length > 0 && octokit.rest.pulls.get) {
@@ -520,6 +562,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
     }
 
     let estimatedUsd: number | undefined;
+    const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as TokenUsageTotals;
     let actuallyRan = true;
 
     try {
@@ -545,7 +588,9 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
         });
 
         try {
-          if (hasExistingThreadReplyMarker(bundle.comments, mention.commentId)) {
+          if (
+            hasExistingThreadReplyMarker(writtenBy(bundle.comments, botLogin), mention.commentId)
+          ) {
             options.logger?.info(
               `Skipping duplicate inline reply for ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}).`,
             );
@@ -563,7 +608,9 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
               threadContext,
               config: effectiveConfig,
               cwd: options.repoRoot,
+              usage,
             });
+            estimatedUsd = usage.estimatedUsd;
             const replyBody = formatThreadReplyBody(replyOutput, {
               triggerCommentId: mention.commentId,
             });
@@ -602,7 +649,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
           // Idempotency guard even if local seen.json was deleted or watcher moved hosts:
           // skip if this exact comment already triggered a posted review, or if the
           // current head SHA was already reviewed and `--full` was not explicitly requested.
-          const markers = extractAllReviewedMarkers(bundle.comments);
+          const markers = extractAllReviewedMarkers(bundle.comments, botLogin);
           const alreadyTriggered = markers.some((m) => m.triggerCommentId === mention.commentId);
           const sameHeadAlreadyReviewed =
             !mention.flags.full &&
@@ -624,8 +671,10 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
               liveUrls: urls,
               composeFiles,
               logger: options.logger,
+              usage,
             });
             estimatedUsd = review.tokenUsage?.estimatedUsd;
+            saveReviewJson(options, mention, review, bundle.pr.isPrivateRepo);
 
             const published = await publishReviewFn({
               owner: mention.owner,
@@ -659,7 +708,8 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
       const attempts = (state.failedAttempts?.[key] ?? 0) + 1;
       // A review over its budget would spend the same again on every retry.
       const overBudget = err instanceof BudgetExceededError;
-      if (overBudget) estimatedUsd = err.estimatedUsd;
+      // Stages that finished before the failure were paid for.
+      estimatedUsd ??= overBudget ? err.estimatedUsd : usage.estimatedUsd;
       const giveUp = overBudget || attempts >= MAX_MENTION_ATTEMPTS;
       options.logger?.warn(
         `Failed ${mention.repoFullName}#${mention.prNumber} (comment ${mention.commentId}, attempt ${attempts}/${MAX_MENTION_ATTEMPTS})${giveUp ? '; giving up on this mention' : ''}: ${message}`,
@@ -727,9 +777,12 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
   }
 
   if (!options.checkOnly && !options.dryRun) {
-    // Only advance If-Modified-Since cursor once no mentions were deferred by
-    // rate/budget caps or pending CI, so deferred notifications are re-fetched cleanly later.
-    if (pendingLastModified && throttled.length === 0 && waitingForCi.length === 0) {
+    // The If-Modified-Since cursor advances only when no mention is left for a later pass:
+    // deferred by a cap, waiting for CI, or failed with attempts left.
+    const retryable = failed.some(
+      (m) => !seenKeys.has(makeCommentKey(m.repoFullName, m.commentId)),
+    );
+    if (pendingLastModified && throttled.length === 0 && waitingForCi.length === 0 && !retryable) {
       state.lastModified = pendingLastModified;
     }
     saveSeenState(statePath, state, nowFn());

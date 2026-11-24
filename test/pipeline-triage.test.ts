@@ -84,6 +84,45 @@ describe('review pipeline triage and finding cap', () => {
       registry: createRunnerRegistry({ anthropic: mockRunner }),
     });
     expect(review.walkthrough.join(' ')).toContain('disabled by config');
+    expect(review.notVerified.join(' ')).toContain('The code was not reviewed');
+  });
+
+  test('a skip reason on a code PR does not skip the specialists', async () => {
+    const config = loadConfig('/tmp/nonexistent-cfg-dir', { preset: 'sonnet' });
+    const stages: string[] = [];
+    const mockRunner: StageRunner = {
+      providers: ['anthropic'],
+      async run(req) {
+        stages.push(req.stage);
+        const output =
+          req.stage === 'triage'
+            ? {
+                prKind: 'core-bugfix',
+                riskLevel: 'low',
+                activeLenses: ['correctness'],
+                summaryBullets: ['Changes a query.'],
+                recommendedAbTests: [],
+                skipReason: 'Looks trivial',
+              }
+            : req.stage === 'verifier'
+              ? { verifiedFindings: [], notes: 'none' }
+              : { lens: 'correctness', summary: 'none', findings: [], checkedWithoutFindings: [] };
+        return {
+          output: req.schema.parse(output),
+          model: req.model,
+          provider: 'anthropic',
+          durationMs: 1,
+        };
+      },
+    };
+    await runReviewPipeline({
+      bundle: makeBundle(),
+      filteredPatch: '',
+      config,
+      cwd: process.cwd(),
+      registry: createRunnerRegistry({ anthropic: mockRunner }),
+    });
+    expect(stages).toContain('specialist:correctness');
   });
 
   test('keeps findings beyond maxInlineComments so the formatter can move them to the summary', async () => {

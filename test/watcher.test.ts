@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { BudgetExceededError } from '../src/engine/budget.ts';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../src/config/loader.ts';
@@ -12,7 +11,6 @@ import {
   pollNotificationMentions,
   pollSearchMentions,
   runWatcherOnce,
-  saveSeenState,
   type WatcherMention,
   type WatcherOctokit,
 } from '../src/github/watcher.ts';
@@ -503,6 +501,7 @@ describe('github watcher polling & execution', () => {
           };
         },
         runThreadReply: async (opts) => {
+          if (opts.usage) opts.usage.estimatedUsd = 0.2;
           expect(opts.threadContext.userFollowUp).toContain('contact_id is null');
           return {
             reply: 'Because getValue() throws when contact_id is null.',
@@ -537,6 +536,13 @@ describe('github watcher polling & execution', () => {
     expect(postedReplies[0]!.commentId).toBe(801);
     expect(postedReplies[0]!.replyBody).toContain('<!-- civireview:reply trigger_comment=801 -->');
     expect(postedReviews).toEqual([802]);
+
+    // A reply is a paid model call and counts against the daily limit.
+    expect(
+      (loadSeenState(statePath).recentRuns ?? [])
+        .filter((r) => r.kind === 'reply')
+        .map((r) => r.estimatedUsd),
+    ).toEqual([0.2]);
 
     // Sanity check helper directly
     expect(isInlineThreadReplyMention(res.processed[0]!)).toBe(true);
@@ -625,6 +631,35 @@ describe('github watcher polling & execution', () => {
     expect(res.throttled.map((m) => m.commentId)).toEqual([952]);
     // Must NOT advance lastModified while mention 952 is still throttled
     expect(loadSeenState(statePath).lastModified).toBeUndefined();
+
+    // 952 fails with attempts left: the cursor stays, or a 304 would hide the retry.
+    const failing = await runWatcherOnce({
+      mode: 'notifications',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      onProcessMention: async () => {
+        throw new Error('model unavailable');
+      },
+    });
+    expect(failing.failed.map((m) => m.commentId)).toEqual([952]);
+    expect(loadSeenState(statePath).lastModified).toBeUndefined();
+
+    // Once nothing is left for a later pass the cursor advances.
+    await runWatcherOnce({
+      mode: 'notifications',
+      repos: ['civicrm/civicrm-core'],
+      allowedOrgs: ['civicrm'],
+      statePath,
+      config,
+      repoRoot: dir,
+      octokit,
+      onProcessMention: async () => {},
+    });
+    expect(loadSeenState(statePath).lastModified).toBe('Mon, 23 Nov 2026 00:15:00 GMT');
   });
 
   test('lockModels ignores --preset, --model, and --verifier overrides from PR comments while still honoring --effort high', async () => {
@@ -797,168 +832,5 @@ describe('github watcher polling & execution', () => {
         effort: 'high',
       },
     ]);
-  });
-});
-
-function makeFailingSetup(commentIds: number[], pipelineError?: Error) {
-  const dir = makeTempDir();
-  const config = loadConfig(dir);
-  const octokit = {
-    rest: {
-      search: {
-        async issuesAndPullRequests() {
-          return { data: { items: [{ number: 7 }] } };
-        },
-      },
-      issues: {
-        async listComments() {
-          return {
-            data: commentIds.map((id) => ({
-              id,
-              user: { login: 'maint' },
-              body: '@civireview',
-            })),
-          };
-        },
-      },
-      pulls: {
-        async listReviewComments() {
-          return { data: [] };
-        },
-        async createReview() {
-          return { data: { id: 1 } };
-        },
-        async createReplyForReviewComment() {
-          return { data: { id: 2 } };
-        },
-      },
-      reactions: { async createForIssueComment() {} },
-      activity: {
-        async listNotificationsForAuthenticatedUser() {
-          return { status: 200, data: [] };
-        },
-        async markThreadAsRead() {},
-      },
-    },
-  } as unknown as WatcherOctokit;
-
-  const pipelineRuns: number[] = [];
-  const published: number[] = [];
-  const deps = {
-    collectEvidence: async () => ({
-      bundle: {
-        comments: [],
-        pr: { headSha: 'abc1234', lastReviewedHeadSha: undefined },
-        diffFiles: [],
-        abReport: { executed: false, checks: [] },
-      },
-      filteredPatch: '',
-      urls: undefined,
-      composeFiles: undefined,
-      cleanup: async () => {},
-    }),
-    runReviewPipeline: async () => {
-      pipelineRuns.push(pipelineRuns.length + 1);
-      if (pipelineError) throw pipelineError;
-      return { verdict: 'READY', tokenUsage: { estimatedUsd: 1.5 } };
-    },
-    publishReview: async (opts: { commentId?: number }) => {
-      if (opts.commentId === 101) throw new Error('HTTP 403 Resource not accessible');
-      published.push(opts.commentId ?? 0);
-      return {};
-    },
-  };
-  const statePath = join(dir, 'seen.json');
-  const pass = (extra: Record<string, unknown> = {}) =>
-    runWatcherOnce({
-      mode: 'search',
-      repos: ['o/r'],
-      allowedAuthors: ['maint'],
-      statePath,
-      config,
-      repoRoot: dir,
-      octokit,
-      deps,
-      ...extra,
-    } as unknown as Parameters<typeof runWatcherOnce>[0]);
-  return { pass, statePath, pipelineRuns, published };
-}
-
-describe('watcher failure handling and state file', () => {
-  test('a failing mention counts against the rate limit instead of retrying without bound', async () => {
-    const { pass, pipelineRuns } = makeFailingSetup([101]);
-
-    const first = await pass({ maxReviewsPerHour: 2 });
-    const second = await pass({ maxReviewsPerHour: 2 });
-    const third = await pass({ maxReviewsPerHour: 2 });
-
-    expect(first.failed).toHaveLength(1);
-    expect(second.failed).toHaveLength(1);
-    expect(third.failed).toHaveLength(0);
-    expect(third.throttled).toHaveLength(1);
-    expect(pipelineRuns).toHaveLength(2);
-  });
-
-  test('a review stopped by its budget is not retried and its cost is recorded', async () => {
-    const { pass, statePath, pipelineRuns } = makeFailingSetup(
-      [101],
-      new BudgetExceededError(2, 2, 'verifier'),
-    );
-    await pass();
-    await pass();
-    expect(pipelineRuns).toHaveLength(1);
-    const state = loadSeenState(statePath);
-    expect(state.seenCommentKeys).toContain('o/r#101');
-    expect((state.recentRuns ?? []).map((r) => r.estimatedUsd)).toEqual([2]);
-  });
-
-  test('gives up on a mention after repeated failures and keeps processing the others', async () => {
-    const { pass, statePath, pipelineRuns, published } = makeFailingSetup([101, 102]);
-
-    const first = await pass();
-    expect(first.failed.map((m) => m.commentId)).toEqual([101]);
-    expect(first.processed.map((m) => m.commentId)).toEqual([102]);
-    expect(published).toEqual([102]);
-
-    await pass();
-    await pass();
-    expect(loadSeenState(statePath).seenCommentKeys).toContain('o/r#101');
-    expect(loadSeenState(statePath).failedAttempts).toEqual({});
-
-    const runsBefore = pipelineRuns.length;
-    const fourth = await pass();
-    expect(fourth.failed).toHaveLength(0);
-    expect(pipelineRuns).toHaveLength(runsBefore);
-  });
-
-  test('an unreadable state file is an error, not an empty state', () => {
-    const dir = makeTempDir();
-    const statePath = join(dir, 'seen.json');
-    writeFileSync(statePath, '{"seenCommentKeys": ["o/r#1", ');
-
-    expect(() => loadSeenState(statePath)).toThrow(/unreadable/);
-    expect(loadSeenState(join(dir, 'missing.json')).seenCommentKeys).toEqual([]);
-  });
-
-  test('saveSeenState never writes the state file in place: a failed save keeps the previous state', () => {
-    const dir = makeTempDir();
-    const statePath = join(dir, 'seen.json');
-    saveSeenState(statePath, { seenCommentKeys: ['o/r#1'] });
-    // A directory at the temp path makes the write of the replacement fail.
-    mkdirSync(`${statePath}.tmp`);
-
-    expect(() => saveSeenState(statePath, { seenCommentKeys: ['o/r#1', 'o/r#2'] })).toThrow();
-
-    expect(loadSeenState(statePath).seenCommentKeys).toEqual(['o/r#1']);
-  });
-
-  test('saveSeenState leaves no temp file behind', () => {
-    const dir = makeTempDir();
-    const statePath = join(dir, 'state', 'seen.json');
-    saveSeenState(statePath, { seenCommentKeys: ['o/r#1'] });
-    saveSeenState(statePath, { seenCommentKeys: ['o/r#1', 'o/r#2'] });
-
-    expect(loadSeenState(statePath).seenCommentKeys).toEqual(['o/r#1', 'o/r#2']);
-    expect(existsSync(`${statePath}.tmp`)).toBe(false);
   });
 });

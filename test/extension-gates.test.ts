@@ -70,7 +70,7 @@ const fileMount = (side: string) => [
 async function runGates(
   wt: { a: string; b: string },
   respond: (gate: 'taint' | 'lifecycle' | 'parity', args: string[]) => ReturnType<ExecFn>,
-  over: { repoInfo?: RepoInfo; exclude?: string[]; mountsB?: string[] } = {},
+  over: { repoInfo?: RepoInfo; exclude?: string[]; mountsB?: string[]; diff?: string } = {},
 ) {
   const calls: Array<{ gate: string; args: string[] }> = [];
   const cleanups: string[][] = [];
@@ -95,7 +95,7 @@ async function runGates(
     ckCommand: ['ck'],
     workDir: '/work/run-abc123',
     repoInfo: over.repoInfo ?? coreInfo(wt.b),
-    diffFiles: upgraderDiff(),
+    diffFiles: over.diff ? parseUnifiedDiff(over.diff) : upgraderDiff(),
     imageA: 'standalone-master',
     imageB: 'standalone-master',
     worktreeA: wt.a,
@@ -115,6 +115,7 @@ async function runGates(
 }
 
 const ok = async () => ({ exitCode: 0, stdout: '', stderr: '' });
+const PARITY_IDENTICAL = { exitCode: 0, stdout: 'upgrade-parity: schemas identical\n', stderr: '' };
 
 describe('review profile', () => {
   test('a core PR touching a bundled extension is core-extension', () => {
@@ -151,7 +152,11 @@ describe('extension gates on a bundled core extension', () => {
   test('run from the extension root and report a healthy extension without findings', async () => {
     const wt = coreWorktrees();
     const res = await runGates(wt, async (gate) =>
-      gate === 'lifecycle' ? { exitCode: 0, stdout: LIFECYCLE_PASSED, stderr: '' } : ok(),
+      gate === 'lifecycle'
+        ? { exitCode: 0, stdout: LIFECYCLE_PASSED, stderr: '' }
+        : gate === 'parity'
+          ? PARITY_IDENTICAL
+          : ok(),
     );
 
     expect(resolveExtensionTargets(coreInfo(wt.b), wt.a, wt.b)).toEqual([
@@ -247,12 +252,14 @@ describe('extension gates on a bundled core extension', () => {
     expect(res.staticFindings[1]!.message).not.toContain('Container x');
   });
 
-  test('skips parity for an extension the PR adds and says so when lifecycle is disabled', async () => {
+  test('names parity as skipped for an extension the PR adds, and a disabled lifecycle check', async () => {
     const added = await runGates(coreWorktrees({ extensionAtBase: false }), async (gate) =>
       gate === 'lifecycle' ? { exitCode: 0, stdout: LIFECYCLE_PASSED, stderr: '' } : ok(),
     );
     expect(added.calls.map((c) => c.gate)).toEqual(['taint', 'taint', 'lifecycle']);
-    expect(added.notVerified).toEqual([]);
+    expect(added.notVerified).toEqual([
+      'Upgrade parity skipped for widgets: the PR adds the extension, there is no base version to upgrade from.',
+    ]);
 
     const disabled = await runGates(coreWorktrees(), ok, { exclude: ['lifecycle'] });
     expect(disabled.calls.map((c) => c.gate)).toEqual(['taint', 'taint']);
@@ -280,7 +287,14 @@ const CLEAN_BROWSER_DIFF = {
   risk_flags: [],
 };
 
-async function probeBrowser(wt: { a: string; b: string }, report?: Record<string, unknown>) {
+const taintLine = (level: string) =>
+  `${level}: TaintedHtml - CRM/X/Page.php:5:1 - Detected tainted HTML (see https://psalm.dev/245)\n`;
+
+const taintAt = (level: string, line: number) => taintLine(level).replace(':5:1', `:${line}:1`);
+
+const ENABLED_ON_BOTH = { A: { status: 0 }, B: { status: 0 }, mode: 'exit-status' };
+
+async function probeBrowser(wt: { a: string; b: string }, report?: Record<string, unknown> | null) {
   const diffFiles =
     parseUnifiedDiff(`diff --git a/ext/widgets/ang/widgetEditor.aff.html b/ext/widgets/ang/widgetEditor.aff.html
 --- a/ext/widgets/ang/widgetEditor.aff.html
@@ -294,7 +308,10 @@ async function probeBrowser(wt: { a: string; b: string }, report?: Record<string
   const calls: string[][] = [];
   const execFn: ExecFn = async (args) => {
     calls.push(args);
-    if (report) writeFileSync(args[args.indexOf('--json') + 1]!, JSON.stringify(report));
+    // `null` stands for a run that left no report behind.
+    if (report !== null) {
+      writeFileSync(args[args.indexOf('--json') + 1]!, JSON.stringify(report ?? ENABLED_ON_BOTH));
+    }
     writeFileSync(
       join(args[args.indexOf('--out') + 1]!, 'browser-diff.json'),
       JSON.stringify(CLEAN_BROWSER_DIFF),
@@ -355,6 +372,13 @@ describe('browser probe of a bundled core extension', () => {
       mode: 'exit-status',
     });
     expect(browserDiff.error).toBe('could not enable widgets (exit 1 on base, 0 on head)');
+  });
+
+  test('a probe without a report cannot show the extension was enabled', async () => {
+    const { browserDiff } = await probeBrowser(coreWorktrees(), null);
+    expect(browserDiff.error).toBe(
+      'could not enable widgets (exit unknown on base, unknown on head)',
+    );
   });
 
   test('marks a probe as smoke-only when the extension defines no route', async () => {
@@ -523,6 +547,82 @@ describe('taint delta', () => {
     expect(res.notVerified).toContain(
       'Upgrade parity skipped for widgets: the PR is mounted as whole directories, so the extension cannot be replaced in the instance.',
     );
+  });
+
+  test('parity that exits 0 without reaching its comparison is not verified', async () => {
+    const res = await runGates(coreWorktrees(), ok);
+    expect(res.toolsRun).not.toContain('ckschemaparity');
+    expect(res.notVerified).toContain(
+      'upgrade path of widgets not verified: the parity run exited with 0',
+    );
+  });
+
+  test('an issue that drops from blocking to advisory is not a new finding', () => {
+    expect(
+      newTaintFindings(
+        parseTaintFindings(taintLine('ERROR')),
+        parseTaintFindings(taintLine('INFO')),
+      ),
+    ).toEqual([]);
+  });
+
+  test('a PR that changes only tests of the extension runs no gate and leaves no note', async () => {
+    const diff = `diff --git a/ext/widgets/tests/phpunit/WidgetTest.php b/ext/widgets/tests/phpunit/WidgetTest.php
+--- a/ext/widgets/tests/phpunit/WidgetTest.php
++++ b/ext/widgets/tests/phpunit/WidgetTest.php
+@@ -1,2 +1,3 @@
+ <?php
++// one more case
+ class WidgetTest {}
+`;
+    const res = await runGates(coreWorktrees(), ok, { diff, mountsB: [] });
+    expect(res.calls).toEqual([]);
+    expect(res.notVerified).toEqual([]);
+  });
+
+  test('an unchanged blocking issue that moved is not new when the base also has an advisory one', () => {
+    const base = parseTaintFindings(taintAt('INFO', 3) + taintAt('ERROR', 9));
+    const head = parseTaintFindings(taintAt('INFO', 3) + taintAt('ERROR', 12));
+    expect(newTaintFindings(base, head)).toEqual([]);
+  });
+
+  test('an advisory issue that becomes blocking is a new finding', () => {
+    const found = newTaintFindings(
+      parseTaintFindings(taintLine('INFO')),
+      parseTaintFindings(taintLine('ERROR')),
+    );
+    expect(found.map((f) => f.severity)).toEqual(['error']);
+  });
+
+  test('reads an issue in a path with spaces and issues written to stderr', async () => {
+    const issue =
+      'ERROR: TaintedSql - CRM/My Module/Page.php:5:1 - Detected tainted SQL (see https://psalm.dev/244)\n';
+    expect(parseTaintFindings(issue).map((f) => f.path)).toEqual(['CRM/My Module/Page.php']);
+    const res = await runGates(coreWorktrees(), async (gate, args) =>
+      gate === 'taint' && args.some((a) => a.includes('/B/'))
+        ? { exitCode: 2, stdout: 'Scanning files...\n', stderr: issue }
+        : ok(),
+    );
+    expect(res.staticFindings.filter((f) => f.tool === 'cktaint')).toHaveLength(1);
+  });
+
+  test('a detected extension without a usable info.xml in the head is named as not checked', async () => {
+    const wt = coreWorktrees();
+    const res = await runGates(wt, ok, {
+      repoInfo: { ...coreInfo(wt.b), bundledExtensions: ['ext/gone'] },
+    });
+    expect(res.calls).toEqual([]);
+    expect(res.notVerified).toEqual([
+      'ext/gone not checked: no info.xml with a valid key in the PR head',
+    ]);
+  });
+
+  test('parity under a mount whose host path contains a colon still finds the parent mount', async () => {
+    const wt = coreWorktrees();
+    const res = await runGates(wt, ok, {
+      mountsB: ['--mount', `/tmp/a:b/ext:/var/www/html/core/ext:ro`],
+    });
+    expect(res.calls.map((c) => c.gate)).not.toContain('parity');
   });
 
   test('bundled extensions beyond the limit are named as not checked', async () => {
