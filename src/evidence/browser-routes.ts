@@ -1,3 +1,5 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { BrowserConfig } from '../config/schema.ts';
 import type { DiffFile, SurfaceDiffReport } from './types.ts';
 
@@ -5,13 +7,48 @@ export interface DiscoverStandaloneRoutesInput {
   diffFiles: DiffFile[];
   surfaceDiff?: SurfaceDiffReport;
   prBody?: string;
+  // Route-defining files of each touched extension, read at head.
+  extensionRouteSources?: ExtensionRouteSource[];
   config: { browser: BrowserConfig };
+}
+
+export interface ExtensionRouteSource {
+  // Repo-relative prefix of the extension's files ('' for an extension repo).
+  repoPrefix: string;
+  files: Array<{ path: string; content: string }>;
+}
+
+/**
+ * Reads the files that define an extension's routes: `xml/Menu/*.xml` and the
+ * Afform metadata (`*.aff.json`, `*.aff.php`) under `ang/`.
+ */
+export function readExtensionRouteSources(
+  roots: Array<{ hostDir: string; repoPrefix: string }>,
+): ExtensionRouteSource[] {
+  return roots.map(({ hostDir, repoPrefix }) => {
+    const files: ExtensionRouteSource['files'] = [];
+    for (const [sub, pattern] of [
+      ['ang', /\.aff\.(json|php)$/i],
+      ['xml/Menu', /\.xml$/i],
+    ] as const) {
+      const dir = join(hostDir, sub);
+      if (!existsSync(dir)) continue;
+      for (const name of readdirSync(dir).toSorted()) {
+        if (pattern.test(name)) {
+          files.push({ path: `${sub}/${name}`, content: readFileSync(join(dir, name), 'utf8') });
+        }
+      }
+    }
+    return { repoPrefix, files };
+  });
 }
 
 export interface DiscoveredStandaloneRoutes {
   pages: string[];
   anonymousPages: string[];
   reason: string;
+  // True when nothing but the dashboard fallback is probed.
+  usedFallback: boolean;
 }
 
 const FILE_EXT_RE =
@@ -64,7 +101,7 @@ function getActiveDiffLines(rawPatch: string): string {
 /**
  * Discovers Standalone browser routes to probe from explicit config/CLI flags,
  * live `surface-diff.json`, static Menu XML / Afform JSON / diff / PR body,
- * falling back to `civicrm/dashboard?reset=1` when UI assets changed.
+ * the routes of a touched extension, falling back to `civicrm/dashboard?reset=1` when UI assets changed.
  */
 export function discoverStandaloneRoutes(
   input: DiscoverStandaloneRoutesInput,
@@ -193,6 +230,28 @@ export function discoverStandaloneRoutes(
     }
   }
 
+  // 4. Every route of an extension whose UI the diff touches: a changed template
+  // rarely changes the file that declares the page it renders on.
+  let extensionRouteCount = 0;
+  for (const source of input.extensionRouteSources ?? []) {
+    const uiTouched = diffFiles.some(
+      (f) =>
+        f.path.startsWith(source.repoPrefix) &&
+        (f.flags.isFrontendAsset || f.flags.isSmartyTemplate || f.flags.isAfform),
+    );
+    if (!uiTouched) continue;
+    for (const file of source.files) {
+      const routeRe = file.path.endsWith('.xml')
+        ? /<path>\s*([^<]+?)\s*<\/path>/gi
+        : /["']server_route["']\s*(?::|=>)\s*["']([^"']+)["']/gi;
+      for (const m of file.content.matchAll(routeRe)) {
+        const beforeLen = autoPages.length;
+        addAutoPage(m[1]);
+        if (autoPages.length > beforeLen) extensionRouteCount++;
+      }
+    }
+  }
+
   // Cap auto-discovered routes at config.browser.maxAutoPages
   const cappedAutoPages = autoPages.slice(0, maxAuto);
   const cappedAutoAnon = autoAnonPages.slice(0, maxAuto);
@@ -225,6 +284,7 @@ export function discoverStandaloneRoutes(
     reasonParts.push(`menu/afform (${staticXmlAfformCount})`);
   }
   if (mentionCount > 0) reasonParts.push(`diff/PR mentions (${mentionCount})`);
+  if (extensionRouteCount > 0) reasonParts.push(`extension routes (${extensionRouteCount})`);
   if (usedFallback) {
     reasonParts.push('UI asset fallback (civicrm/dashboard?reset=1)');
   }
@@ -236,5 +296,6 @@ export function discoverStandaloneRoutes(
     pages,
     anonymousPages,
     reason,
+    usedFallback,
   };
 }

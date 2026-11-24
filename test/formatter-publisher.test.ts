@@ -168,6 +168,17 @@ function makeSampleReview(): FinalReview {
 }
 
 describe('formatter & publisher', () => {
+  test('formatReviewMarkdown names the profile next to the kind', () => {
+    const bundle = makeSampleBundle();
+    expect(formatReviewMarkdown(makeSampleReview(), bundle).summaryBody).toContain(
+      '**Profile:** `core` ·',
+    );
+    bundle.repoInfo.bundledExtensions = ['ext/widgets'];
+    expect(formatReviewMarkdown(makeSampleReview(), bundle).summaryBody).toContain(
+      '**Profile:** `core-extension` ·',
+    );
+  });
+
   test('formatReviewMarkdown renders A/B matrix, r-* table, blast radius, disclosure, and marker', () => {
     const review = makeSampleReview();
     const bundle = makeSampleBundle();

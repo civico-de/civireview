@@ -8,6 +8,7 @@ import type {
   VerificationStatus,
   VerifiedFinding,
 } from '../engine/schemas.ts';
+import { reviewProfile } from '../evidence/repo-detect.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
 
 export interface GitHubReviewCommentInput {
@@ -394,7 +395,7 @@ export function formatReviewMarkdown(
       `> **Summary:** ${shortSummary}\n` +
       `>\n` +
       `> **Merge Confidence (${computedScore.score}/5):** ${computedScore.rationale}\n\n` +
-      `- **PR:** \`${review.repo}#${review.prNumber}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
+      `- **PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
   );
 
   // Zone 1 (Top — always visible): Action Items + Summary-Only Findings + Verification Matrix + Related PRs
@@ -605,7 +606,7 @@ export function formatReviewMarkdown(
     options.triggerCommentId !== undefined ? ` trigger_comment=${options.triggerCommentId}` : '';
   sections.push(
     `---\n` +
-      `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine} · Alpha — [feedback / open an issue](https://github.com/civico-de/civireview/issues/new)</sub>\n` +
+      `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +
       `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5${triggerAttr} -->`,
   );
 

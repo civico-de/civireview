@@ -197,100 +197,75 @@ export function parseCkAbJsonReport(rawJson: string): ParsedCkAbJsonReport {
 
 export interface ParsedTaintItem {
   key: string;
-  path?: string;
-  line?: number;
+  path: string;
+  line: number;
   message: string;
-  severity: 'error' | 'warning' | 'info';
+  severity: 'error' | 'info';
 }
 
 export function stripAnsi(str: string): string {
+  // Colour/cursor sequences and OSC 8 terminal hyperlinks, which Psalm wraps around paths.
   // oxlint-disable-next-line no-control-regex
-  return str.replace(/\x1B\[[0-9;]*[mGKHF]/g, '');
+  return str.replace(/\x1B\[[0-9;]*[mGKHF]|\x1B\]8;;[^\x1B\x07]*(?:\x1B\\|\x07)/g, '');
+}
+
+const PSALM_ISSUE_RE = /^(ERROR|INFO): (\w+) - (\S+?):(\d+):\d+ - (.+)$/;
+
+/**
+ * Reads the issue lines of `cktaint` (Psalm console format); trace and summary lines are skipped.
+ * The key leaves out the line number so that code moved by the PR is not reported as new.
+ */
+export function parseTaintFindings(rawOutput: string): ParsedTaintItem[] {
+  const items: ParsedTaintItem[] = [];
+  for (const line of stripAnsi(rawOutput).split(/\r?\n/)) {
+    const m = PSALM_ISSUE_RE.exec(line.trim());
+    if (!m) continue;
+    const [, level, type, path, lineNo, msg] = m as unknown as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+    items.push({
+      key: `${type}:${path}:${msg}`,
+      path,
+      line: Number(lineNo),
+      message: `${type}: ${msg}`,
+      severity: level === 'ERROR' ? 'error' : 'info',
+    });
+  }
+  return items;
+}
+
+function countIds(ids: string[]): Map<string, number> {
+  const pool = new Map<string, number>();
+  for (const id of ids) pool.set(id, (pool.get(id) ?? 0) + 1);
+  return pool;
+}
+
+/** Removes one `id` from the pool; false when none is left. */
+function take(pool: Map<string, number>, id: string): boolean {
+  const left = pool.get(id) ?? 0;
+  if (left > 0) pool.set(id, left - 1);
+  return left > 0;
 }
 
 /**
- * Parses `ck taint` stdout/JSON into normalized findings so A-vs-B delta
- * only reports genuinely new findings introduced on B.
+ * Items of `head` beyond the number of equal-keyed items in `base`. An occurrence still on
+ * its base line counts as the old one before any other is matched.
  */
-export function parseTaintFindings(rawOutput: string): ParsedTaintItem[] {
-  const cleaned = stripAnsi(rawOutput).trim();
-  if (!cleaned) return [];
-
-  if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(cleaned) as unknown;
-      const list = Array.isArray(parsed)
-        ? parsed
-        : parsed &&
-            typeof parsed === 'object' &&
-            Array.isArray((parsed as Record<string, unknown>).findings)
-          ? ((parsed as Record<string, unknown>).findings as unknown[])
-          : null;
-      if (list) {
-        return list
-          .filter((item): item is Record<string, unknown> =>
-            Boolean(item && typeof item === 'object'),
-          )
-          .map((item) => {
-            const path =
-              typeof item.path === 'string'
-                ? item.path
-                : typeof item.file === 'string'
-                  ? item.file
-                  : undefined;
-            const lineNum = typeof item.line === 'number' && item.line > 0 ? item.line : undefined;
-            const msg = String(item.message ?? item.title ?? item.type ?? JSON.stringify(item));
-            const rawSev = String(item.severity ?? 'warning').toLowerCase();
-            const severity: ParsedTaintItem['severity'] =
-              rawSev === 'error' || rawSev === 'high' || rawSev === 'critical'
-                ? 'error'
-                : rawSev === 'info'
-                  ? 'info'
-                  : 'warning';
-            return {
-              key: `${path ?? ''}:${lineNum ?? ''}:${msg.trim()}`,
-              path,
-              line: lineNum,
-              message: msg.trim(),
-              severity,
-            };
-          });
-      }
-    } catch {
-      // Fall through to line-based parsing
-    }
-  }
-
-  const items: ParsedTaintItem[] = [];
-  for (const rawLine of cleaned.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (/^(?:ck\s+taint|===|---|Total:|0\s+issue|No\s+taint|PASS\b|OK\b)/i.test(line)) {
-      continue;
-    }
-    const locMatch = line.match(/^([A-Za-z0-9_./-]+\.php):(\d+)(?::\d+)?\s*[:-]?\s*(.+)$/);
-    if (locMatch?.[1] && locMatch[2] && locMatch[3]) {
-      const path = locMatch[1];
-      const lineNum = Number(locMatch[2]);
-      const msg = locMatch[3].trim();
-      items.push({
-        key: `${path}:${lineNum}:${msg}`,
-        path,
-        line: Number.isInteger(lineNum) && lineNum > 0 ? lineNum : undefined,
-        message: `${path}:${lineNum}: ${msg}`,
-        severity: /\b(?:error|high|critical|sql\s*injection|xss)\b/i.test(msg)
-          ? 'error'
-          : 'warning',
-      });
-    } else {
-      items.push({
-        key: line,
-        message: line,
-        severity: /\b(?:error|high|critical)\b/i.test(line) ? 'error' : 'warning',
-      });
-    }
-  }
-  return items;
+export function newTaintFindings(
+  base: ParsedTaintItem[],
+  head: ParsedTaintItem[],
+): ParsedTaintItem[] {
+  const sameLine = countIds(base.map((item) => `${item.key}:${item.line}`));
+  const moved = head.filter((item) => !take(sameLine, `${item.key}:${item.line}`));
+  const unmatched = countIds(
+    base.flatMap((item) => (take(sameLine, `${item.key}:${item.line}`) ? [item.key] : [])),
+  );
+  return moved.filter((item) => !take(unmatched, item.key));
 }
 
 const COMPOSE_PROGRESS_RE =

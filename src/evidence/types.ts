@@ -172,6 +172,8 @@ export const BrowserDiffReportSchema = z.object({
     .optional(),
   probedRoutes: z.array(z.string()).default([]),
   probedAnonymousRoutes: z.array(z.string()).default([]),
+  // True when only the dashboard fallback was probed, not a route of the changed UI.
+  smokeOnly: z.boolean().optional(),
 });
 export type BrowserDiffReport = z.infer<typeof BrowserDiffReportSchema>;
 
@@ -285,6 +287,8 @@ export const RepoInfoSchema = z.object({
   extensionKey: z.string().optional(),
   extensionName: z.string().optional(),
   civicrmFloor: z.string().optional(),
+  // civicrm-core only: repo-relative roots of the bundled extensions the diff touches.
+  bundledExtensions: z.array(z.string()).optional(),
   recommendedImage: z.string(),
 });
 export type RepoInfo = z.infer<typeof RepoInfoSchema>;

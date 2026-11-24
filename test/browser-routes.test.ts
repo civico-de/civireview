@@ -4,6 +4,16 @@ import { discoverStandaloneRoutes } from '../src/evidence/browser-routes.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import type { SurfaceDiffReport } from '../src/evidence/types.ts';
 
+const editorDiff = () =>
+  parseUnifiedDiff(`diff --git a/ext/widgets/ang/widgetEditor.aff.html b/ext/widgets/ang/widgetEditor.aff.html
+--- a/ext/widgets/ang/widgetEditor.aff.html
++++ b/ext/widgets/ang/widgetEditor.aff.html
+@@ -1,2 +1,3 @@
+ <div>
++<select id="mode"></select>
+ </div>
+`);
+
 describe('discoverStandaloneRoutes', () => {
   test('extracts routes & public/private Afforms from live surface-diff.json', () => {
     const surfaceDiff: SurfaceDiffReport = {
@@ -121,5 +131,64 @@ new file mode 100644
       'civicrm/r1',
       'civicrm/r2',
     ]);
+  });
+
+  test('probes the routes of an extension whose UI changed, not the dashboard', () => {
+    const res = discoverStandaloneRoutes({
+      diffFiles: editorDiff(),
+      extensionRouteSources: [
+        {
+          repoPrefix: 'ext/widgets/',
+          files: [
+            {
+              path: 'ang/widgetAdmin.aff.php',
+              content: "<?php return ['server_route' => 'civicrm/admin/widgets'];",
+            },
+            {
+              path: 'xml/Menu/widgets.xml',
+              content:
+                '<menu><item><path>civicrm/widgets/item/%</path></item><item><path>civicrm/widgets/return</path></item></menu>',
+            },
+          ],
+        },
+      ],
+      config: { browser: BrowserConfigSchema.parse({}) },
+    });
+
+    expect(res.pages).toEqual(['civicrm/admin/widgets', 'civicrm/widgets/return']);
+    expect(res.usedFallback).toBe(false);
+    expect(res.reason).toContain('extension routes (2)');
+  });
+
+  test('leaves the routes of an extension alone when the diff touches no UI file of it', () => {
+    const diff =
+      parseUnifiedDiff(`diff --git a/ext/widgets/CRM/Widgets/BAO/Widget.php b/ext/widgets/CRM/Widgets/BAO/Widget.php
+--- a/ext/widgets/CRM/Widgets/BAO/Widget.php
++++ b/ext/widgets/CRM/Widgets/BAO/Widget.php
+@@ -1,2 +1,3 @@
+ <?php
++// change
+`);
+    const res = discoverStandaloneRoutes({
+      diffFiles: diff,
+      extensionRouteSources: [
+        {
+          repoPrefix: 'ext/widgets/',
+          files: [{ path: 'xml/Menu/widgets.xml', content: '<path>civicrm/widgets/list</path>' }],
+        },
+      ],
+      config: { browser: BrowserConfigSchema.parse({}) },
+    });
+    expect(res.pages).toEqual([]);
+  });
+
+  test('flags the dashboard fallback so it is not reported as a verified UI probe', () => {
+    const res = discoverStandaloneRoutes({
+      diffFiles: editorDiff(),
+      extensionRouteSources: [{ repoPrefix: 'ext/widgets/', files: [] }],
+      config: { browser: BrowserConfigSchema.parse({}) },
+    });
+    expect(res.pages).toEqual(['civicrm/dashboard?reset=1']);
+    expect(res.usedFallback).toBe(true);
   });
 });

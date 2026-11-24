@@ -12,7 +12,7 @@ import {
   type ReviewSettings,
 } from '../config/schema.ts';
 import { extractAddedTestMethods } from './diff-filter.ts';
-import { getCivikitchenImageCandidates } from './repo-detect.ts';
+import { detectBundledExtensions, getCivikitchenImageCandidates } from './repo-detect.ts';
 import {
   LiveSurfaceDiffSchema,
   type AbCheckResult,
@@ -466,6 +466,19 @@ export async function runCiviKitchenAb(
     }
     worktreesCreated = true;
 
+    if (repoInfo.kind === 'civicrm-core') {
+      // The caller's checkout may predate an extension; the head worktree is authoritative.
+      const bundled = detectBundledExtensions(
+        worktreeB,
+        diffFiles.map((f) => f.path),
+      );
+      repoInfo.bundledExtensions = bundled.length > 0 ? bundled : undefined;
+      const stale = new Set(surfaceDiff.unverifiedSurfaces);
+      surfaceDiff = computeSurfaceDiff(diffFiles, repoInfo);
+      notVerified.splice(0, notVerified.length, ...notVerified.filter((n) => !stale.has(n)));
+      notVerified.push(...surfaceDiff.unverifiedSurfaces);
+    }
+
     const allTouchedTestPhp = diffFiles
       .filter((f) => f.flags.isTest && f.status !== 'deleted' && /Test\.php$/i.test(f.path))
       .map((f) => f.path);
@@ -839,10 +852,13 @@ export async function runCiviKitchenAb(
       await runStaticAndLifecycleChecks({
         execFn,
         ckCommand: ck.command,
+        workDir,
         repoInfo,
         diffFiles,
         imageA,
         imageB,
+        worktreeA,
+        worktreeB,
         mountsAOnly,
         mountsBOnly,
         effectiveCfg,
@@ -857,6 +873,9 @@ export async function runCiviKitchenAb(
         workDir,
         outRoot,
         outputDir: options.outputDir,
+        repoInfo,
+        worktreeA,
+        worktreeB,
         diffFiles,
         prBody: options.prBody,
         imageA,

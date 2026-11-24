@@ -11,6 +11,8 @@ import type {
  * and unverified surfaces directly from the filtered diff.
  */
 export function computeSurfaceDiff(diffFiles: DiffFile[], repoInfo: RepoInfo): SurfaceDiffReport {
+  const inBundledExtension = (path: string) =>
+    (repoInfo.bundledExtensions ?? []).some((dir) => path.startsWith(`${dir}/`));
   const changes: SurfaceChange[] = [];
   const unverifiedSurfaces = new Set<string>();
   const touchedComponents = new Set<string>();
@@ -64,7 +66,8 @@ export function computeSurfaceDiff(diffFiles: DiffFile[], repoInfo: RepoInfo): S
         path: p,
         detail: 'Schema definition changed; mounts do not run schema rebuilds.',
       });
-      if (repoInfo.kind === 'civicrm-core') {
+      // A detected bundled extension is covered by the upgrade-parity gate instead.
+      if (repoInfo.kind === 'civicrm-core' && !inBundledExtension(p)) {
         unverifiedSurfaces.add('schema change (xml/schema) not rebuilt by container mount');
       }
     }
@@ -75,7 +78,7 @@ export function computeSurfaceDiff(diffFiles: DiffFile[], repoInfo: RepoInfo): S
         path: p,
         detail: 'Upgrade handler changed; requires upgrade path verification.',
       });
-      if (repoInfo.kind === 'civicrm-core') {
+      if (repoInfo.kind === 'civicrm-core' && !inBundledExtension(p)) {
         unverifiedSurfaces.add('upgrade path (CRM/Upgrade/*) not verified locally');
       }
     }

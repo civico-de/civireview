@@ -1,3 +1,4 @@
+import { reviewProfile } from '../evidence/repo-detect.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
 
 /**
@@ -50,12 +51,13 @@ export function buildSharedEvidencePrefix(
   const sections: string[] = [];
 
   sections.push(`# Repository & PR Context
-- Repo: ${bundle.pr.repo} (${bundle.repoInfo.kind}, private=${bundle.pr.isPrivateRepo})
+- Repo: ${bundle.pr.repo} (${bundle.repoInfo.kind}, profile=${reviewProfile(bundle.repoInfo)}, private=${bundle.pr.isPrivateRepo})
 - PR: #${bundle.pr.prNumber} (${bundle.pr.baseBranch} <- ${bundle.pr.headBranch})
 - Base SHA: ${bundle.pr.baseSha}
 - Head SHA: ${bundle.pr.headSha}${atHeadCheckout ? ' (checked out in current working directory — Read/Grep/Glob inspect exact PR head code)' : ''}
 - Recommended CiviKitchen image: ${bundle.repoInfo.recommendedImage}
 - Extension: ${bundle.repoInfo.extensionKey ?? 'N/A'} (floor: ${bundle.repoInfo.civicrmFloor ?? 'N/A'})
+- Bundled core extensions touched: ${bundle.repoInfo.bundledExtensions?.join(', ') ?? 'none'}
 - Labels: ${bundle.pr.labels.join(', ') || 'none'}`);
 
   sections.push(

@@ -6,7 +6,7 @@ import { filterAndTruncateDiff } from './diff-filter.ts';
 import { fetchGitHubPrContext } from './github.ts';
 import { fetchJenkinsStatus } from './jenkins.ts';
 import { collectRelatedGitLabIssues, collectRelatedOpenPrs } from './related.ts';
-import { detectRepoInfo } from './repo-detect.ts';
+import { detectBundledExtensions, detectRepoInfo } from './repo-detect.ts';
 import { EvidenceBundleSchema, type EvidenceBundle, type PrMetadata } from './types.ts';
 
 export interface CollectEvidenceOptions {
@@ -113,6 +113,13 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     config.review.maxDiffBytes,
     config.review.paths,
   );
+  if (repoInfo.kind === 'civicrm-core') {
+    const bundled = detectBundledExtensions(
+      repoRoot,
+      filtered.files.map((f) => f.path),
+    );
+    if (bundled.length > 0) repoInfo.bundledExtensions = bundled;
+  }
 
   const [abOutcome, candidateRelatedPrs, candidateRelatedIssues] = await Promise.all([
     runCiviKitchenAb({

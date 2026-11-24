@@ -8,7 +8,7 @@ function parseXmlTag(xml: string, tag: string): string | undefined {
   return match?.[1]?.trim();
 }
 
-function parseXmlAttr(xml: string, tag: string, attr: string): string | undefined {
+export function parseXmlAttr(xml: string, tag: string, attr: string): string | undefined {
   const match = xml.match(new RegExp(`<${tag}[^>]*\\s${attr}\\s*=\\s*["']([^"']+)["']`, 'i'));
   return match?.[1]?.trim();
 }
@@ -142,4 +142,38 @@ export function detectRepoInfo(repoRoot: string, baseBranch?: string): RepoInfo 
     root: repoRoot,
     recommendedImage: 'standalone',
   };
+}
+
+export type ReviewProfile = 'core' | 'core-extension' | 'extension' | 'generic';
+
+/**
+ * Names the review profile: which mounts, checks and wording a PR gets.
+ * `core-extension` is a civicrm-core PR that touches a bundled extension under `ext/`.
+ */
+export function reviewProfile(info: RepoInfo): ReviewProfile {
+  if (info.kind === 'civicrm-core') {
+    return (info.bundledExtensions?.length ?? 0) > 0 ? 'core-extension' : 'core';
+  }
+  return info.kind === 'civicrm-extension' ? 'extension' : 'generic';
+}
+
+/**
+ * Finds the bundled extensions a civicrm-core diff touches: the nearest directory
+ * under `ext/` holding an `info.xml`, in the checkout or added by the diff itself.
+ */
+export function detectBundledExtensions(repoRoot: string, diffPaths: string[]): string[] {
+  const added = new Set(diffPaths);
+  const hasInfoXml = (dir: string) =>
+    added.has(`${dir}/info.xml`) || existsSync(join(repoRoot, dir, 'info.xml'));
+  const roots = new Set<string>();
+  for (const p of diffPaths) {
+    const parts = p.split('/');
+    if (parts[0] !== 'ext' || parts.length < 3) continue;
+    // Nested extensions (ext/afform/core) win over their parent directory.
+    const nested = parts.length > 3 ? parts.slice(0, 3).join('/') : undefined;
+    const top = parts.slice(0, 2).join('/');
+    if (nested && hasInfoXml(nested)) roots.add(nested);
+    else if (hasInfoXml(top)) roots.add(top);
+  }
+  return Array.from(roots).toSorted();
 }

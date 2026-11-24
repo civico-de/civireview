@@ -14,6 +14,7 @@ import {
   runCiviKitchenAb,
   type ExecFn,
 } from '../src/evidence/civikitchen-ab.ts';
+import { UPGRADE_PARITY_SCRIPT } from '../src/evidence/ab/static-browser.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import type { EvidenceBundle, RepoInfo } from '../src/evidence/types.ts';
 import { buildSharedEvidencePrefix } from '../src/prompts/shared.ts';
@@ -282,6 +283,7 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
         const target = args[6]!;
         const ref = args[7]!;
         mkdirSync(join(target, 'CRM/MyExt'), { recursive: true });
+        writeFileSync(join(target, 'info.xml'), '<extension key="org.example.myext"/>');
         if (ref === 'aaaaaaa') {
           worktreeAPath = target;
         } else {
@@ -360,24 +362,29 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
         const mountVal = args[args.indexOf('--mount') + 1] ?? '';
         if (mountVal.startsWith(worktreeAPath)) {
           return {
-            exitCode: 1,
-            stdout: 'CRM/MyExt/Old.php:10: Pre-existing taint warning\n',
+            exitCode: 0,
+            stdout:
+              'INFO: TaintedHtml - CRM/MyExt/Old.php:10:5 - Detected tainted HTML (see https://psalm.dev/245)\n',
             stderr: '',
           };
         }
         return {
-          exitCode: 1,
+          exitCode: 2,
           stdout:
-            'CRM/MyExt/Old.php:10: Pre-existing taint warning\n' +
-            'CRM/MyExt/New.php:25: New SQL injection taint on head\n',
+            'INFO: TaintedHtml - CRM/MyExt/Old.php:14:5 - Detected tainted HTML (see https://psalm.dev/245)\n' +
+            'ERROR: TaintedSql - CRM/MyExt/New.php:25:32 - Detected tainted SQL (see https://psalm.dev/244)\n',
           stderr: '',
         };
       }
       if (args[0] === 'ck' && args[1] === 'run' && args.includes('lifecycle')) {
-        return { exitCode: 0, stdout: 'ok', stderr: '' };
+        return {
+          exitCode: 0,
+          stdout: '### Lifecycle gate (`org.example.myext`)\n\nResult: passed',
+          stderr: '',
+        };
       }
-      if (args[0] === 'ck' && args[1] === 'run' && args.includes('schema')) {
-        return { exitCode: 0, stdout: 'ok', stderr: '' };
+      if (args[0] === 'ck' && args[1] === 'run' && args.includes(UPGRADE_PARITY_SCRIPT)) {
+        return { exitCode: 0, stdout: 'ckschemadiff: the two schemas match.', stderr: '' };
       }
       return { exitCode: 0, stdout: '', stderr: '' };
     };
@@ -412,7 +419,25 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
         (a) => a[0] === 'ck' && a[1] === 'run' && a.includes('taint'),
       );
       expect(taintCalls).toHaveLength(2);
-      expect(outcome.staticDelta.toolsRun).toEqual(['cktaint', 'cklifecycle', 'ckschema']);
+      // The ck tools read info.xml from the working directory, so each gate starts in the extension root.
+      for (const call of taintCalls) {
+        expect(call.slice(call.indexOf('--') + 1)).toEqual([
+          'bash',
+          '-c',
+          'cd "$1" && shift && exec "$@"',
+          '_',
+          '/var/www/html/ext/myext',
+          'ck',
+          'taint',
+        ]);
+      }
+      const parityCall = invocations.find((a) => a.includes(UPGRADE_PARITY_SCRIPT))!;
+      expect(parityCall.join(' ')).toContain(`--mount ${worktreeAPath}:/opt/cr-a:ro`);
+      expect(parityCall.join(' ')).toContain(`--mount ${worktreeBPath}:/opt/cr-b:ro`);
+      // The extension directory is replaced during the run, so nothing may be mounted over it.
+      expect(parityCall.join(' ')).not.toContain(':/var/www/html/ext/myext:ro');
+      expect(parityCall.slice(-2)).toEqual(['org.example.myext', '/var/www/html/ext/myext']);
+      expect(outcome.staticDelta.toolsRun).toEqual(['cktaint', 'cklifecycle', 'ckschemaparity']);
       expect(outcome.staticDelta.findings).toHaveLength(1);
       expect(outcome.staticDelta.findings[0]!.path).toBe('CRM/MyExt/New.php');
       expect(outcome.staticDelta.findings[0]!.isNewOnHead).toBe(true);

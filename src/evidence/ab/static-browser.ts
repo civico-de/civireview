@@ -7,7 +7,8 @@ import {
   type ChecksConfig,
   type ReviewSettings,
 } from '../../config/schema.ts';
-import { discoverStandaloneRoutes } from '../browser-routes.ts';
+import { discoverStandaloneRoutes, readExtensionRouteSources } from '../browser-routes.ts';
+import { parseXmlAttr } from '../repo-detect.ts';
 import {
   BrowserDiffReportSchema,
   LiveSurfaceDiffSchema,
@@ -22,6 +23,7 @@ import {
   extractKeyValueFromOutput,
   isUnsupportedCkFlagError,
   parseCkAbJsonReport,
+  newTaintFindings,
   parseTaintFindings,
   validateLocalhostUrl,
   type ExecFn,
@@ -33,10 +35,13 @@ import { buildCkAbName } from './test-targets.ts';
 export interface StaticLifecycleContext {
   execFn: ExecFn;
   ckCommand: string[];
+  workDir: string;
   repoInfo: RepoInfo;
   diffFiles: DiffFile[];
   imageA: string;
   imageB: string;
+  worktreeA: string;
+  worktreeB: string;
   mountsAOnly: string[];
   mountsBOnly: string[];
   effectiveCfg: {
@@ -49,145 +54,294 @@ export interface StaticLifecycleContext {
   notVerified: string[];
 }
 
+/** One extension the gates run against: a whole extension repo or a bundled core extension. */
+export interface ExtensionTarget {
+  key: string;
+  containerDir: string;
+  // Host directories holding the extension at base and head; `hostA` is absent for a new extension.
+  hostA?: string;
+  hostB: string;
+  // Repo-relative prefix of the extension's files ('' for an extension repo).
+  repoPrefix: string;
+}
+
+const MAX_BUNDLED_TARGETS = 2;
+
+/** Resolves which extensions the lifecycle, taint and upgrade-parity gates run against. */
+export function resolveExtensionTargets(
+  repoInfo: RepoInfo,
+  worktreeA: string,
+  worktreeB: string,
+): ExtensionTarget[] {
+  if (repoInfo.kind === 'civicrm-extension') {
+    const name = repoInfo.extensionName ?? 'myext';
+    return [
+      {
+        key: repoInfo.extensionKey ?? name,
+        containerDir: `/var/www/html/ext/${name}`,
+        hostA: existsSync(join(worktreeA, 'info.xml')) ? worktreeA : undefined,
+        hostB: worktreeB,
+        repoPrefix: '',
+      },
+    ];
+  }
+  const targets: ExtensionTarget[] = [];
+  for (const dir of (repoInfo.bundledExtensions ?? []).slice(0, MAX_BUNDLED_TARGETS)) {
+    const infoB = join(worktreeB, dir, 'info.xml');
+    if (!existsSync(infoB)) continue;
+    const key = parseXmlAttr(readFileSync(infoB, 'utf8'), 'extension', 'key');
+    if (!key || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(key)) continue;
+    targets.push({
+      key,
+      containerDir: `/var/www/html/core/${dir}`,
+      hostA: existsSync(join(worktreeA, dir, 'info.xml')) ? join(worktreeA, dir) : undefined,
+      hostB: join(worktreeB, dir),
+      repoPrefix: `${dir}/`,
+    });
+  }
+  return targets;
+}
+
+// The ck tools read info.xml from the working directory; `ck run` starts in /var/www/html.
+const IN_DIR = ['bash', '-c', 'cd "$1" && shift && exec "$@"', '_'];
+// `ck lifecycle` starts with a disable; bundled extensions ship uninstalled in the image.
+const ENABLED_IN_DIR = [
+  'bash',
+  '-c',
+  'cd "$1" && { cv ext:enable "$2" >/dev/null 2>&1; shift 2; exec "$@"; }',
+  '_',
+];
+
 /**
- * Runs static taint delta (`ck taint` A vs B) and lifecycle/schema checks
- * (`ck lifecycle`, `ck schema`) for CiviCRM extensions.
+ * Installs the base copy, upgrades to the head copy and compares the result with a
+ * fresh install of head. Exit 0 parity, 1 schema differs, 3 a step failed.
  */
-export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): Promise<void> {
-  const {
-    execFn,
-    ckCommand,
-    repoInfo,
-    diffFiles,
-    imageA,
-    imageB,
-    mountsAOnly,
-    mountsBOnly,
-    effectiveCfg,
-    toolsRun,
-    staticFindings,
-    notVerified,
-  } = ctx;
+export const UPGRADE_PARITY_SCRIPT = `set -u
+key="$1"; dir="$2"; db="\${CIVICRM_DB_NAME:-civicrm}"
+step() { label="$1"; shift; if ! "$@" > /tmp/cr-step.log 2>&1; then echo "upgrade-parity: step failed: $label" >&2; tail -15 /tmp/cr-step.log >&2; exit 3; fi; }
+swap() { rm -rf "$dir" && cp -a "$1" "$dir"; }
+step "copy base" swap /opt/cr-a
+step "flush" cv flush
+step "install base" cv ext:enable "$key"
+step "copy head" swap /opt/cr-b
+step "flush" cv flush
+step "upgrade" cv upgrade:db --mode=ext
+cd "$dir" || exit 3
+step "dump upgraded" ckschemadiff dump "$db" /tmp/cr-upgraded.sql
+step "disable" cv ext:disable "$key"
+step "uninstall" cv ext:uninstall "$key"
+step "fresh install" cv ext:enable "$key"
+step "dump fresh" ckschemadiff dump "$db" /tmp/cr-fresh.sql
+ckschemadiff diff /tmp/cr-fresh.sql /tmp/cr-upgraded.sql
+`;
 
-  if (
-    repoInfo.kind === 'civicrm-extension' &&
-    isCheckEnabled(effectiveCfg, 'static-delta') &&
-    mountsAOnly.length > 0 &&
-    mountsBOnly.length > 0
-  ) {
-    const taintA = await execFn(
-      [...ckCommand, 'run', imageA, ...mountsAOnly, '--', 'ck', 'taint'],
-      { timeoutMs: 180_000 },
-    );
-    const taintB = await execFn(
-      [...ckCommand, 'run', imageB, ...mountsBOnly, '--', 'ck', 'taint'],
-      { timeoutMs: 180_000 },
-    );
-
-    if (
-      isUnsupportedCkFlagError(taintA.exitCode, taintA.stdout, taintA.stderr, /\btaint\b/i) ||
-      isUnsupportedCkFlagError(taintB.exitCode, taintB.stdout, taintB.stderr, /\btaint\b/i) ||
-      /runs in the dev stack/i.test(`${taintA.stderr}\n${taintB.stderr}`)
-    ) {
-      notVerified.push('Installed ck CLI does not support `ck taint`; static taint delta skipped.');
-    } else {
-      toolsRun.push('cktaint');
-      const itemsA = parseTaintFindings(taintA.stdout || taintA.stderr);
-      const itemsB = parseTaintFindings(taintB.stdout || taintB.stderr);
-      const keysA = new Set(itemsA.map((item) => item.key));
-      const newOnB = itemsB.filter((item) => !keysA.has(item.key));
-
-      for (const item of newOnB) {
-        staticFindings.push({
-          tool: 'cktaint',
-          severity: item.severity,
-          path: item.path,
-          line: item.line,
-          message: item.message,
-          isNewOnHead: true,
-        });
-      }
-
-      if (
-        newOnB.length === 0 &&
-        taintB.exitCode !== 0 &&
-        taintA.exitCode === 0 &&
-        (taintB.stdout || taintB.stderr).trim()
-      ) {
-        staticFindings.push({
-          tool: 'cktaint',
-          severity: 'warning',
-          message: (taintB.stdout || taintB.stderr).trim().slice(0, 1500),
-          isNewOnHead: true,
-        });
-      }
+/** Drops `--mount src:dst` pairs whose destination lies inside `containerDir`. */
+function mountsOutside(mounts: string[], containerDir: string): string[] {
+  const kept: string[] = [];
+  for (let i = 0; i + 1 < mounts.length; i += 2) {
+    const dst = mounts[i + 1]!.split(':')[1] ?? '';
+    if (dst !== containerDir && !dst.startsWith(`${containerDir}/`)) {
+      kept.push(mounts[i]!, mounts[i + 1]!);
     }
   }
+  return kept;
+}
 
-  if (isCheckEnabled(effectiveCfg, 'lifecycle')) {
-    const needsLifecycle = diffFiles.some(
-      (f) => f.flags.isUpgrade || f.flags.isSchema || f.flags.isManaged,
+function unsupported(
+  res: { exitCode: number; stdout: string; stderr: string },
+  re: RegExp,
+): boolean {
+  return (
+    isUnsupportedCkFlagError(res.exitCode, res.stdout, res.stderr, re) ||
+    /runs in the dev stack/i.test(res.stderr)
+  );
+}
+
+function gateOutput(res: { stdout: string; stderr: string }): string {
+  return `${res.stdout}\n${res.stderr}`
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !/^\s*(Container|Network|Volume) /.test(line))
+    .join('\n')
+    .trim();
+}
+
+/**
+ * Runs the extension gates from each extension's root: static taint delta
+ * (`ck taint` A vs B), `ck lifecycle`, and install-vs-upgrade schema parity.
+ * A gate that cannot run is reported as not verified, never as a finding.
+ */
+export async function runStaticAndLifecycleChecks(ctx: StaticLifecycleContext): Promise<void> {
+  const { execFn, ckCommand, diffFiles, imageA, imageB, effectiveCfg } = ctx;
+  const { toolsRun, staticFindings, notVerified } = ctx;
+  const markRun = (tool: string) => {
+    if (!toolsRun.includes(tool)) toolsRun.push(tool);
+  };
+
+  // `ck run` refuses to start while a stack of its name exists, and a run that is cut off
+  // leaves its stack behind: each gate gets its own stack, removed after a timeout.
+  const ckRun = async (
+    label: string,
+    image: string,
+    mounts: string[],
+    command: string[],
+    timeoutMs: number,
+  ) => {
+    const name = buildCkAbName(ctx.workDir, label);
+    const res = await execFn(
+      [...ckCommand, 'run', image, '--name', name, ...mounts, '--', ...command],
+      { timeoutMs },
     );
-    const needsSchema = diffFiles.some((f) => f.flags.isSchema || f.flags.isUpgrade);
+    if (res.timedOut) {
+      await execFn(['docker', 'compose', '-p', name, 'down', '-v'], { timeoutMs: 60_000 });
+    }
+    return res;
+  };
+
+  for (const dir of (ctx.repoInfo.bundledExtensions ?? []).slice(MAX_BUNDLED_TARGETS)) {
+    notVerified.push(
+      `${dir} not checked: the extension gates run for the first ${MAX_BUNDLED_TARGETS} bundled extensions of a PR`,
+    );
+  }
+
+  for (const target of resolveExtensionTargets(ctx.repoInfo, ctx.worktreeA, ctx.worktreeB)) {
+    const files = diffFiles.filter((f) => f.path.startsWith(target.repoPrefix));
+    const inDir = [...IN_DIR, target.containerDir];
 
     if (
-      repoInfo.kind === 'civicrm-extension' &&
-      (needsLifecycle || effectiveCfg.review.include.includes('lifecycle')) &&
-      mountsBOnly.length > 0
+      isCheckEnabled(effectiveCfg, 'static-delta') &&
+      ctx.mountsAOnly.length > 0 &&
+      ctx.mountsBOnly.length > 0
     ) {
-      const lcRes = await execFn(
-        [...ckCommand, 'run', imageB, ...mountsBOnly, '--', 'ck', 'lifecycle'],
-        { timeoutMs: 180_000 },
+      const taintCmd = [...inDir, 'ck', 'taint'];
+      const taintA = await ckRun('taint-a', imageA, ctx.mountsAOnly, taintCmd, 300_000);
+      const taintB = await ckRun('taint-b', imageB, ctx.mountsBOnly, taintCmd, 300_000);
+
+      if (unsupported(taintA, /\btaint\b/i) || unsupported(taintB, /\btaint\b/i)) {
+        notVerified.push(
+          'Installed ck CLI does not support `ck taint`; static taint delta skipped.',
+        );
+      } else if (taintA.timedOut || taintB.timedOut) {
+        notVerified.push(`ck taint timed out for ${target.key}; static taint delta skipped.`);
+      } else {
+        const sides = [taintA, taintB].map((res) => ({
+          res,
+          items: parseTaintFindings(res.stdout || res.stderr),
+        }));
+        // A non-zero exit without an error-level issue is a tool failure, not a taint finding.
+        const failed = sides.find(
+          (side) => side.res.exitCode !== 0 && !side.items.some((i) => i.severity === 'error'),
+        );
+        if (failed) {
+          notVerified.push(
+            `ck taint failed for ${target.key} (exit ${failed.res.exitCode}); static taint delta skipped.`,
+          );
+        } else {
+          markRun('cktaint');
+          for (const item of newTaintFindings(sides[0]!.items, sides[1]!.items)) {
+            staticFindings.push({
+              tool: 'cktaint',
+              severity: item.severity,
+              path: `${target.repoPrefix}${item.path}`,
+              line: item.line,
+              message: item.message,
+              isNewOnHead: true,
+            });
+          }
+        }
+      }
+    }
+
+    const needsLifecycle = files.some(
+      (f) => f.flags.isUpgrade || f.flags.isSchema || f.flags.isManaged,
+    );
+    const needsParity = files.some((f) => f.flags.isSchema || f.flags.isUpgrade);
+    if (!isCheckEnabled(effectiveCfg, 'lifecycle')) {
+      if (needsLifecycle) {
+        notVerified.push(
+          `install, uninstall and upgrade path of ${target.key} not verified (lifecycle check disabled)`,
+        );
+      }
+      continue;
+    }
+
+    if (
+      (needsLifecycle || effectiveCfg.review.include.includes('lifecycle')) &&
+      ctx.mountsBOnly.length > 0
+    ) {
+      const lcRes = await ckRun(
+        'lifecycle',
+        imageB,
+        ctx.mountsBOnly,
+        [...ENABLED_IN_DIR, target.containerDir, target.key, 'ck', 'lifecycle'],
+        300_000,
       );
-      if (
-        isUnsupportedCkFlagError(lcRes.exitCode, lcRes.stdout, lcRes.stderr, /\blifecycle\b/i) ||
-        /runs in the dev stack/i.test(lcRes.stderr)
-      ) {
+      if (unsupported(lcRes, /\blifecycle\b/i)) {
         notVerified.push(
           'Installed ck CLI does not support `ck lifecycle`; lifecycle check skipped.',
         );
+      } else if (lcRes.timedOut || !gateOutput(lcRes).includes('### Lifecycle gate')) {
+        // Without the gate's report the run stopped before the check (stack boot, missing info.xml).
+        notVerified.push(`ck lifecycle did not run for ${target.key}; lifecycle not verified.`);
       } else {
-        toolsRun.push('cklifecycle');
+        markRun('cklifecycle');
         if (lcRes.exitCode !== 0) {
           staticFindings.push({
             tool: 'cklifecycle',
             severity: 'error',
-            message:
-              (lcRes.stdout || lcRes.stderr).trim().slice(0, 1500) ||
-              `ck lifecycle exited with ${lcRes.exitCode}`,
+            message: gateOutput(lcRes).slice(-1500),
             isNewOnHead: true,
           });
         }
       }
     }
 
-    if (repoInfo.kind === 'civicrm-extension' && needsSchema && mountsBOnly.length > 0) {
-      const schemaRes = await execFn(
-        [...ckCommand, 'run', imageB, ...mountsBOnly, '--', 'ck', 'schema'],
-        { timeoutMs: 180_000 },
+    // A directory mount over a parent keeps the extension directory read-only.
+    const coveredByMount = ctx.mountsBOnly.some((m) => {
+      const dst = m.split(':')[1];
+      return dst !== undefined && target.containerDir.startsWith(`${dst}/`);
+    });
+    if (needsParity && target.hostA && coveredByMount) {
+      notVerified.push(
+        `Upgrade parity skipped for ${target.key}: the PR is mounted as whole directories, so the extension cannot be replaced in the instance.`,
       );
-      if (
-        isUnsupportedCkFlagError(
-          schemaRes.exitCode,
-          schemaRes.stdout,
-          schemaRes.stderr,
-          /\bschema\b/i,
-        ) ||
-        /runs in the dev stack/i.test(schemaRes.stderr)
-      ) {
-        notVerified.push('Installed ck CLI does not support `ck schema`; schema check skipped.');
+    } else if (needsParity && target.hostA) {
+      const res = await ckRun(
+        'parity',
+        imageB,
+        [
+          ...mountsOutside(ctx.mountsBOnly, target.containerDir),
+          '--mount',
+          `${target.hostA}:/opt/cr-a:ro`,
+          '--mount',
+          `${target.hostB}:/opt/cr-b:ro`,
+        ],
+        ['bash', '-c', UPGRADE_PARITY_SCRIPT, 'upgrade-parity', target.key, target.containerDir],
+        420_000,
+      );
+      const out = gateOutput(res);
+      if (res.exitCode === 0 && !res.timedOut) {
+        markRun('ckschemaparity');
+      } else if (res.exitCode === 1 && /the two schemas differ/.test(out)) {
+        markRun('ckschemaparity');
+        const diffStart = out.indexOf('--- fresh install');
+        staticFindings.push({
+          tool: 'ckschemaparity',
+          severity: 'warning',
+          message:
+            `Upgrading ${target.key} from base to head leaves a different schema than a fresh install of head ` +
+            `(a pure column-order difference is harmless):\n${out.slice(Math.max(diffStart, 0)).slice(0, 1400)}`,
+          isNewOnHead: true,
+        });
       } else {
-        toolsRun.push('ckschema');
-        if (schemaRes.exitCode !== 0) {
-          staticFindings.push({
-            tool: 'ckschema',
-            severity: 'error',
-            message:
-              (schemaRes.stdout || schemaRes.stderr).trim().slice(0, 1500) ||
-              `ck schema exited with ${schemaRes.exitCode}`,
-            isNewOnHead: true,
-          });
-        }
+        const failed = out.match(/upgrade-parity: step failed: (.+)/)?.[1];
+        notVerified.push(
+          `upgrade path of ${target.key} not verified: ` +
+            (res.timedOut
+              ? 'the parity run timed out'
+              : failed
+                ? `step "${failed}" failed`
+                : `the parity run exited with ${res.exitCode}`),
+        );
       }
     }
   }
@@ -199,6 +353,9 @@ export interface StandaloneBrowserContext {
   workDir: string;
   outRoot: string;
   outputDir?: string;
+  repoInfo: RepoInfo;
+  worktreeA: string;
+  worktreeB: string;
   diffFiles: DiffFile[];
   prBody?: string;
   imageA: string;
@@ -240,14 +397,21 @@ export async function runStandaloneBrowserAb(
 
   const browserEnabled = isCheckEnabled(ctx.effectiveCfg, 'browser');
   const a11yEnabled = isCheckEnabled(ctx.effectiveCfg, 'a11y');
+  const targets = resolveExtensionTargets(ctx.repoInfo, ctx.worktreeA, ctx.worktreeB);
   const routes = browserEnabled
     ? discoverStandaloneRoutes({
         diffFiles: ctx.diffFiles,
         surfaceDiff,
         prBody: ctx.prBody,
+        extensionRouteSources: readExtensionRouteSources(
+          targets.map((t) => ({ hostDir: t.hostB, repoPrefix: t.repoPrefix })),
+        ),
         config: { browser: ctx.browserConfig },
       })
-    : { pages: [], anonymousPages: [], reason: 'browser check disabled' };
+    : { pages: [], anonymousPages: [], reason: 'browser check disabled', usedFallback: false };
+  // Bundled extensions ship disabled in the image; their pages exist only once enabled.
+  const bundledKeys = ctx.repoInfo.kind === 'civicrm-core' ? targets.map((t) => t.key) : [];
+  const setupCommand = bundledKeys.length > 0 ? ['cv', 'ext:enable', ...bundledKeys] : ['true'];
 
   const hasRoutes = routes.pages.length > 0 || routes.anonymousPages.length > 0;
   if (!((browserEnabled && hasRoutes) || ctx.interactiveBrowser || ctx.liveProve)) {
@@ -279,7 +443,7 @@ export async function runStandaloneBrowserAb(
     '--expose',
     ...(ctx.keepLive ? ['--keep'] : []),
     '--',
-    'true',
+    ...setupCommand,
   ];
 
   let browserRes = await ctx.execFn(buildBrowserArgs(true), {
@@ -401,7 +565,17 @@ export async function runStandaloneBrowserAb(
     keptComposeFiles = { A: candidateComposeA, B: candidateComposeB };
   }
 
-  if (!browserDiff && browserRes.exitCode !== 0) {
+  const setupFailed =
+    bundledKeys.length > 0 &&
+    ((parsedJson?.exitCodeA ?? 0) !== 0 || (parsedJson?.exitCodeB ?? 0) !== 0);
+  if (setupFailed) {
+    // Without the extension enabled on both sides its routes do not exist; the probe compares nothing.
+    browserDiff = BrowserDiffReportSchema.parse({
+      error: `could not enable ${bundledKeys.join(', ')} (exit ${parsedJson?.exitCodeA} on base, ${parsedJson?.exitCodeB} on head)`,
+      probedRoutes: routes.pages,
+      probedAnonymousRoutes: routes.anonymousPages,
+    });
+  } else if (!browserDiff && browserRes.exitCode !== 0) {
     browserDiff = BrowserDiffReportSchema.parse({
       error:
         (browserRes.stderr || browserRes.stdout).trim().slice(0, 600) ||
@@ -450,6 +624,7 @@ export async function runStandaloneBrowserAb(
           ? browserDiff.probedAnonymousRoutes
           : routes.anonymousPages,
       screenshots: copiedScreenshots,
+      ...(routes.usedFallback ? { smokeOnly: true } : {}),
       ...(keptUrls ? { urls: keptUrls } : {}),
     };
   }
