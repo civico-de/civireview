@@ -94,6 +94,17 @@ civireview publish  --review ./review.json --evidence ./evidence
 civireview reply    --repo owner/name --pr 123 --comment-id 456 --evidence ./evidence --question "Why?"
 ```
 
+Flags of the single stages:
+
+| Flag | Stage | Effect |
+| --- | --- | --- |
+| `--head-sha <sha>`, `--base-sha <sha>` | `evidence` | fail when the PR's head or base is no longer this commit, so a job reviews the commit it was authorised for |
+| `--out <file>` | `reply` | also write the answer as JSON |
+| `--reply <file>` with `--comment-id <id>` | `publish` | post that saved answer into the thread; credentials for the models are not needed |
+| `--dry-run` | `publish`, `reply` | print what would be posted |
+| `--body-env <VAR>`, `--trigger <text>` | `parse-command` | read a comment body from the environment variable (default `COMMENT_BODY`) and print the mention and its flags as JSON, without passing the body through a shell |
+| `--base <ref>` | `local` | the branch to compare against |
+
 `evidence` needs no model credentials and is the way to see what civireview would
 measure for a PR: the profile, the probed routes, the gate results and the *Not
 verified* list are all in `evidence.json`.
@@ -122,6 +133,11 @@ bun run bin/civireview.ts watch \
 | `--max-age-minutes` | ignore older mentions, so a first start does not replay history |
 | `--lock-models` | ignore model and preset flags from comments |
 | `--wait-for-ci` | defer a review while the PR's CI is still running |
+| `--wait-for-ci-max-minutes` | review anyway after this many minutes of pending CI (default 90) |
+| `--open-only` | in `search` mode leave out closed and merged PRs; they are included by default |
+| `--trigger` | the mention to react to (default `@civireview`) |
+| `--bot-login` | the login the reviews are posted as; only its comments count as review markers |
+| `--interval` | seconds between two polls (default 60) |
 | `--check-only` | print pending mentions as JSON without reviewing |
 | `--once` | one poll pass instead of a loop |
 

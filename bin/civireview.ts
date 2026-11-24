@@ -67,6 +67,11 @@ Common Options:
   --dry-run                 Print formatted output instead of posting to GitHub
   --out <path>              Output directory or file path
   --cwd <dir>               Repository working directory (default: process.cwd())
+  --base <ref>              (local) Branch to compare against
+  --head-sha <sha>          (evidence) Fail when the PR head is no longer this commit
+  --base-sha <sha>          (evidence) Fail when the PR base is no longer this commit
+  --body-env <ENV_VAR>      (parse-command) Variable holding the comment body (default: COMMENT_BODY)
+  --trigger <text>          Mention to react to (default: @civireview)
   --bot-login <login>       Login the reviews are posted as; only its comments count as review markers
   -h, --help                Show this help message
 
