@@ -10,15 +10,14 @@ import {
   deriveRegressionTargets,
   isE2eMinkTestPath,
 } from '../src/evidence/ab/test-targets.ts';
+import { runCiviKitchenAb, type ExecFn } from '../src/evidence/civikitchen-ab.ts';
 import {
-  collectRecentBaseFilesSinceImageBuild,
+  collectBaseDriftSinceImage,
   resolveAvailableCivikitchenImage,
-  runCiviKitchenAb,
-  type ExecFn,
-} from '../src/evidence/civikitchen-ab.ts';
+} from '../src/evidence/ab/image-drift.ts';
 import { mergeBlastRadius } from '../src/engine/findings.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
-import type { RepoInfo } from '../src/evidence/types.ts';
+import type { DiffFile, RepoInfo } from '../src/evidence/types.ts';
 
 const tempDirs: string[] = [];
 
@@ -34,6 +33,53 @@ afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   }
 });
+
+function modifiedSqlDiff(): DiffFile[] {
+  return parseUnifiedDiff(
+    [
+      'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
+      '--- a/CRM/Queue/Sql.php',
+      '+++ b/CRM/Queue/Sql.php',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+    ].join('\n'),
+  );
+}
+
+function makeCoreWorktrees(): { wtA: string; wtB: string } {
+  const root = makeTempDir();
+  const wtA = join(root, 'A');
+  const wtB = join(root, 'B');
+  for (const wt of [wtA, wtB]) {
+    mkdirSync(join(wt, 'CRM/Queue'), { recursive: true });
+    mkdirSync(join(wt, 'CRM/Core'), { recursive: true });
+    mkdirSync(join(wt, 'Civi'), { recursive: true });
+    mkdirSync(join(wt, 'api/v3'), { recursive: true });
+    mkdirSync(join(wt, 'ext/afform'), { recursive: true });
+    mkdirSync(join(wt, 'tests/phpunit'), { recursive: true });
+    writeFileSync(join(wt, 'CRM/Queue/Sql.php'), '<?php\n');
+    writeFileSync(join(wt, 'CRM/Core/RecentHelper.php'), '<?php\n');
+    writeFileSync(join(wt, 'api/v3/Recent.php'), '<?php\n');
+    writeFileSync(join(wt, 'ext/afform/Recent.php'), '<?php\n');
+    writeFileSync(join(wt, 'tests/phpunit/Helper.php'), '<?php\n');
+    mkdirSync(join(wt, 'ext/greenwich'), { recursive: true });
+    writeFileSync(
+      join(wt, 'composer.json'),
+      JSON.stringify({
+        extra: { downloads: { bootstrap3: { path: 'ext/greenwich/extern/bootstrap3' } } },
+      }),
+    );
+  }
+  return { wtA, wtB };
+}
+
+const onlyLatestPublished: ExecFn = async (args) =>
+  args[0] === 'docker' && args[1] === 'manifest' && (args[3] ?? '').endsWith(':standalone-latest')
+    ? { exitCode: 0, stdout: '{}', stderr: '' }
+    : { exitCode: 1, stdout: '', stderr: 'No such image' };
+
+const alwaysFails: ExecFn = async () => ({ exitCode: 1, stdout: '', stderr: 'no such file' });
 
 describe('E2E/Mink test exclusion from headless PHPUnit proof-of-fix', () => {
   test('isE2eMinkTestPath identifies core and extension E2E Mink tests', () => {
@@ -373,26 +419,32 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(proof?.summary).toContain('1 test(s) red on A, green on B');
   });
 
-  test('resolveAvailableCivikitchenImage falls back from unpublished standalone-6.21 to standalone-beta', async () => {
+  test('resolveAvailableCivikitchenImage gives a core PR no substitute for its branch image', async () => {
     const probed: string[] = [];
     const execFn: ExecFn = async (args) => {
       probed.push(args.join(' '));
-      if (args[0] === 'docker' && args[1] === 'image' && args[2] === 'inspect') {
-        return { exitCode: 1, stdout: '', stderr: 'No such image' };
+      if (
+        args[0] === 'docker' &&
+        args[1] === 'manifest' &&
+        (args[3] ?? '').endsWith(':standalone-beta')
+      ) {
+        return { exitCode: 0, stdout: '{}', stderr: '' };
       }
-      if (args[0] === 'docker' && args[1] === 'manifest' && args[2] === 'inspect') {
-        const ref = args[3] ?? '';
-        if (ref.endsWith(':standalone-beta')) {
-          return { exitCode: 0, stdout: '{}', stderr: '' };
-        }
-        return { exitCode: 1, stdout: '', stderr: 'no such manifest' };
-      }
-      return { exitCode: 1, stdout: '', stderr: '' };
+      return { exitCode: 1, stdout: '', stderr: 'No such image' };
     };
 
     const res = await resolveAvailableCivikitchenImage('standalone-6.21', 'civicrm-core', execFn);
-    expect(res).toEqual({ tag: 'standalone-beta', fallbackFrom: 'standalone-6.21' });
-    expect(probed.some((cmd) => cmd.includes(':standalone-6.21'))).toBe(true);
+    expect(res).toEqual({ tag: 'standalone-6.21', found: false });
+    expect(probed.some((cmd) => cmd.includes(':standalone-beta'))).toBe(false);
+  });
+
+  test('resolveAvailableCivikitchenImage names the substitute an extension runs on', async () => {
+    const res = await resolveAvailableCivikitchenImage(
+      'standalone-6.10',
+      'civicrm-extension',
+      onlyLatestPublished,
+    );
+    expect(res).toEqual({ tag: 'standalone-latest', found: true, fallbackFrom: 'standalone-6.10' });
   });
 
   test('mergeBlastRadius deduplicates per normalized (repo, path) keeping richer impact', () => {
@@ -418,65 +470,296 @@ diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTe
     expect(merged[0]?.impact).toContain('Much richer impact');
   });
 
-  test('collectRecentBaseFilesSinceImageBuild uses local image Created timestamp and buildCoreMountPlan overlays them', async () => {
-    let seenSinceArg = '';
+  test('collectBaseDriftSinceImage diffs the commit a git-built image names against the base', async () => {
+    const sha = 'a'.repeat(40);
+    const calls: string[][] = [];
     const execFn: ExecFn = async (args) => {
-      if (args[0] === 'docker' && args[1] === 'image' && args[2] === 'inspect') {
-        return { exitCode: 0, stdout: '2026-11-23T03:00:00Z\n', stderr: '' };
-      }
-      if (args[0] === 'git' && args.includes('log')) {
-        seenSinceArg = args.find((a) => a.startsWith('--since=')) ?? '';
+      calls.push(args);
+      if (args[0] === 'docker' && args[1] === 'run') {
         return {
           exitCode: 0,
-          stdout: 'CRM/Core/RecentHelper.php\nCRM/Core/DAO/Contact.php\nCRM/Queue/Sql.php\n',
+          stdout: `git . ${sha}\ngit packages ${'b'.repeat(40)}\n`,
           stderr: '',
         };
+      }
+      if (args.includes('cat-file')) return { exitCode: 0, stdout: '', stderr: '' };
+      if (args.includes('diff')) {
+        return { exitCode: 0, stdout: 'CRM/Core/RecentHelper.php\ncomposer.lock\n', stderr: '' };
       }
       return { exitCode: 1, stdout: '', stderr: '' };
     };
 
-    const recent = await collectRecentBaseFilesSinceImageBuild({
+    const drift = await collectBaseDriftSinceImage({
       repoRoot: '/tmp/fake-repo',
-      baseSha: 'aaaaaaa',
+      baseSha: 'c0ffee',
       imageTag: 'standalone-master',
       execFn,
     });
-    expect(seenSinceArg).toBe('--since=2026-11-23T01:00:00.000Z');
-    expect(recent).toEqual([
-      'CRM/Core/RecentHelper.php',
-      'CRM/Core/DAO/Contact.php',
-      'CRM/Queue/Sql.php',
+    expect(drift).toEqual({
+      imageCoreRef: sha,
+      files: ['CRM/Core/RecentHelper.php', 'composer.lock'],
+    });
+    expect(calls.find((a) => a.includes('diff'))).toEqual([
+      'git',
+      '-C',
+      '/tmp/fake-repo',
+      'diff',
+      '--no-renames',
+      '--name-only',
+      sha,
+      'c0ffee',
     ]);
+    expect(calls.some((a) => a.includes('fetch'))).toBe(false);
+  });
 
-    const root = makeTempDir();
-    const wtA = join(root, 'A');
-    const wtB = join(root, 'B');
-    mkdirSync(join(wtA, 'CRM/Core/DAO'), { recursive: true });
-    mkdirSync(join(wtA, 'CRM/Queue'), { recursive: true });
-    mkdirSync(join(wtB, 'CRM/Queue'), { recursive: true });
-    writeFileSync(join(wtA, 'CRM/Core/RecentHelper.php'), '<?php\n');
-    writeFileSync(join(wtA, 'CRM/Core/DAO/Contact.php'), '<?php\n');
-    writeFileSync(join(wtA, 'CRM/Queue/Sql.php'), '<?php\n');
-    writeFileSync(join(wtB, 'CRM/Queue/Sql.php'), '<?php\n');
+  test('collectBaseDriftSinceImage fetches the release tag a tarball image was built from', async () => {
+    const calls: string[][] = [];
+    const execFn: ExecFn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'docker') {
+        return {
+          exitCode: 0,
+          stdout: 'tarball https://download.civicrm.org/civicrm-6.20.1-standalone.tar.gz\n',
+          stderr: '',
+        };
+      }
+      if (args.includes('cat-file')) return { exitCode: 128, stdout: '', stderr: 'missing' };
+      if (args.includes('fetch')) return { exitCode: 0, stdout: '', stderr: '' };
+      if (args.includes('diff')) return { exitCode: 0, stdout: 'CRM/Utils/Foo.php\n', stderr: '' };
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
 
+    const drift = await collectBaseDriftSinceImage({
+      repoRoot: '/r',
+      baseSha: 'base',
+      imageTag: 'standalone-6.20',
+      execFn,
+    });
+    expect(drift).toEqual({ imageCoreRef: '6.20.1', files: ['CRM/Utils/Foo.php'] });
+    expect(calls.find((a) => a.includes('fetch'))).toEqual([
+      'git',
+      '-C',
+      '/r',
+      'fetch',
+      '--no-tags',
+      'origin',
+      'refs/tags/6.20.1:refs/tags/6.20.1',
+    ]);
+  });
+
+  test('collectBaseDriftSinceImage leaves files undefined when the image names no core', async () => {
+    const drift = await collectBaseDriftSinceImage({
+      repoRoot: '/r',
+      baseSha: 'base',
+      imageTag: 'standalone-master',
+      execFn: alwaysFails,
+    });
+    expect(drift.files).toBeUndefined();
+  });
+
+  test('buildCoreMountPlan mounts drifted base directories whole and test files singly', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    const drift = [
+      'CRM/Core/RecentHelper.php',
+      'CRM/Core/DAO/Removed.php',
+      'ext/afform/Recent.php',
+      'tests/phpunit/Helper.php',
+      'composer.lock',
+    ];
+
+    const plan = buildCoreMountPlan(modifiedSqlDiff(), ['CRM'], wtA, wtB, drift);
+    expect(plan.useFileMounts).toBe(true);
+    const shared = (spec: string) => {
+      const i = plan.abMounts.indexOf(spec);
+      return (
+        i > 0 &&
+        plan.abMounts[i - 1] === '--mount' &&
+        plan.mountsAOnly.includes(spec) &&
+        plan.mountsBOnly.includes(spec)
+      );
+    };
+    expect(shared(`${join(wtA, 'CRM')}:/var/www/html/core/CRM:ro`)).toBe(true);
+    expect(shared(`${join(wtA, 'ext/afform')}:/var/www/html/core/ext/afform:ro`)).toBe(true);
+    expect(
+      shared(
+        `${join(wtA, 'tests/phpunit/Helper.php')}:/var/www/html/core/tests/phpunit/Helper.php:ro`,
+      ),
+    ).toBe(true);
+    expect(plan.abMounts).toContain(
+      `${join(wtB, 'CRM/Queue/Sql.php')}:/var/www/html/core/CRM/Queue/Sql.php:ro`,
+    );
+    expect(plan.abMounts.some((m) => m.includes('composer.lock'))).toBe(false);
+    expect(plan.abMounts.filter((m) => m.endsWith('/core/CRM:ro'))).toHaveLength(1);
+  });
+
+  test('buildCoreMountPlan mounts whole directories when the PR adds a file under a drifted one', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    writeFileSync(join(wtB, 'CRM/Queue/New.php'), '<?php\n');
     const diffFiles = parseUnifiedDiff(
       [
-        'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
-        '--- a/CRM/Queue/Sql.php',
-        '+++ b/CRM/Queue/Sql.php',
-        '@@ -1 +1 @@',
-        '-old',
-        '+new',
+        'diff --git a/CRM/Queue/New.php b/CRM/Queue/New.php',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/CRM/Queue/New.php',
+        '@@ -0,0 +1 @@',
+        '+<?php',
       ].join('\n'),
     );
 
-    const plan = buildCoreMountPlan(diffFiles, ['CRM'], wtA, wtB, recent);
-    expect(plan.useFileMounts).toBe(true);
-    // RecentHelper.php overlaid into both A and B; DAO skipped; PR-modified Sql.php not duplicated
+    const plan = buildCoreMountPlan(diffFiles, ['CRM'], wtA, wtB, [
+      'CRM/Core/RecentHelper.php',
+      'api/v3/Recent.php',
+      'tests/phpunit/Helper.php',
+    ]);
+    expect(plan.useFileMounts).toBe(false);
+    expect(plan.abMounts).toContain(`${join(wtA, 'CRM')}:/var/www/html/core/CRM:ro`);
+    expect(plan.abMounts).toContain(`${join(wtB, 'CRM')}:/var/www/html/core/CRM:ro`);
+    expect(plan.abMounts).toContain(`${join(wtA, 'api')}:/var/www/html/core/api:ro`);
+    expect(plan.abMounts.some((m) => m.includes('tests/phpunit/Helper.php'))).toBe(false);
+    expect(plan.abMounts.filter((m) => m.startsWith(`${join(wtA, 'CRM')}:`))).toHaveLength(1);
+  });
+
+  test('buildCoreMountPlan mounts a drifted extension whole unless it holds build output', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    writeFileSync(join(wtA, 'ext/greenwich/greenwich.php'), '<?php\n');
+    const plan = buildCoreMountPlan(modifiedSqlDiff(), ['CRM'], wtA, wtB, [
+      'ext/afform/Removed.php',
+      'ext/greenwich/greenwich.php',
+      'ext/greenwich/Removed.php',
+    ]);
+    expect(plan.abMounts).toContain(`${join(wtA, 'ext/afform')}:/var/www/html/core/ext/afform:ro`);
     expect(plan.abMounts).toContain(
-      `${join(wtA, 'CRM/Core/RecentHelper.php')}:/var/www/html/core/CRM/Core/RecentHelper.php:ro`,
+      `${join(wtA, 'ext/greenwich/greenwich.php')}:/var/www/html/core/ext/greenwich/greenwich.php:ro`,
     );
-    expect(plan.abMounts.some((m) => m.includes('DAO/Contact.php'))).toBe(false);
-    expect(plan.abMounts.filter((m) => m.includes('CRM/Queue/Sql.php'))).toHaveLength(2);
+    expect(plan.abMounts.some((m) => m.endsWith(':/var/www/html/core/ext/greenwich:ro'))).toBe(
+      false,
+    );
+    expect(plan.staleImageFiles).toEqual(['ext/greenwich/Removed.php']);
+  });
+
+  test('buildCoreMountPlan mounts every directory the PR changes once it falls back to directories', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    mkdirSync(join(wtA, 'sql'), { recursive: true });
+    mkdirSync(join(wtB, 'sql'), { recursive: true });
+    writeFileSync(join(wtB, 'sql/new.sql'), '-- new\n');
+    const diffFiles = parseUnifiedDiff(
+      [
+        'diff --git a/sql/new.sql b/sql/new.sql',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/sql/new.sql',
+        '@@ -0,0 +1 @@',
+        '+-- new',
+      ].join('\n'),
+    );
+    const plan = buildCoreMountPlan(diffFiles, [], wtA, wtB, ['sql/civicrm_data.tpl']);
+    expect(plan.useFileMounts).toBe(false);
+    expect(plan.abMounts).toContain(`${join(wtB, 'sql')}:/var/www/html/core/sql:ro`);
+    expect(plan.abMounts).toContain(`${join(wtA, 'sql')}:/var/www/html/core/sql:ro`);
+    expect(plan.abMounts.filter((m) => m.endsWith('/core/sql:ro'))).toHaveLength(2);
+  });
+
+  test('buildCoreMountPlan keeps per-file mounts when the base matches the image', () => {
+    const { wtA, wtB } = makeCoreWorktrees();
+    const plan = buildCoreMountPlan(modifiedSqlDiff(), ['CRM'], wtA, wtB, []);
+    expect(plan.useFileMounts).toBe(true);
+    expect(plan.abMounts).toEqual([
+      '--mount-a',
+      `${join(wtA, 'CRM/Queue/Sql.php')}:/var/www/html/core/CRM/Queue/Sql.php:ro`,
+      '--mount-b',
+      `${join(wtB, 'CRM/Queue/Sql.php')}:/var/www/html/core/CRM/Queue/Sql.php:ro`,
+    ]);
+  });
+
+  test('runCiviKitchenAb skips A/B and says so when the core branch image is not published', async () => {
+    const repoDir = makeTempDir();
+    const calls: string[][] = [];
+    const execFn: ExecFn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'docker' && args[1] === 'info')
+        return { exitCode: 0, stdout: 'ok', stderr: '' };
+      if (args[0] === 'docker') return { exitCode: 1, stdout: '', stderr: 'manifest unknown' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const outcome = await runCiviKitchenAb({
+      repoRoot: repoDir,
+      repoInfo: { kind: 'civicrm-core', root: repoDir, recommendedImage: 'standalone-6.21' },
+      baseSha: 'aaaaaaa',
+      headSha: 'bbbbbbb',
+      diffFiles: modifiedSqlDiff(),
+      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      execFn,
+      worktreeBaseDir: join(repoDir, '.worktrees'),
+    });
+
+    expect(outcome.abReport.executed).toBe(false);
+    expect(outcome.abReport.imageA).toBe('standalone-6.21');
+    expect(outcome.abReport.notVerified).toContain(
+      'CiviKitchen image ghcr.io/civico-de/civikitchen:standalone-6.21 is not published; live A/B checks skipped.',
+    );
+    expect(calls.some((a) => a[0] === 'ck')).toBe(false);
+  });
+
+  test('runCiviKitchenAb mounts the base drift and reports changed composer dependencies', async () => {
+    const repoDir = makeTempDir();
+    const imageSha = 'd'.repeat(40);
+    const ckCalls: string[][] = [];
+    const execFn: ExecFn = async (args) => {
+      if (args[0] === 'docker' && args[1] === 'run') {
+        return { exitCode: 0, stdout: `git . ${imageSha}\n`, stderr: '' };
+      }
+      if (args[0] === 'git' && args[3] === 'worktree' && args[4] === 'add') {
+        const target = args[6]!;
+        mkdirSync(join(target, 'CRM/Queue'), { recursive: true });
+        mkdirSync(join(target, 'Civi'), { recursive: true });
+        writeFileSync(join(target, 'CRM/Queue/Sql.php'), '<?php\n');
+        writeFileSync(join(target, 'Civi/Recent.php'), '<?php\n');
+        mkdirSync(join(target, 'tests/phpunit/CRM/Queue'), { recursive: true });
+        writeFileSync(join(target, 'tests/phpunit/CRM/Queue/SqlTest.php'), '<?php\n');
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'git' && args.includes('diff') && args.includes(imageSha)) {
+        return { exitCode: 0, stdout: 'Civi/Recent.php\ncomposer.lock\n', stderr: '' };
+      }
+      if (args[0] === 'ck') ckCalls.push(args);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const outcome = await runCiviKitchenAb({
+      repoRoot: repoDir,
+      repoInfo: { kind: 'civicrm-core', root: repoDir, recommendedImage: 'standalone-master' },
+      baseSha: 'aaaaaaa',
+      headSha: 'bbbbbbb',
+      diffFiles: parseUnifiedDiff(
+        [
+          'diff --git a/CRM/Queue/Sql.php b/CRM/Queue/Sql.php',
+          '--- a/CRM/Queue/Sql.php',
+          '+++ b/CRM/Queue/Sql.php',
+          '@@ -1 +1,2 @@',
+          ' <?php',
+          '+// fix',
+          'diff --git a/tests/phpunit/CRM/Queue/SqlTest.php b/tests/phpunit/CRM/Queue/SqlTest.php',
+          '--- a/tests/phpunit/CRM/Queue/SqlTest.php',
+          '+++ b/tests/phpunit/CRM/Queue/SqlTest.php',
+          '@@ -1 +1,2 @@',
+          ' <?php',
+          '+  public function testClaim(): void {}',
+        ].join('\n'),
+      ),
+      abConfig: AbConfigSchema.parse({ enabled: true, ckCommand: 'ck' }),
+      checksConfig: ChecksConfigSchema.parse({ liveProve: false }),
+      execFn,
+      worktreeBaseDir: join(repoDir, '.worktrees'),
+    });
+
+    expect(outcome.abReport.notVerified).toContain(
+      `Composer dependencies changed between standalone-master (core ${imageSha}) and the base; vendor/ is the image's.`,
+    );
+    const abRun = ckCalls.find((a) => a[1] === 'ab');
+    const civiMount = abRun?.find((a) => a.endsWith(':/var/www/html/core/Civi:ro'));
+    expect(civiMount).toBeDefined();
+    expect(civiMount).toContain('/A/Civi:');
+    expect(abRun?.[abRun.indexOf(civiMount!) - 1]).toBe('--mount');
   });
 });

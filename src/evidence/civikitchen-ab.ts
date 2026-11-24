@@ -12,7 +12,7 @@ import {
   type ReviewSettings,
 } from '../config/schema.ts';
 import { extractAddedTestMethods } from './diff-filter.ts';
-import { detectBundledExtensions, getCivikitchenImageCandidates } from './repo-detect.ts';
+import { detectBundledExtensions } from './repo-detect.ts';
 import {
   LiveSurfaceDiffSchema,
   type AbCheckResult,
@@ -37,6 +37,11 @@ import {
   type ParsedCkAbJsonReport,
   type RunCommandResult,
 } from './ab/parsers.ts';
+import {
+  civikitchenImageRef,
+  collectBaseDriftSinceImage,
+  resolveAvailableCivikitchenImage,
+} from './ab/image-drift.ts';
 import { runStandaloneBrowserAb, runStaticAndLifecycleChecks } from './ab/static-browser.ts';
 import { computeSurfaceDiff, mergeLiveSurfaceDiff } from './ab/surface-diff.ts';
 import {
@@ -197,95 +202,6 @@ export interface CiviKitchenAbOutcome {
  * creating temporary git worktrees under `$HOME` (for Docker bind-mount compatibility)
  * and cleaning them up in a guaranteed `finally` block (or via `cleanup()` when kept alive).
  */
-const CIVIKITCHEN_IMAGE_REPO = 'ghcr.io/civico-de/civikitchen';
-const DEFAULT_STALE_OVERLAY_HOURS = 36;
-const IMAGE_CREATED_BUFFER_MS = 2 * 60 * 60 * 1000;
-
-/**
- * Collects files merged into `baseSha` after the CiviKitchen Docker image was
- * built (using the local image's `.Created` timestamp when cached, or a 36-hour
- * fallback window for fresh CI runners). Mounting these into both A and B keeps
- * per-file A/B runs working when a PR depends on a recently-merged class/method.
- */
-export async function collectRecentBaseFilesSinceImageBuild(params: {
-  repoRoot: string;
-  baseSha: string;
-  imageTag: string;
-  execFn?: ExecFn;
-  nowMs?: number;
-}): Promise<string[]> {
-  const execFn = params.execFn ?? defaultExec;
-  const nowMs = params.nowMs ?? Date.now();
-  const ref =
-    params.imageTag.includes('/') || params.imageTag.includes(':')
-      ? params.imageTag
-      : `${CIVIKITCHEN_IMAGE_REPO}:${params.imageTag}`;
-
-  let sinceMs = nowMs - DEFAULT_STALE_OVERLAY_HOURS * 60 * 60 * 1000;
-  const inspectRes = await execFn(['docker', 'image', 'inspect', '--format', '{{.Created}}', ref], {
-    timeoutMs: 5_000,
-  });
-  if (inspectRes.exitCode === 0 && inspectRes.stdout.trim()) {
-    const parsed = Date.parse(inspectRes.stdout.trim());
-    if (Number.isFinite(parsed)) {
-      sinceMs = parsed - IMAGE_CREATED_BUFFER_MS;
-    }
-  }
-
-  const sinceIso = new Date(sinceMs).toISOString();
-  const logRes = await execFn(
-    [
-      'git',
-      '-C',
-      params.repoRoot,
-      'log',
-      `--since=${sinceIso}`,
-      '--name-only',
-      '--pretty=format:',
-      '-n',
-      '40',
-      params.baseSha,
-    ],
-    { timeoutMs: 10_000 },
-  );
-  if (logRes.exitCode !== 0 || !logRes.stdout.trim()) {
-    return [];
-  }
-  return Array.from(
-    new Set(
-      logRes.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-/**
- * Verifies that the preferred CiviKitchen image tag exists (locally or in GHCR)
- * before launching `ck ab`, falling back to the nearest published tag when a
- * newly-cut release branch (e.g. `standalone-6.21`) has no image yet.
- */
-export async function resolveAvailableCivikitchenImage(
-  preferred: string,
-  kind: RepoInfo['kind'],
-  execFn: ExecFn = defaultExec,
-): Promise<{ tag: string; fallbackFrom?: string }> {
-  const candidates = getCivikitchenImageCandidates(preferred, kind);
-  for (const tag of candidates) {
-    const ref = tag.includes('/') || tag.includes(':') ? tag : `${CIVIKITCHEN_IMAGE_REPO}:${tag}`;
-    const local = await execFn(['docker', 'image', 'inspect', ref], { timeoutMs: 5_000 });
-    if (local.exitCode === 0) {
-      return { tag, fallbackFrom: tag === preferred ? undefined : preferred };
-    }
-    const remote = await execFn(['docker', 'manifest', 'inspect', ref], { timeoutMs: 10_000 });
-    if (remote.exitCode === 0) {
-      return { tag, fallbackFrom: tag === preferred ? undefined : preferred };
-    }
-  }
-  return { tag: preferred };
-}
-
 async function noopCleanup(): Promise<void> {}
 
 const MAX_PROOF_TEST_FILES = 5;
@@ -387,9 +303,27 @@ export async function runCiviKitchenAb(
   );
   imageA = resolvedImg.tag;
   imageB = resolvedImg.tag;
+  if (!resolvedImg.found) {
+    notVerified.push(
+      `CiviKitchen image ${civikitchenImageRef(resolvedImg.tag)} is not published; live A/B checks skipped.`,
+    );
+    return {
+      abReport: {
+        executed: false,
+        imageA,
+        imageB,
+        checks: [],
+        surfaceDiff,
+        demoConsoleErrors: [],
+        notVerified,
+      },
+      staticDelta: emptyStatic,
+      cleanup: noopCleanup,
+    };
+  }
   if (resolvedImg.fallbackFrom) {
-    console.error(
-      `[civireview:ab] Image "${resolvedImg.fallbackFrom}" not found in ${CIVIKITCHEN_IMAGE_REPO}; falling back to "${resolvedImg.tag}".`,
+    notVerified.push(
+      `A/B ran on ${resolvedImg.tag} because ${resolvedImg.fallbackFrom} is not published; that CiviCRM version was not tested.`,
     );
   }
 
@@ -689,15 +623,19 @@ export async function runCiviKitchenAb(
     let mountsBOnly: string[] = [];
 
     if (repoInfo.kind === 'civicrm-core') {
-      const recentBaseFiles = await collectRecentBaseFilesSinceImageBuild({
+      const drift = await collectBaseDriftSinceImage({
         repoRoot,
         baseSha,
         imageTag: imageA,
         execFn,
       });
-      if (recentBaseFiles.length > 0) {
-        console.error(
-          `[civireview:ab] Overlaying ${Math.min(recentBaseFiles.length, 50)} recently-merged base file(s) onto ${imageA} to bridge nightly image lag.`,
+      if (!drift.files) {
+        notVerified.push(
+          `Core commit of ${imageA} not resolved; A runs on the image's core with only the PR's directories taken from the base.`,
+        );
+      } else if (drift.files.some((p) => /^composer\.(json|lock)$/.test(p))) {
+        notVerified.push(
+          `Composer dependencies changed between ${imageA} (core ${drift.imageCoreRef}) and the base; vendor/ is the image's.`,
         );
       }
       const mountPlan = buildCoreMountPlan(
@@ -705,8 +643,13 @@ export async function runCiviKitchenAb(
         surfaceDiff.touchedComponents,
         worktreeA,
         worktreeB,
-        recentBaseFiles,
+        drift.files ?? [],
       );
+      if (mountPlan.staleImageFiles.length > 0) {
+        notVerified.push(
+          `Files the base deleted stay in ${imageA} on both sides: ${mountPlan.staleImageFiles.join(', ')}`,
+        );
+      }
       abMounts = mountPlan.abMounts;
       mountsAOnly = mountPlan.mountsAOnly;
       mountsBOnly = mountPlan.mountsBOnly;

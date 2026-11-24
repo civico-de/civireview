@@ -363,32 +363,97 @@ export interface CoreMountPlan {
   proofTestMounts: string[];
   baseTestMounts: string[];
   useFileMounts: boolean;
+  /** Files the base deleted that stay visible from the image on both sides. */
+  staleImageFiles: string[];
 }
 
-const MAX_STALE_OVERLAY_FILES = 50;
+/**
+ * `ext/<name>` directories whose image copy holds files git does not track:
+ * composer downloads declared in core's composer.json, compiled assets.
+ * Undefined when the base's composer.json cannot be read.
+ */
+function extDirsWithBuildOutput(worktreeA: string): Set<string> | undefined {
+  let downloads: Record<string, { path?: unknown }>;
+  try {
+    const composer = JSON.parse(readFileSync(join(worktreeA, 'composer.json'), 'utf8'));
+    downloads = composer?.extra?.downloads ?? {};
+  } catch {
+    return undefined;
+  }
+  const dirs = new Set<string>();
+  for (const d of Object.values(downloads)) {
+    if (typeof d?.path === 'string' && d.path.startsWith('ext/')) {
+      dirs.add(d.path.split('/').slice(0, 2).join('/'));
+    }
+  }
+  return dirs;
+}
 
 /**
- * Computes Docker bind-mount arguments for a `civicrm-core` PR, preferring
- * surgical per-file mounts (<= 40 files, no deletes/renames) to avoid
- * clobbering image-generated GenCode files.
- *
- * Optional `extraBaseFiles` (e.g. files merged to `baseSha` after the Docker
- * image was built) are mounted from `worktreeA` into both A and B so a PR
- * depending on a recently-merged class/method still runs cleanly without
- * rebuilding the Docker image.
+ * Maps a drifted path to what is mounted for it: its top-level directory, its
+ * `ext/<name>` directory, or the file itself for `tests/` and for extensions
+ * with build output, whose directory mount would hide that output.
+ */
+function driftUnitMapper(worktreeA: string): (p: string) => { unit: string; isDir: boolean } {
+  const buildOutput = extDirsWithBuildOutput(worktreeA);
+  return (p) => {
+    if (p.startsWith('ext/')) {
+      const ext = p.split('/').slice(0, 2).join('/');
+      const singly =
+        !buildOutput ||
+        buildOutput.has(ext) ||
+        existsSync(join(worktreeA, ext, 'composer.compile.json'));
+      return singly ? { unit: p, isDir: false } : { unit: ext, isDir: true };
+    }
+    if (isCoreTestPath(p)) return { unit: p, isDir: false };
+    return { unit: p.split('/')[0] ?? p, isDir: true };
+  };
+}
+
+/**
+ * Mount specs that bring the image's core up to the base from `worktreeA`, and
+ * the single-mounted `ext/` files the base deleted, which stay in the image.
+ * Deleted test files stay too; nothing targets them.
+ */
+function baseDriftMounts(
+  driftFiles: string[],
+  worktreeA: string,
+  unitOf: (p: string) => { unit: string; isDir: boolean },
+  skip: (path: string) => boolean,
+): { specs: string[]; staleImageFiles: string[] } {
+  const specs = new Set<string>();
+  const staleImageFiles: string[] = [];
+  for (const p of driftFiles) {
+    if (!isMountableCorePath(p) || skip(p)) continue;
+    const { unit } = unitOf(p);
+    if (existsSync(join(worktreeA, unit))) {
+      specs.add(`${join(worktreeA, unit)}:/var/www/html/core/${unit}:ro`);
+    } else if (p.startsWith('ext/') && !isCoreTestPath(p)) {
+      staleImageFiles.push(p);
+    }
+  }
+  return { specs: Array.from(specs), staleImageFiles };
+}
+
+/**
+ * Computes Docker bind-mount arguments for a `civicrm-core` PR: per-file mounts
+ * for small PRs (<= 40 files, no deletes/renames), touched directories
+ * otherwise. `baseDriftFiles`, the paths in which the image's core differs from
+ * the base, come from `worktreeA` into both A and B, so A runs on the base.
  */
 export function buildCoreMountPlan(
   diffFiles: DiffFile[],
   touchedComponents: string[],
   worktreeA: string,
   worktreeB: string,
-  extraBaseFiles: string[] = [],
+  baseDriftFiles: string[] = [],
 ): CoreMountPlan {
   const abMounts: string[] = [];
   const mountsAOnly: string[] = [];
   const mountsBOnly: string[] = [];
   let proofTestMounts: string[] = [];
   let baseTestMounts: string[] = [];
+  let staleImageFiles: string[] = [];
 
   const mountableCoreFiles = diffFiles.filter((f) => isMountableCorePath(f.path));
   const coreProdFiles = mountableCoreFiles.filter((f) => !isCoreTestPath(f.path));
@@ -401,30 +466,38 @@ export function buildCoreMountPlan(
       ? existsSync(join(worktreeB, f.path))
       : existsSync(join(worktreeA, f.path)) && existsSync(join(worktreeB, f.path)),
   );
+  // A file the base lacks has no mount point inside a read-only directory mount.
+  const unitOf = driftUnitMapper(worktreeA);
+  const driftDirs = new Set(
+    baseDriftFiles
+      .filter(isMountableCorePath)
+      .map(unitOf)
+      .filter((u) => u.isDir)
+      .map((u) => u.unit),
+  );
+  const addedUnderDriftDir = mountableCoreFiles.some(
+    (f) =>
+      !existsSync(join(worktreeA, f.path)) &&
+      Array.from(driftDirs).some((d) => f.path.startsWith(`${d}/`)),
+  );
   const useFileMounts =
     mountableCoreFiles.length > 0 &&
     mountableCoreFiles.length <= 40 &&
     !hasDeletedCoreFile &&
-    allFilesMaterialized;
+    allFilesMaterialized &&
+    !addedUnderDriftDir;
+
+  const addShared = (spec: string) => {
+    abMounts.push('--mount', spec);
+    mountsAOnly.push('--mount', spec);
+    mountsBOnly.push('--mount', spec);
+  };
 
   if (useFileMounts) {
     const prPaths = new Set(diffFiles.map((f) => f.path));
-    const overlayFiles = Array.from(new Set(extraBaseFiles))
-      .filter(
-        (p) =>
-          isMountableCorePath(p) &&
-          !isE2eMinkTestPath(p) &&
-          !prPaths.has(p) &&
-          !/^CRM\/[^/]+\/DAO\//.test(p) &&
-          existsSync(join(worktreeA, p)),
-      )
-      .slice(0, MAX_STALE_OVERLAY_FILES);
-    for (const p of overlayFiles) {
-      const mountSpec = `${join(worktreeA, p)}:/var/www/html/core/${p}:ro`;
-      abMounts.push('--mount', mountSpec);
-      mountsAOnly.push('--mount', mountSpec);
-      mountsBOnly.push('--mount', mountSpec);
-    }
+    const drift = baseDriftMounts(baseDriftFiles, worktreeA, unitOf, (p) => prPaths.has(p));
+    drift.specs.forEach(addShared);
+    staleImageFiles = drift.staleImageFiles;
 
     for (const f of coreProdFiles) {
       if (existsSync(join(worktreeA, f.path))) {
@@ -479,11 +552,24 @@ export function buildCoreMountPlan(
     }
   } else {
     const dirs = new Set(touchedComponents);
+    for (const f of coreProdFiles) {
+      dirs.add(
+        f.path
+          .split('/')
+          .slice(0, f.path.startsWith('ext/') ? 2 : 1)
+          .join('/'),
+      );
+    }
     // Keep CRM/ and Civi/ in lockstep when falling back to directory mounts
     if (dirs.has('CRM') || dirs.has('Civi')) {
       dirs.add('CRM');
       dirs.add('Civi');
     }
+    const ownMount = (p: string) =>
+      p.startsWith('tests/') || Array.from(dirs).some((d) => p === d || p.startsWith(`${d}/`));
+    const drift = baseDriftMounts(baseDriftFiles, worktreeA, unitOf, ownMount);
+    drift.specs.forEach(addShared);
+    staleImageFiles = drift.staleImageFiles;
     for (const dir of dirs) {
       if (existsSync(join(worktreeA, dir))) {
         abMounts.push('--mount-a', `${join(worktreeA, dir)}:/var/www/html/core/${dir}:ro`);
@@ -509,5 +595,6 @@ export function buildCoreMountPlan(
     proofTestMounts,
     baseTestMounts,
     useFileMounts,
+    staleImageFiles,
   };
 }

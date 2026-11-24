@@ -59,14 +59,18 @@ run and which instance routes are probed, and it is handed to the models.
 civireview creates two detached git worktrees, `A` at the base commit and `B` at the
 head commit, and starts a CiviCRM Standalone instance for each from the same CiviKitchen
 image. The image is chosen from the base branch (core) or the extension's CiviCRM floor
-(extension); if that tag is not published yet, a fallback chain ending at the stable
-image is tried.
+(extension). A core PR whose branch image is not published gets no A/B run, and the
+review says so under *Not verified*. An extension may run on the newest stable image
+instead of its floor; the review names the substitution.
 
 How the code gets into the instance depends on the profile: for core, the changed files
-are bind-mounted one by one over the image's core tree; for an extension repository the
-whole worktree is mounted as an extension. A nightly core image can be older than the
-PR's base commit, so files merged to the base branch since the image was built are
-mounted into both sides as well.
+are bind-mounted over the image's core tree, one by one for a small PR and as whole
+directories otherwise; for an extension repository the whole worktree is mounted as an
+extension. The image's core commit, read from its source log, rarely is the PR's base,
+so every top-level directory in which the two differ is mounted from the base into both
+sides (single files under `ext/` and `tests/`). A therefore runs on the base itself.
+A change to `composer.json` or `composer.lock` in between cannot be mounted; the review
+names it.
 
 Every check below runs the same command on A and on B and compares the outcome.
 

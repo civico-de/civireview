@@ -106,13 +106,9 @@ describe('image selection', () => {
     expect(selectCivikitchenImage({ kind: 'civicrm-core' })).toBe('standalone-master');
   });
 
-  test('candidates start with the preferred tag and contain no duplicates', () => {
+  test('a core PR has no substitute image; an extension may use the newest stable', () => {
     expect(getCivikitchenImageCandidates('standalone-6.21', 'civicrm-core')).toEqual([
       'standalone-6.21',
-      'standalone-beta',
-      'standalone-master',
-      'standalone-latest',
-      'standalone',
     ]);
     expect(getCivikitchenImageCandidates('standalone', 'civicrm-extension')).toEqual([
       'standalone',
