@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
 ### Changed
 
 - **Each A/B side gets its own composer dependencies**: when the base or the PR has a `composer.json`/`composer.lock` other than the image's, both files are mounted per side and the CiviKitchen image syncs `vendor/` on boot. Only an image without that boot step still gets the *Not verified* note.
