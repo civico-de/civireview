@@ -284,10 +284,29 @@ async function collapseEarlierReviews(
       });
       collapsed.push(r.id);
     } catch (err) {
-      warn(`Could not collapse earlier review ${r.id}: ${String(err)}`);
+      warn(`Could not collapse earlier review ${r.id}: ${String(err)}${permissionHeaders(err)}`);
     }
   }
   return collapsed;
+}
+
+/** The headers by which GitHub tells a token's scopes from the ones an endpoint accepts. */
+function permissionHeaders(err: unknown): string {
+  const headers = (err as { response?: { headers?: Record<string, string | undefined> } }).response
+    ?.headers;
+  if (!headers) return '';
+  const names = [
+    'x-oauth-scopes',
+    'x-accepted-oauth-scopes',
+    'x-accepted-github-permissions',
+    'x-github-sso',
+  ];
+  const found = names
+    .filter((n) => headers[n] !== undefined)
+    .map((n) => `${n}: ${headers[n] || '(empty)'}`);
+  return found.length
+    ? ` (${found.join('; ')})`
+    : ' (no scope headers: a fine-grained token or a GitHub App)';
 }
 
 /**

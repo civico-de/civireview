@@ -801,6 +801,7 @@ function oldReviewBody(headSha: string, verdict: FinalReview['verdict']): string
 function collapseOctokit(
   reviews: Array<{ id: number; body: string; user: { login: string } }>,
   failIds: number[] = [],
+  failResponse?: { status: number; headers: Record<string, string> },
 ) {
   const updates: Array<{ review_id: number; body: string }> = [];
   const calls: string[] = [];
@@ -825,7 +826,12 @@ function collapseOctokit(
         async updateReview(params) {
           calls.push('updateReview');
           if (failIds.includes(params.review_id)) {
-            throw Object.assign(new Error('Server Error'), { status: 500 });
+            throw failResponse
+              ? Object.assign(new Error('Not Found'), {
+                  status: failResponse.status,
+                  response: failResponse,
+                })
+              : Object.assign(new Error('Server Error'), { status: 500 });
           }
           updates.push({ review_id: params.review_id, body: params.body });
           return {};
@@ -940,6 +946,27 @@ describe('collapsing earlier reviews', () => {
     expect(res.reviewId).toBe(900);
     expect(updates.map((u) => u.review_id)).toEqual([2]);
     expect(warnings).toEqual(['Could not collapse earlier review 1: Error: Server Error']);
+  });
+
+  test("a refused update names the token's scopes and the ones the endpoint accepts", async () => {
+    const review = { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } };
+    const classic = collapseOctokit([review], [1], {
+      status: 404,
+      headers: {
+        'x-oauth-scopes': 'notifications, public_repo',
+        'x-accepted-oauth-scopes': 'repo',
+      },
+    });
+    const fineGrained = collapseOctokit([review], [1], { status: 404, headers: {} });
+    const warnings: string[] = [];
+
+    await publishWith(classic.octokit, warnings);
+    await publishWith(fineGrained.octokit, warnings);
+
+    expect(warnings).toEqual([
+      'Could not collapse earlier review 1: Error: Not Found (x-oauth-scopes: notifications, public_repo; x-accepted-oauth-scopes: repo)',
+      'Could not collapse earlier review 1: Error: Not Found (no scope headers: a fine-grained token or a GitHub App)',
+    ]);
   });
 
   test('dry-run neither lists nor updates reviews', async () => {
