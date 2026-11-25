@@ -1,11 +1,7 @@
 <p align="center">
-  <img src="assets/cover.jpg" alt="The Siege of CiviCRM: maintainers review a pull request while an army of automatons buries them in sealed scrolls" width="100%" />
+  <img src="assets/cover.jpg" alt="The Siege of CiviCRM: maintainers review a pull request, shielded by a book bearing the CiviReview emblem, while an army of automatons buries them in sealed scrolls" width="100%" />
   <br />
   <em>The Siege of CiviCRM</em>
-</p>
-
-<p align="center">
-  <img src="assets/logo.png" alt="CiviReview logo" width="140" />
 </p>
 
 # civireview
@@ -74,7 +70,9 @@ repository under review. GitHub access uses `GITHUB_TOKEN`, `GH_TOKEN` or `gh au
 A model preset needs its provider's key in the environment (for example
 `ANTHROPIC_API_KEY`); the `subscription` and `local-gpu` presets work without one.
 
-On GitHub, a comment starts a review:
+<img src="assets/logo.png" alt="CiviReview logo" width="96" align="right" />
+
+On GitHub, the civireview bot starts a review when a comment mentions it:
 
 ```text
 @civireview                      review what changed since the last civireview review
