@@ -137,7 +137,8 @@ describe('verifier coverage', () => {
     expect(review.verdict).toBe('READY');
     expect(review.rejectedFindings?.map((f) => f.id)).toEqual(['sec-1']);
     expect(result.logLines.some((l) => l.includes('sec-1') && l.includes('REJECTED'))).toBe(true);
-    expect(body).toContain('Rejected or below 50% confidence (1)');
+    expect(body).toContain('<summary>More: Rejected (1)</summary>');
+    expect(body).toContain('#### Rejected or below 50% confidence');
     expect(body).toContain('Verifier reason for sec-1.');
   });
 

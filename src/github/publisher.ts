@@ -208,7 +208,8 @@ async function getOctokit(injected?: PublisherOctokit, token?: string): Promise<
 
 const COLLAPSED_MARKER = '<!-- civireview:collapsed -->';
 const COLLAPSED_RE = /^<!-- civireview:collapsed -->[ \t\r]*$/m;
-const HEADER_RE = /^## CiviReview: (\S+) \*\*([^*\n]+)\*\* · Confidence: \*\*([1-5])\/5\*\*/m;
+// Format 1 headers name the score "Confidence:", later ones show it bare.
+const HEADER_RE = /^## CiviReview: (\S+) \*\*([^*\n]+)\*\* · (?:Confidence: )?\*\*([1-5])\/5\*\*/m;
 
 function defaultWarn(msg: string): void {
   console.error(`[civireview:warn] ${msg}`);

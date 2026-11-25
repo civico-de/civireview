@@ -445,7 +445,6 @@ async function executeReviewPipeline(
     const skipShortSummary = buildShortSummary({
       prTitle: bundle.pr.title,
       triageSummary: triage.shortSummary,
-      findings: [],
       verificationMatrix,
       scoreRationale: skipScore.rationale,
     });
@@ -881,7 +880,6 @@ async function executeReviewPipeline(
   const shortSummary = buildShortSummary({
     prTitle: bundle.pr.title,
     triageSummary: triage.shortSummary,
-    findings: survivingFindings,
     verificationMatrix,
     scoreRationale,
   });

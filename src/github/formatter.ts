@@ -5,6 +5,7 @@ import type {
   ConfidenceScore,
   FinalReview,
   FinalVerdict,
+  VerificationMatrixEntry,
   VerificationStatus,
   VerifiedFinding,
 } from '../engine/schemas.ts';
@@ -103,13 +104,18 @@ export function truncateForGitHub(text: string, max = MAX_GITHUB_BODY_CHARS): st
 }
 
 /** Drops optional `<details>` sections from the end, then truncates the largest remaining ones. */
-export function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHARS): string[] {
+export function fitSectionsToLimit(
+  sections: string[],
+  max = MAX_GITHUB_BODY_CHARS,
+  keep: ReadonlySet<string> = new Set(),
+): string[] {
   const out = [...sections];
   const total = () => out.join('\n\n').length;
-  // The last section holds the footer and dedup marker and always stays.
+  // The last section holds the footer and dedup marker and always stays; sections in
+  // `keep` are only truncated.
   let omitted = 0;
   for (let i = out.length - 2; i >= 0 && total() > max; i--) {
-    if (out[i]?.startsWith('<details>')) {
+    if (out[i]?.startsWith('<details>') && !keep.has(out[i]!)) {
       out.splice(i, 1);
       omitted++;
     }
@@ -128,7 +134,13 @@ export function fitSectionsToLimit(sections: string[], max = MAX_GITHUB_BODY_CHA
       if ((out[i]?.length ?? 0) > (out[largest]?.length ?? 0)) largest = i;
     }
     const section = out[largest] ?? '';
-    out[largest] = truncateForGitHub(section, Math.max(0, section.length - (total() - max)));
+    const target = Math.max(0, section.length - (total() - max));
+    // A cut disclosure keeps its closing tag, or it would fold the footer too.
+    const close = '\n</details>';
+    out[largest] = section.endsWith(close)
+      ? truncateForGitHub(section.slice(0, -close.length), Math.max(0, target - close.length)) +
+        close
+      : truncateForGitHub(section, target);
   }
   return out;
 }
@@ -191,63 +203,63 @@ function escapeTableCell(text: string): string {
 export function formatInlineCommentBody(mapped: MappedInlineFinding): string {
   const f = mapped.finding;
   const badge = `[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]`;
-  const lines: string[] = [
-    `**${badge} ${f.title}**`,
-    `_Lens: \`${f.lens}\` · Confidence: ${f.confidence}%${mapped.snapped ? ' · Line snapped to hunk' : ''}_`,
-    '',
-    f.issue,
-    '',
-    `**Failure scenario:** ${f.failureScenario}`,
-    '',
-    `**Verification evidence:** ${f.verificationEvidence}`,
-  ];
-
-  if (f.liveProofCommand) {
-    lines.push(`**Proof command:** ${inlineCode(f.liveProofCommand)}`);
-  }
-  if (f.liveProofOutput) {
-    lines.push('', ...fencedBlock(f.liveProofOutput.slice(0, 800), 'text'));
-  }
+  const lines: string[] = [`**${badge} ${f.title}**`, '', f.issue];
   if (f.suggestedFix.trim()) {
     lines.push('', `**Suggested fix:** ${f.suggestedFix}`);
-  }
-  if (f.mcpCitations.length > 0) {
-    lines.push('', `**References:** ${f.mcpCitations.join(', ')}`);
   }
   if (mapped.suggestionBlock) {
     lines.push('', mapped.suggestionBlock);
   }
-
+  lines.push(
+    '',
+    `<details>\n<summary>Evidence (${f.confidence}%, \`${f.lens}\`${mapped.snapped ? ', line snapped to hunk' : ''})</summary>`,
+    '',
+    ...findingEvidence(f),
+    '</details>',
+  );
   return lines.join('\n');
+}
+
+/** Failure scenario, evidence, proof and references of a finding, as Markdown lines. */
+function findingEvidence(f: VerifiedFinding): string[] {
+  const lines = [
+    `**Failure scenario:** ${f.failureScenario}`,
+    '',
+    `**Verification evidence:** ${f.verificationEvidence}`,
+  ];
+  if (f.liveProofCommand) {
+    lines.push('', `**Proof command:** ${inlineCode(f.liveProofCommand)}`);
+  }
+  if (f.liveProofOutput) {
+    lines.push('', ...fencedBlock(f.liveProofOutput.slice(0, 800), 'text'));
+  }
+  if (f.mcpCitations.length > 0) {
+    lines.push('', `**References:** ${f.mcpCitations.join(', ')}`);
+  }
+  lines.push('');
+  return lines;
 }
 
 function formatSummaryFinding(f: VerifiedFinding): string {
   const badge = `[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]`;
-  const loc =
-    f.startLine === f.endLine
-      ? `\`${f.path}:${f.endLine}\``
-      : `\`${f.path}:${f.startLine}-${f.endLine}\``;
   const parts: string[] = [
-    `#### ${badge} ${f.title} (${loc}, ${f.side})`,
-    `- **Confidence:** ${f.confidence}% (\`${f.lens}\`)`,
-    `- **Issue:** ${f.issue}`,
-    `- **Failure scenario:** ${f.failureScenario}`,
-    `- **Verification evidence:** ${f.verificationEvidence}`,
+    `#### ${badge} ${f.title} (\`${lineRefOf(f)}\`, ${f.side})`,
+    `_Confidence ${f.confidence}%, \`${f.lens}\`_`,
+    '',
+    f.issue,
   ];
   if (f.suggestedFix.trim()) {
-    parts.push(`- **Suggested fix:** ${f.suggestedFix}`);
+    parts.push('', `**Suggested fix:** ${f.suggestedFix}`);
   }
-  if (f.mcpCitations.length > 0) {
-    parts.push(`- **References:** ${f.mcpCitations.join(', ')}`);
-  }
-  return parts.join('\n');
+  parts.push('', ...findingEvidence(f));
+  return parts.join('\n').trimEnd();
 }
 
 /**
  * The version of the review's layout. Raise it when the rendering changes, so reviews
  * rendered before can be told apart and rendered again from their saved data.
  */
-export const REVIEW_FORMAT = 1;
+export const REVIEW_FORMAT = 2;
 
 /**
  * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
@@ -277,25 +289,16 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   const items: string[] = [];
 
   for (const f of review.findings) {
-    const loc =
-      f.startLine === f.endLine
-        ? `\`${f.path}:${f.endLine}\``
-        : `\`${f.path}:${f.startLine}-${f.endLine}\``;
-    const fixHint =
-      f.verdict === 'NEEDS_QUESTION'
-        ? ''
-        : f.suggestedFix.trim()
-          ? ` — ${truncateOneLine(f.suggestedFix, 220)}`
-          : '';
+    const question = f.verdict === 'NEEDS_QUESTION' ? ' · question' : '';
     items.push(
-      `- [ ] **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict}]** ${loc} — ${f.title}${fixHint}`,
+      `- [ ] **${f.reassessedSeverity.toUpperCase()}${question}** \`${lineRefOf(f)}\` — ${f.title}`,
     );
   }
 
   for (const row of review.verificationMatrix) {
     if (row.status === 'FAIL') {
       items.push(
-        `- [ ] **[CHECK FAILED]** Resolve \`${row.check}\`: ${truncateOneLine(row.detail, 220)}`,
+        `- [ ] **Check failed** ${checkLabel(row.check)}: ${truncateOneLine(row.detail, 160)}`,
       );
     }
   }
@@ -303,8 +306,9 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   for (const rel of review.relatedItems ?? []) {
     if (rel.relationship === 'conflicts' || rel.relationship === 'duplicate') {
       const label = rel.kind === 'pr' ? `PR ${rel.ref}` : rel.ref;
+      const relation = rel.relationship === 'conflicts' ? 'Conflicts with' : 'Duplicate of';
       items.push(
-        `- [ ] **[${rel.relationship.toUpperCase()}]** Coordinate with [${label}](${rel.url}): ${truncateOneLine(rel.reason, 220)}`,
+        `- [ ] **${relation}** [${label}](${rel.url}): ${truncateOneLine(rel.reason, 160)}`,
       );
     }
   }
@@ -321,13 +325,48 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
       }
       const cleanAuthor = tr.author.replace(/^@/, '');
       const handle = mentionUsers ? `@${cleanAuthor}` : `\`${cleanAuthor}\``;
-      items.push(
-        `- [ ] **[OPEN REVIEWER FEEDBACK]** Address ${handle}: ${tr.topic} — ${truncateOneLine(tr.detail, 220)}`,
-      );
+      items.push(`- [ ] **Open thread** ${handle}: ${truncateOneLine(tr.topic, 160)}`);
     }
   }
 
   return items;
+}
+
+const CHECK_LABELS: Record<string, string> = {
+  'CI / Jenkins': 'CI',
+  'A/B Proof-of-Fix': 'Proof of fix',
+  'CiviKitchen A/B Proof-of-Fix': 'Proof of fix',
+  'Base-Test Regression': 'Base tests',
+  'Version Matrix': 'Versions',
+  'Live Surface Diff': 'Surface',
+  'Static / Taint Delta': 'Taint',
+  'Browser A/B (Standalone)': 'Browser',
+  'Reviewer Thread': 'Threads',
+  Demo: 'Demo',
+};
+
+function checkLabel(check: string): string {
+  return CHECK_LABELS[check] ?? check;
+}
+
+const CHECK_ICONS: Record<VerificationStatus, string> = {
+  PASS: '✅',
+  FAIL: '❌',
+  WARN: '⚠️',
+  SKIPPED: '⏭️',
+  NOT_VERIFIED: '❔',
+};
+
+/** One line of status icons; checks that do not apply are left out. */
+function checksLine(matrix: VerificationMatrixEntry[]): string {
+  return matrix
+    .filter((row) => row.status !== 'SKIPPED')
+    .map((row) => `${CHECK_ICONS[row.status]} ${checkLabel(row.check)}`)
+    .join(' · ');
+}
+
+function details(summary: string, body: string): string {
+  return `<details>\n<summary>${summary}</summary>\n\n${body}\n</details>`;
 }
 
 function lineRefOf(f: { path: string; startLine: number; endLine: number }): string {
@@ -388,7 +427,6 @@ export function formatReviewMarkdown(
     review.shortSummary?.trim() ||
     buildShortSummary({
       prTitle: bundle.pr.title,
-      findings: review.findings,
       verificationMatrix: review.verificationMatrix,
       scoreRationale: computedScore.rationale,
     });
@@ -400,55 +438,52 @@ export function formatReviewMarkdown(
     ? ` · **Images:** \`${bundle.abReport.imageA}\` vs \`${bundle.abReport.imageB}\``
     : '';
 
-  // Header + TL;DR Short Summary (scannable in 5 seconds)
+  // Visible: verdict, what the PR does, what to address, one line of checks.
   sections.push(
-    `## CiviReview: ${verdictBadge(review.verdict)} · Confidence: ${scoreBadge(computedScore.score)}\n\n` +
-      `_Automated AI-assisted review (**alpha** — experimental tool under active development; may miss issues or report false positives, so please verify findings before acting and [open an issue](https://github.com/civico-de/civireview/issues/new) with any feedback)._\n\n` +
-      `> **Summary:** ${shortSummary}\n` +
-      `>\n` +
-      `> **Merge Confidence (${computedScore.score}/5):** ${computedScore.rationale}\n\n` +
-      `- **PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
+    `## CiviReview: ${verdictBadge(review.verdict)} · ${scoreBadge(computedScore.score)}\n\n${shortSummary}`,
   );
-
-  // Zone 1 (Top — always visible): Action Items + Summary-Only Findings + Verification Matrix + Related PRs
   const actionItems = buildActionItems(review, mentionUsers);
-  if (actionItems.length > 0) {
-    sections.push(`### Action Items (${actionItems.length})\n${actionItems.join('\n')}`);
-  } else {
-    sections.push(`### Findings\nNo verified high-signal issues found above the confidence gate.`);
+  sections.push(
+    actionItems.length > 0
+      ? `**To address (${actionItems.length})**\n${actionItems.join('\n')}`
+      : 'No findings above the confidence gate.',
+  );
+  const checks = checksLine(review.verificationMatrix);
+  if (checks) sections.push(checks);
+
+  // Everything else is folded. Findings outside the diff have no inline comment, so
+  // their section is never dropped to fit the size limit.
+  const keep = new Set<string>();
+  if (allSummaryFindings.length > 0) {
+    const outside = details(
+      `Findings outside the diff (${allSummaryFindings.length})`,
+      allSummaryFindings.map(formatSummaryFinding).join('\n\n'),
+    );
+    keep.add(outside);
+    sections.push(outside);
   }
 
-  // Render out-of-diff / summary-only findings right below Action Items (not buried below reference tables)
-  if (allSummaryFindings.length > 0) {
-    sections.push(
-      `### Findings (Out-of-Diff / Summary)\n\n` +
-        allSummaryFindings.map(formatSummaryFinding).join('\n\n'),
+  const verification: string[] = [
+    `**Merge confidence (${computedScore.score}/5):** ${computedScore.rationale}`,
+    '',
+    `**PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
+  ];
+  if (review.verificationMatrix.length > 0) {
+    const matrixRows = review.verificationMatrix
+      .map(
+        (row) =>
+          `| ${escapeTableCell(row.check)} | ${matrixStatusBadge(row.status)} | ${escapeTableCell(row.detail)} |`,
+      )
+      .join('\n');
+    verification.push('', `| Check | Status | Detail |\n| --- | --- | --- |\n${matrixRows}`);
+  }
+  if (review.notVerified.length > 0) {
+    verification.push(
+      '',
+      `**Not verified:**\n${review.notVerified.map((item) => `- ${item}`).join('\n')}`,
     );
   }
-
-  // Empirical Verification Matrix (always visible, compact table)
-  const matrixRows = review.verificationMatrix
-    .map(
-      (row) =>
-        `| ${escapeTableCell(row.check)} | ${matrixStatusBadge(row.status)} | ${escapeTableCell(row.detail)} |`,
-    )
-    .join('\n');
-
-  let matrixSection =
-    `### Empirical Verification Matrix\n\n` +
-    `| Check | Status | Detail |\n` +
-    `| --- | --- | --- |\n` +
-    `${matrixRows}`;
-
-  if (review.notVerified.length > 0) {
-    matrixSection +=
-      `\n\n**Not Verified:**\n` + review.notVerified.map((item) => `- ${item}`).join('\n');
-  }
-  sections.push(matrixSection);
-
-  // Standalone Browser A/B: only expand in Zone 1 when regressions exist; otherwise group in Zone 2 <details>
   const bd = bundle.abReport.browserDiff;
-  let cleanBrowserDetailsSection: string | undefined;
   if (bd) {
     const routesList = Array.from(
       new Set([
@@ -457,13 +492,6 @@ export function formatReviewMarkdown(
         ...bd.screenshots.map((s) => s.route),
       ]),
     );
-    const hasBrowserRegressions =
-      Boolean(bd.error) ||
-      bd.new_console_errors.length > 0 ||
-      bd.new_page_errors.length > 0 ||
-      bd.new_network_failures.length > 0 ||
-      bd.new_a11y_violations.length > 0 ||
-      bd.render_regressions.length > 0;
     const browserLines: string[] = [
       `- **Probed routes (${routesList.length}):** ${routesList.map((r) => `\`${r}\``).join(', ') || 'none'}`,
       `- **New console errors:** ${bd.new_console_errors.length} · **Page errors:** ${bd.new_page_errors.length} · **Network failures:** ${bd.new_network_failures.length} · **A11y violations:** ${bd.new_a11y_violations.length} · **Render regressions:** ${bd.render_regressions.length}`,
@@ -489,28 +517,18 @@ export function formatReviewMarkdown(
     if (bd.error) {
       browserLines.push(`- **Error:** ${bd.error}`);
     }
-    if (hasBrowserRegressions) {
-      sections.push(`### Standalone Browser A/B\n\n${browserLines.join('\n')}`);
-    } else {
-      cleanBrowserDetailsSection = `<details>\n<summary>Standalone Browser A/B (${routesList.length} route(s), 0 regressions)</summary>\n\n${browserLines.join('\n')}\n</details>`;
-    }
+    verification.push('', `**Standalone browser A/B**\n${browserLines.join('\n')}`);
   }
+  const unverifiedCount =
+    review.verificationMatrix.filter((row) => row.status === 'NOT_VERIFIED').length +
+    review.notVerified.length;
+  sections.push(
+    details(
+      `Verification (${review.verificationMatrix.length} checks${unverifiedCount > 0 ? `, ${unverifiedCount} not verified` : ''})`,
+      verification.join('\n'),
+    ),
+  );
 
-  // Related Open PRs & Possible Unlinked GitLab Issues (only when grounded items exist)
-  if (review.relatedItems && review.relatedItems.length > 0) {
-    const relRows = review.relatedItems
-      .map((item) => {
-        const label = item.kind === 'pr' ? `PR ${item.ref}` : item.ref;
-        const safeTitle = escapeTableCell(item.title);
-        return `| [${escapeTableCell(label)}](${item.url}) — ${safeTitle} | ${relatedBadge(item.relationship)} | **${Math.round(item.confidence)}%** | ${escapeTableCell(item.reason)} |`;
-      })
-      .join('\n');
-    sections.push(
-      `### Related Open PRs & Issues\n\n| Item | Relation | Confidence | Why |\n| --- | --- | --- | --- |\n${relRows}`,
-    );
-  }
-
-  // Zone 2 (Bottom — all reference details consistently in collapsed <details> blocks)
   if (review.threadResolutions && review.threadResolutions.length > 0) {
     const openCount = review.threadResolutions.filter((t) => t.status === 'open').length;
     const resolvedCount = review.threadResolutions.length - openCount;
@@ -532,17 +550,20 @@ export function formatReviewMarkdown(
       })
       .join('\n');
     sections.push(
-      `<details>\n<summary>Reviewer Questions & Thread Resolution (${statusSummary})</summary>\n\n| Reviewer | Question / Request | Status | Detail |\n| --- | --- | --- | --- |\n${rows}\n</details>`,
+      details(
+        `Reviewer threads (${statusSummary})`,
+        `| Reviewer | Question / Request | Status | Detail |\n| --- | --- | --- | --- |\n${rows}`,
+      ),
     );
   }
 
+  const more: Array<{ label: string; body: string }> = [];
   if (review.walkthrough.length > 0) {
-    const noteLabel = review.walkthrough.length === 1 ? 'note' : 'notes';
-    sections.push(
-      `<details>\n<summary>Detailed Walkthrough (${review.walkthrough.length} ${noteLabel})</summary>\n\n${review.walkthrough.map((b) => `- ${b}`).join('\n')}\n</details>`,
-    );
+    more.push({
+      label: 'walkthrough',
+      body: `#### Walkthrough\n\n${review.walkthrough.map((b) => `- ${b}`).join('\n')}`,
+    });
   }
-
   if (review.standards && review.standards.length > 0) {
     const stdRows = review.standards
       .map(
@@ -551,13 +572,14 @@ export function formatReviewMarkdown(
       )
       .join('\n');
     const issueCount = review.standards.filter((s) => s.status === 'ISSUE').length;
-    const statusLabel = issueCount > 0 ? `${issueCount} ISSUE` : 'all PASS/N/A';
-    const stdTable = `| Code | Status | Note |\n| --- | --- | --- |\n${stdRows}`;
-    sections.push(
-      `<details>\n<summary>CiviCRM Core Standards (${review.standards.length} checks — ${statusLabel})</summary>\n\n${stdTable}\n</details>`,
-    );
+    more.push({
+      label:
+        issueCount > 0
+          ? `standards (${issueCount} issue${issueCount === 1 ? '' : 's'})`
+          : 'standards',
+      body: `#### CiviCRM core standards\n\n| Code | Status | Note |\n| --- | --- | --- |\n${stdRows}`,
+    });
   }
-
   if (review.blastRadius.length > 0) {
     const blastRows = review.blastRadius
       .map(
@@ -565,16 +587,24 @@ export function formatReviewMarkdown(
           `| ${escapeTableCell(b.repo)} | \`${escapeTableCell(b.path)}\` | \`${escapeTableCell(b.symbol)}\` | ${escapeTableCell(b.impact)} |`,
       )
       .join('\n');
-    const itemLabel = review.blastRadius.length === 1 ? 'item' : 'items';
-    sections.push(
-      `<details>\n<summary>Ecosystem Blast Radius (${review.blastRadius.length} ${itemLabel})</summary>\n\n| Repo | Path | Symbol | Impact |\n| --- | --- | --- | --- |\n${blastRows}\n</details>`,
-    );
+    more.push({
+      label: 'blast radius',
+      body: `#### Ecosystem blast radius\n\n| Repo | Path | Symbol | Impact |\n| --- | --- | --- | --- |\n${blastRows}`,
+    });
   }
-
-  if (cleanBrowserDetailsSection) {
-    sections.push(cleanBrowserDetailsSection);
+  if (review.relatedItems && review.relatedItems.length > 0) {
+    const relRows = review.relatedItems
+      .map((item) => {
+        const label = item.kind === 'pr' ? `PR ${item.ref}` : item.ref;
+        const safeTitle = escapeTableCell(item.title);
+        return `| [${escapeTableCell(label)}](${item.url}) — ${safeTitle} | ${relatedBadge(item.relationship)} | **${Math.round(item.confidence)}%** | ${escapeTableCell(item.reason)} |`;
+      })
+      .join('\n');
+    more.push({
+      label: `related (${review.relatedItems.length})`,
+      body: `#### Related open PRs and issues\n\n| Item | Relation | Confidence | Why |\n| --- | --- | --- | --- |\n${relRows}`,
+    });
   }
-
   if (review.uncertainFindings && review.uncertainFindings.length > 0) {
     const uncertainBody = review.uncertainFindings
       .map(
@@ -582,11 +612,11 @@ export function formatReviewMarkdown(
           `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRefOf(f)}\` — **${f.title}**: ${f.issue}`,
       )
       .join('\n');
-    sections.push(
-      `<details>\n<summary>Lower-Confidence Notes (${review.uncertainFindings.length} — below posting gate, for optional review)</summary>\n\n${uncertainBody}\n</details>`,
-    );
+    more.push({
+      label: `lower-confidence notes (${review.uncertainFindings.length})`,
+      body: `#### Lower-confidence notes (below the posting gate)\n\n${uncertainBody}`,
+    });
   }
-
   if (review.rejectedFindings && review.rejectedFindings.length > 0) {
     const rejectedBody = review.rejectedFindings
       .map(
@@ -594,11 +624,11 @@ export function formatReviewMarkdown(
           `- **[${f.reassessedSeverity.toUpperCase()} | ${f.verdict} | ${f.confidence}%]** \`${lineRefOf(f)}\` — **${f.title}** — verifier: ${f.verificationEvidence}`,
       )
       .join('\n');
-    sections.push(
-      `<details>\n<summary>Rejected or below 50% confidence (${review.rejectedFindings.length})</summary>\n\n${rejectedBody}\n</details>`,
-    );
+    more.push({
+      label: `rejected (${review.rejectedFindings.length})`,
+      body: `#### Rejected or below 50% confidence\n\n${rejectedBody}`,
+    });
   }
-
   const hiddenDroppedCount = Math.max(
     0,
     review.droppedCount -
@@ -606,8 +636,19 @@ export function formatReviewMarkdown(
       (review.rejectedFindings?.length ?? 0),
   );
   if (hiddenDroppedCount > 0) {
+    more.push({
+      label: '',
+      body: `_${hiddenDroppedCount} further candidate finding(s) are not listed: duplicates of the findings above, or lower-confidence notes beyond the five shown._`,
+    });
+  }
+  if (more.length > 0) {
+    const labels = more.map((m) => m.label).filter(Boolean);
+    const summary = labels.length > 0 ? labels.join(' · ') : 'notes';
     sections.push(
-      `_Note: ${hiddenDroppedCount} further candidate finding(s) are not listed: duplicates of the findings above, or lower-confidence notes beyond the five shown._`,
+      details(
+        `More: ${summary.charAt(0).toUpperCase()}${summary.slice(1)}`,
+        more.map((m) => m.body).join('\n\n'),
+      ),
     );
   }
 
@@ -629,12 +670,15 @@ export function formatReviewMarkdown(
     options.triggerCommentId !== undefined ? ` trigger_comment=${options.triggerCommentId}` : '';
   sections.push(
     `---\n` +
-      `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +
+      `<sub>Automated AI-assisted review, **alpha**: it may miss issues or report false positives, so verify findings before acting and [open an issue](https://github.com/civico-de/civireview/issues/new) with feedback. Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +
       `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5 format=${REVIEW_FORMAT}${triggerAttr} -->`,
   );
 
   return {
-    summaryBody: sanitizeGitHubMentions(fitSectionsToLimit(sections).join('\n\n'), mentionUsers),
+    summaryBody: sanitizeGitHubMentions(
+      fitSectionsToLimit(sections, MAX_GITHUB_BODY_CHARS, keep).join('\n\n'),
+      mentionUsers,
+    ),
     inlineComments,
     overflowFindings: allSummaryFindings,
   };

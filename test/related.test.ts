@@ -352,7 +352,7 @@ describe('related open PRs & GitLab issue discovery', () => {
     expect(review.relatedItems![1]!.ref).toBe('dev/core#6912');
 
     const md = formatReviewMarkdown(review, bundle, { preset: 'sonnet-opus' }).summaryBody;
-    expect(md).toContain('### Related Open PRs & Issues');
+    expect(md).toContain('#### Related open PRs and issues');
     expect(md).toContain('⚠️ `conflicts`');
     expect(md).toContain('**90%**');
     expect(md).toContain('dev/core#6912');

@@ -481,17 +481,16 @@ describe('computeConfidenceScore rationale', () => {
 });
 
 describe('buildShortSummary', () => {
-  test('combines triage summary, the A/B proof and the top finding', () => {
+  test('combines triage summary and the A/B proof, leaving the findings to the action items', () => {
     const summary = buildShortSummary({
       triageSummary: 'Fixes the lookup',
-      findings: [finding('a', 'CONFIRMED', 'high'), finding('b', 'CONFIRMED', 'low')],
       verificationMatrix: [
         entry('A/B Proof-of-Fix', 'PASS', '2 test(s) failed on base, passed on PR'),
       ],
       scoreRationale: 'ignored',
     });
     expect(summary).toBe(
-      'Fixes the lookup. A/B testing proved 2 test(s) failed on base, passed on PR. 2 verified finding(s) — top: [HIGH] Finding a (+1 more).',
+      'Fixes the lookup. A/B testing proved 2 test(s) failed on base, passed on PR.',
     );
   });
 
@@ -499,14 +498,13 @@ describe('buildShortSummary', () => {
     expect(
       buildShortSummary({
         prTitle: 'Fix thing.',
-        findings: [],
         verificationMatrix: [],
         scoreRationale: 'r',
       }),
     ).toBe('Changes: Fix thing.');
-    expect(
-      buildShortSummary({ findings: [], verificationMatrix: [], scoreRationale: 'Nothing found.' }),
-    ).toBe('Nothing found.');
+    expect(buildShortSummary({ verificationMatrix: [], scoreRationale: 'Nothing found.' })).toBe(
+      'Nothing found.',
+    );
   });
 });
 

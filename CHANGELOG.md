@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Compact review layout (format 2)**: the unfolded part of a review is the verdict and score, a one- or two-sentence summary, the action items and one line of check icons. Findings outside the diff, the verification matrix with *Not verified* and the browser A/B, reviewer threads and everything else (walkthrough, standards, blast radius, related items, lower-confidence and rejected notes) are folded. Inline comments fold failure scenario and evidence. Earlier reviews in the first layout still collapse.
+
 ### Added
 
 - **Core browser tests run in the proof of fix**: a PR's tests under `tests/phpunit/E2E/` run on both sides with `ck ab --browser`, so a new browser test can prove its fix. Files of a development-only extension (its `info.xml` description starts with "(DEVELOPMENT ONLY)", like afform's mock forms) count as test fixtures and come from the head on both sides. Where A's copy of an extension comes from the base through a directory mount, the head's development-only extension or `tests/` directory is laid over it; a test file or fixture that cannot be given to both sides stops the proof of fix with a note under *Not verified*. A civikitchen without `ck ab --browser` runs the other tests and names the browser tests under *Not verified*.

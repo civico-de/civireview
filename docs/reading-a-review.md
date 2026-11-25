@@ -1,16 +1,30 @@
 # Reading a review
 
-A posted review has a fixed order. The first screen is meant to be enough for a
-decision; everything below it is folded.
+A posted review has a fixed order. The unfolded part is meant to be enough for a
+decision; everything else sits in disclosure elements below it.
 
 ## Header
 
 ```text
-CiviReview: 🔴 Needs Changes · Confidence: 2/5
-Summary: …
-Merge Confidence (2/5): 1 confirmed high-severity finding (from reading the code, not reproduced in a run); …
-PR: civicrm/civicrm-core#12345 · Profile: core-extension · Kind: core-feature · Commits: 6627d72 → 8777b4c
+CiviReview: 🔴 Needs Changes · 2/5 ★★☆☆☆
+Fixes the contact lookup. A/B testing proved 1 test(s) failed on base, passed on PR.
+
+To address (2)
+- [ ] HIGH  CRM/Contact/BAO/Contact.php:11 — Inline bug
+- [ ] Check failed  CI: 1 check failed
+
+✅ CI · ❌ Proof of fix · ⚠️ Surface · ❔ Browser
+▸ Findings outside the diff (1)
+▸ Verification (6 checks, 1 not verified)
+▸ Reviewer threads (1 open)
+▸ More: Walkthrough · standards · blast radius · related (2)
 ```
+
+The first line holds verdict and merge confidence, the second what the PR changes and
+what the A/B run proved. *To address* lists every posted finding (severity, location,
+title), every failed check, every conflicting or duplicate PR and every open reviewer
+thread, one checkbox each. The checks line has one icon per check that applies
+(✅ pass, ⚠️ warning, ❌ failed, ❔ not verified); the details are in *Verification*.
 
 **Verdict**
 
@@ -20,13 +34,13 @@ PR: civicrm/civicrm-core#12345 · Profile: core-extension · Kind: core-feature 
 | Questions Only | findings, but none of them a `PROVEN` or `CONFIRMED` critical or high one, and no failed check; also an unanswered reviewer thread without findings, or a code PR whose runtime checks (proof of fix, base-test regression, version matrix, browser A/B) should have run but none gave a result, whether the run broke or A/B or its tests were switched off; A/B never applies to a repository that is neither core nor an extension |
 | Needs Changes | a `PROVEN` or `CONFIRMED` critical or high finding, or a failed check among CI, proof of fix, base-test regression, browser A/B, taint delta, demo |
 
-**Profile and kind.** The profile says where the change could be verified
+**Profile and kind.** The PR, profile, kind and commits line opens *Verification*. The profile says where the change could be verified
 ([profiles.md](profiles.md)); the kind is the triage model's classification of the
 change.
 
 ## Merge confidence
 
-The score starts at 5. Each rule below caps it; the lowest cap wins. The rationale lists
+The rationale opens *Verification*. The score starts at 5. Each rule below caps it; the lowest cap wins. The rationale lists
 up to three reasons, the deciding one first.
 
 | Cap | Reason |
@@ -69,8 +83,9 @@ A finding has four parts: the defect, a concrete failure scenario (input or stat
 leads to a wrong result), the verification evidence, and a suggested fix. A
 `suggestion` block is only offered when it would replace exactly the commented lines.
 
-Findings on lines of the diff are inline comments; findings elsewhere in the file tree
-are listed in the summary with path and line.
+Findings on lines of the diff are inline comments: title, defect and suggested fix are
+visible, failure scenario and evidence are folded under *Evidence*. Findings elsewhere
+in the file tree are in *Findings outside the diff* with path and line.
 
 ## Empirical verification matrix
 
@@ -100,12 +115,12 @@ A row is absent when the check does not apply to the profile.
 **Browser A/B and the dashboard.** If no route of the changed screen could be found,
 only the dashboard is loaded. A clean result is then `NOT_VERIFIED` with a hint to name
 a route (`@civireview --page civicrm/…`). A regression on the dashboard still fails.
-A `PASS` always lists the routes it covers in the *Standalone Browser A/B* section; the
-browser loads pages and does not operate forms.
+A `PASS` always lists the routes it covers under *Standalone browser A/B* in
+*Verification*; the browser loads pages and does not operate forms.
 
 ## Not verified
 
-Everything the run could not establish: checks that were skipped, timed out or disabled,
+Inside *Verification*, below the matrix: everything the run could not establish: checks that were skipped, timed out or disabled,
 schema and upgrade changes the profile cannot execute, a truncated diff. Read it
 together with the matrix. A finding labelled `CONFIRMED` on code that also appears here
 has not been exercised by anything.
@@ -114,17 +129,24 @@ has not been exercised by anything.
 
 | Section | Content |
 | --- | --- |
-| Related open PRs & issues | other open work touching the same files or topic, with a confidence and the reason |
-| Detailed walkthrough | what the PR does and what each claim rests on, reconciled by the verifier |
+| Findings outside the diff | each such finding with defect, fix, failure scenario and evidence |
+| Verification | merge confidence rationale, PR/profile/kind/commits, the matrix, *Not verified*, standalone browser A/B (probed routes, counts per regression type, screenshots) |
+| Reviewer threads | open questions of human reviewers and whether the head answers them |
+| More | the parts below, each under its own heading; the summary names the ones present |
+
+| Part of *More* | Content |
+| --- | --- |
+| Walkthrough | what the PR does and what each claim rests on, reconciled by the verifier |
 | CiviCRM core standards | verdict per review standard (`r-explain`, `r-test`, `rg-upgrades`, …) |
 | Ecosystem blast radius | other code the change affects |
-| Standalone browser A/B | probed routes, counts per regression type, screenshots |
-| Reviewer questions & thread resolution | open questions of human reviewers and whether the head answers them |
+| Related open PRs and issues | other open work touching the same files or topic, with a confidence and the reason |
 | Lower-confidence notes | findings between 50 and the gate |
 | Rejected or below 50% confidence | candidates the verifier rejected or rated below 50, each with its verdict and reason |
 
-The line after them gives the number of candidates that are not listed at all:
-duplicates of a listed finding, and lower-confidence notes beyond the five shown. The footer names the preset, token count and cost.
+The last line of *More* gives the number of candidates that are not listed at all:
+duplicates of a listed finding, and lower-confidence notes beyond the five shown. The
+footer names the preset and token count; the marker after it carries `format=<n>`, the
+layout version.
 
 ## Disagreeing with a finding
 

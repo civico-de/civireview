@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import type { FinalReview } from '../src/engine/schemas.ts';
-import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
 import { extractAllReviewedMarkers } from '../src/evidence/github.ts';
 import { BrowserDiffReportSchema, type EvidenceBundle } from '../src/evidence/types.ts';
 import {
@@ -10,168 +9,17 @@ import {
   REVIEW_FORMAT,
 } from '../src/github/formatter.ts';
 import { formatThreadReplyBody } from '../src/github/thread-reply.ts';
+import { makeSampleBundle, makeSampleReview } from './helpers/review-fixtures.ts';
 import {
-  collapseReviewBody,
   publishReview,
   publishThreadReply,
   type PublisherOctokit,
 } from '../src/github/publisher.ts';
 
-const DIFF = `diff --git a/CRM/Contact/BAO/Contact.php b/CRM/Contact/BAO/Contact.php
-index 1111111..2222222 100644
---- a/CRM/Contact/BAO/Contact.php
-+++ b/CRM/Contact/BAO/Contact.php
-@@ -10,3 +10,4 @@ class CRM_Contact_BAO_Contact {
-   public static function run($id) {
-+    return $id;
-   }
- }
-`;
-
-function makeSampleBundle(): EvidenceBundle {
-  return {
-    schemaVersion: '1',
-    collectedAt: '2026-11-22T12:00:00Z',
-    repoInfo: {
-      kind: 'civicrm-core',
-      root: '/tmp/repo',
-      recommendedImage: 'standalone-master',
-    },
-    pr: {
-      repo: 'civicrm/civicrm-core',
-      isPrivateRepo: false,
-      prNumber: 99,
-      title: 'Test PR',
-      body: 'Body',
-      author: 'alice',
-      baseBranch: 'master',
-      headBranch: 'fix',
-      baseSha: 'aaaa1111',
-      headSha: 'bbbb2222',
-      labels: [],
-      draft: false,
-    },
-    comments: [],
-    linkedIssues: [],
-    diffFiles: parseUnifiedDiff(DIFF),
-    droppedNoiseFiles: [],
-    diffTruncated: false,
-    abReport: {
-      executed: true,
-      imageA: 'standalone-master',
-      imageB: 'standalone-master',
-      checks: [],
-      surfaceDiff: {
-        changes: [],
-        unverifiedSurfaces: [],
-        touchedComponents: ['CRM'],
-        summary: 'No surface changes.',
-      },
-      demoConsoleErrors: [],
-      notVerified: ['Upgrade step not run'],
-    },
-    staticDelta: {
-      executed: false,
-      toolsRun: [],
-      findings: [],
-      summary: 'Skipped',
-    },
-    ciStatus: {
-      overallState: 'success',
-      checks: [],
-      jenkinsFailedTests: [],
-      summary: 'All passed',
-    },
-    notVerified: ['Upgrade step not run'],
-  };
-}
-
-function makeSampleReview(): FinalReview {
-  return {
-    schemaVersion: '1',
-    repo: 'civicrm/civicrm-core',
-    prNumber: 99,
-    baseSha: 'aaaa1111',
-    headSha: 'bbbb2222',
-    prKind: 'core-bugfix',
-    verdict: 'NEEDS_CHANGES',
-    walkthrough: ['Fixes contact lookup'],
-    verificationMatrix: [
-      { check: 'CI / Jenkins', status: 'PASS', detail: 'All passed' },
-      {
-        check: 'CiviKitchen A/B Proof-of-Fix',
-        status: 'PASS',
-        detail: 'standalone-master vs standalone-master: 1 test red on A, green on B',
-      },
-    ],
-    notVerified: ['Upgrade step not run'],
-    standards: [
-      { code: 'r-explain', status: 'PASS', note: 'Good summary' },
-      { code: 'r-test', status: 'PASS', note: 'Red/Green proven' },
-    ],
-    blastRadius: [
-      {
-        repo: 'civicrm/civicrm-core',
-        path: 'CRM/Contact/Page/View.php',
-        symbol: 'Contact::run',
-        impact: 'Caller checked',
-      },
-    ],
-    findings: [
-      {
-        id: 'inline-1',
-        lens: 'correctness',
-        title: 'Inline bug',
-        severity: 'high',
-        reassessedSeverity: 'high',
-        verdict: 'PROVEN',
-        confidence: 95,
-        path: 'CRM/Contact/BAO/Contact.php',
-        startLine: 11,
-        endLine: 11,
-        side: 'RIGHT',
-        issue: 'Returns raw $id',
-        failureScenario: 'Caller expects array',
-        evidence: 'Line 11',
-        verificationEvidence: 'Proven by test',
-        suggestedFix: 'Return array',
-        suggestionCode: 'return [$id];',
-        mcpCitations: ['civicrm_read:CRM/Contact/BAO/Contact.php'],
-      },
-      {
-        id: 'summary-1',
-        lens: 'correctness',
-        title: 'Untouched caller mismatch',
-        severity: 'medium',
-        reassessedSeverity: 'medium',
-        verdict: 'CONFIRMED',
-        confidence: 88,
-        path: 'CRM/Contact/Page/View.php',
-        startLine: 40,
-        endLine: 40,
-        side: 'RIGHT',
-        issue: 'Expects object',
-        failureScenario: 'TypeError in View.php',
-        evidence: 'Line 40 of View.php',
-        verificationEvidence: 'Confirmed via read_file',
-        suggestedFix: 'Update caller',
-        mcpCitations: [],
-      },
-    ],
-    droppedCount: 1,
-    modelsUsed: {
-      triage: 'anthropic:claude-haiku-4-5',
-      'specialist:correctness': 'anthropic:claude-sonnet-4-6',
-      verifier: 'openai:gpt-5.2',
-    },
-    tokenUsage: {
-      inputTokens: 500,
-      outputTokens: 150,
-      cachedInputTokens: 200,
-      totalTokens: 650,
-    },
-    generatedAt: '2026-11-22T12:01:00Z',
-  };
+/** The part of a summary shown without opening anything, and the rest. */
+function splitAtFirstDetails(body: string): [string, string] {
+  const at = body.indexOf('<details>');
+  return at < 0 ? [body, ''] : [body.slice(0, at), body.slice(at)];
 }
 
 describe('formatter & publisher', () => {
@@ -198,27 +46,28 @@ describe('formatter & publisher', () => {
     expect(formatted.inlineComments[0]!.line).toBe(11);
     expect(formatted.inlineComments[0]!.body).toContain('[HIGH | PROVEN]');
     expect(formatted.inlineComments[0]!.body).toContain('```suggestion');
+    // The inline comment shows issue and fix; scenario and evidence are folded.
+    const inline = formatted.inlineComments[0]!.body;
+    expect(inline.indexOf('**Suggested fix:**')).toBeLessThan(inline.indexOf('<details>'));
+    expect(inline.indexOf('<details>')).toBeLessThan(inline.indexOf('**Failure scenario:**'));
 
-    expect(formatted.summaryBody).toContain('Needs Changes');
-    expect(formatted.summaryBody).toContain('Confidence: **2/5** `★★☆☆☆`');
-    expect(formatted.summaryBody).toContain('> **Summary:**');
-    expect(formatted.summaryBody).toContain('> **Merge Confidence (2/5):**');
-    expect(formatted.summaryBody).toContain('### Action Items (2)');
-    expect(formatted.summaryBody).toContain(
-      '- [ ] **[HIGH | PROVEN]** `CRM/Contact/BAO/Contact.php:11` — Inline bug — Return array',
+    const [visible, folded] = splitAtFirstDetails(formatted.summaryBody);
+    expect(visible).toContain('## CiviReview: 🔴 **Needs Changes** · **2/5** `★★☆☆☆`');
+    expect(visible).toContain('**To address (2)**');
+    expect(visible).toContain('- [ ] **HIGH** `CRM/Contact/BAO/Contact.php:11` — Inline bug');
+    expect(visible).toContain(
+      '- [ ] **MEDIUM** `CRM/Contact/Page/View.php:40` — Untouched caller mismatch',
     );
-    expect(formatted.summaryBody).toContain(
-      '- [ ] **[MEDIUM | CONFIRMED]** `CRM/Contact/Page/View.php:40` — Untouched caller mismatch — Update caller',
-    );
-    expect(formatted.summaryBody).toContain('<summary>Detailed Walkthrough (1 note)</summary>');
-    expect(formatted.summaryBody).toContain('Empirical Verification Matrix');
-    expect(formatted.summaryBody).toContain('CiviKitchen A/B Proof-of-Fix');
-    expect(formatted.summaryBody).toContain('Not Verified:');
-    expect(formatted.summaryBody).toContain('Upgrade step not run');
-    expect(formatted.summaryBody).toContain('CiviCRM Core Standards');
-    expect(formatted.summaryBody).toContain('`r-explain`');
-    expect(formatted.summaryBody).toContain('Ecosystem Blast Radius');
-    expect(formatted.summaryBody).toContain('Untouched caller mismatch');
+    expect(visible).toContain('✅ CI · ✅ Proof of fix');
+    expect(folded).toContain('<summary>Findings outside the diff (1)</summary>');
+    expect(folded).toContain('**Merge confidence (2/5):**');
+    expect(folded).toContain('<summary>Verification (2 checks, 1 not verified)</summary>');
+    expect(folded).toContain('| CiviKitchen A/B Proof-of-Fix | ✅ PASS |');
+    expect(folded).toContain('**Not verified:**\n- Upgrade step not run');
+    expect(folded).toContain('<summary>More: Walkthrough · standards · blast radius</summary>');
+    expect(folded).toContain('#### CiviCRM core standards');
+    expect(folded).toContain('`r-explain`');
+    expect(folded).toContain('#### Ecosystem blast radius');
     expect(formatted.summaryBody).not.toContain('AGENTS.md');
     expect(formatted.summaryBody).not.toContain('**Images:**');
     expect(formatted.summaryBody).toContain(
@@ -257,9 +106,10 @@ describe('formatter & publisher', () => {
         .length - 1;
     expect(rationaleOccurrences).toBe(1);
     expect(formatted.summaryBody).toContain(
-      '> **Summary:** Changes: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
+      '`★★★★★`\n\nChanges: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
     );
-    expect(formatted.summaryBody).not.toContain('### Action Items');
+    expect(formatted.summaryBody).not.toContain('**To address');
+    expect(formatted.summaryBody).toContain('No findings above the confidence gate.');
 
     // Failing check + conflicting PR show up as interactive checklist items even with 0 findings
     review.verificationMatrix.push({
@@ -281,12 +131,10 @@ describe('formatter & publisher', () => {
     const withFailures = formatReviewMarkdown(review, bundle, {
       preset: 'sonnet-opus',
     });
-    expect(withFailures.summaryBody).toContain('### Action Items (2)');
+    expect(withFailures.summaryBody).toContain('**To address (2)**');
+    expect(withFailures.summaryBody).toContain('- [ ] **Check failed** CI: 1 check failed');
     expect(withFailures.summaryBody).toContain(
-      '- [ ] **[CHECK FAILED]** Resolve `CI / Jenkins`: 1 check failed',
-    );
-    expect(withFailures.summaryBody).toContain(
-      '- [ ] **[CONFLICTS]** Coordinate with [PR #38120](https://github.com/civicrm/civicrm-core/pull/38120): Edits the same file',
+      '- [ ] **Conflicts with** [PR #38120](https://github.com/civicrm/civicrm-core/pull/38120): Edits the same file',
     );
 
     // Extension reviews still show Images metadata
@@ -693,31 +541,61 @@ describe('formatter reference sections', () => {
       probedRoutes: ['civicrm/admin/thing'],
       probedAnonymousRoutes: ['civicrm/thing/public'],
     });
-    const out = body(makeSampleReview(), bundle);
-    expect(out).toContain('<summary>Standalone Browser A/B (2 route(s), 0 regressions)</summary>');
-    expect(out).toContain('`civicrm/admin/thing`, `civicrm/thing/public`');
-    expect(out).not.toContain('### Standalone Browser A/B');
+    const [visible, folded] = splitAtFirstDetails(body(makeSampleReview(), bundle));
+    expect(folded).toContain('**Standalone browser A/B**');
+    expect(folded).toContain('`civicrm/admin/thing`, `civicrm/thing/public`');
+    expect(visible).not.toContain('civicrm/admin/thing');
   });
 
-  test('a browser regression is shown unfolded with its detail', () => {
+  test('a browser regression shows as a failed check and its detail is folded', () => {
     const bundle = makeSampleBundle();
     bundle.abReport.browserDiff = BrowserDiffReportSchema.parse({
       probedRoutes: ['civicrm/admin/thing'],
       new_console_errors: ['TypeError: x is undefined'],
     });
-    const out = body(makeSampleReview(), bundle);
-    expect(out).toContain('### Standalone Browser A/B');
-    expect(out).toContain('- **Console regressions:** TypeError: x is undefined');
+    const review = makeSampleReview();
+    review.verificationMatrix.push({
+      check: 'Browser A/B (Standalone)',
+      status: 'FAIL',
+      detail: 'Probed 1 route(s): 1 console regression(s).',
+    });
+    const [visible, folded] = splitAtFirstDetails(body(review, bundle));
+    expect(visible).toContain('❌ Browser');
+    expect(visible).toContain(
+      '- [ ] **Check failed** Browser: Probed 1 route(s): 1 console regression(s).',
+    );
+    expect(folded).toContain('- **Console regressions:** TypeError: x is undefined');
   });
 
-  test('a failed probe shows its error unfolded', () => {
+  test('a failed probe shows as not verified and its error is folded', () => {
     const bundle = makeSampleBundle();
     bundle.abReport.browserDiff = BrowserDiffReportSchema.parse({
       error: 'could not enable widgets',
     });
-    const out = body(makeSampleReview(), bundle);
-    expect(out).toContain('### Standalone Browser A/B');
-    expect(out).toContain('- **Error:** could not enable widgets');
+    const review = makeSampleReview();
+    review.verificationMatrix.push({
+      check: 'Browser A/B (Standalone)',
+      status: 'NOT_VERIFIED',
+      detail: 'Standalone browser A/B failed: could not enable widgets',
+    });
+    const [visible, folded] = splitAtFirstDetails(body(review, bundle));
+    expect(visible).toContain('❔ Browser');
+    expect(folded).toContain('- **Error:** could not enable widgets');
+  });
+
+  test('the visible part holds no table, evidence or check detail', () => {
+    const review = makeSampleReview();
+    review.verificationMatrix.push({
+      check: 'Base-Test Regression',
+      status: 'SKIPPED',
+      detail: 'none',
+    });
+    const [visible] = splitAtFirstDetails(body(review, makeSampleBundle()));
+    expect(visible).not.toMatch(/^\|/m);
+    expect(visible).not.toContain('Failure scenario');
+    expect(visible).not.toContain('Merge confidence');
+    expect(visible).not.toContain('Base tests');
+    expect(visible.trim().split('\n').length).toBeLessThanOrEqual(10);
   });
 
   test('related items are a table whose cells cannot break out of it', () => {
@@ -736,7 +614,7 @@ describe('formatter reference sections', () => {
       ],
     };
     const out = body(review, makeSampleBundle());
-    expect(out).toContain('### Related Open PRs & Issues');
+    expect(out).toContain('#### Related open PRs and issues');
     expect(out).toContain('[PR #123](https://github.com/civicrm/civicrm-core/pull/123)');
     expect(out).toContain('**91%**');
     expect(out).not.toContain('Fix a | b');
@@ -752,7 +630,8 @@ describe('formatter reference sections', () => {
 
   test('reviewers are not mentioned unless asked for', () => {
     const out = body(withThreads, makeSampleBundle());
-    expect(out).toContain('Reviewer Questions & Thread Resolution (1 open, 1 addressed/answered)');
+    expect(out).toContain('<summary>Reviewer threads (1 open, 1 addressed/answered)</summary>');
+    expect(out).toContain('- [ ] **Open thread** `bob`: Why public?');
     expect(out).toContain('| `bob` | Why public? | ⏳ Open | Still public. |');
     expect(out).not.toContain('@bob');
     expect(out).not.toContain('@carol');
@@ -773,6 +652,29 @@ describe('GitHub body limit', () => {
     expect(out.at(-1)).toBe(footer);
   });
 
+  test('a kept detail section is truncated, never dropped', () => {
+    const kept = `<details>\n<summary>Findings outside the diff (1)</summary>\n\n${'k'.repeat(60_000)}\n</details>`;
+    const other = `<details>\n<summary>More</summary>\n\n${'m'.repeat(1_000)}\n</details>`;
+    const out = fitSectionsToLimit(['# Title', kept, other, 'footer'], 50_000, new Set([kept]));
+    expect(out.join('\n\n').length).toBeLessThanOrEqual(50_000);
+    expect(out.some((s) => s.startsWith('<details>\n<summary>Findings outside the diff'))).toBe(
+      true,
+    );
+    expect(out.some((s) => s.includes('<summary>More</summary>'))).toBe(false);
+    expect(out[1]!.endsWith("_… truncated to fit GitHub's size limit._\n</details>")).toBe(true);
+  });
+
+  test('findings outside the diff survive an oversized review body', () => {
+    const review = makeSampleReview();
+    const outside = review.findings.find((f) => f.path === 'CRM/Contact/Page/View.php')!;
+    outside.verificationEvidence = 'e'.repeat(70_000);
+    const md = formatReviewMarkdown(review, makeSampleBundle()).summaryBody;
+    expect(md.length).toBeLessThanOrEqual(MAX_GITHUB_BODY_CHARS);
+    expect(md).toContain('<summary>Findings outside the diff (1)</summary>');
+    expect(md).toContain('**Failure scenario:** TypeError in View.php');
+    expect(md).not.toContain('<summary>More:');
+  });
+
   test('a body within the limit is left alone', () => {
     const sections = ['# Title', 'short', 'footer'];
     expect(fitSectionsToLimit(sections)).toEqual(sections);
@@ -788,196 +690,5 @@ describe('GitHub body limit', () => {
     expect(formatThreadReplyBody({ reply: 'ok', resolved: true, references: [] })).not.toContain(
       'truncated',
     );
-  });
-});
-
-const BOT = 'civireview-bot';
-const NEW_URL = 'https://github.com/civicrm/civicrm-core/pull/99#pullrequestreview-900';
-
-function oldReviewBody(headSha: string, verdict: FinalReview['verdict']): string {
-  const review = { ...makeSampleReview(), headSha, verdict };
-  return formatReviewMarkdown(review, makeSampleBundle()).summaryBody;
-}
-
-function collapseOctokit(
-  reviews: Array<{ id: number; body: string; user: { login: string } }>,
-  failIds: number[] = [],
-  failResponse?: { status: number; headers: Record<string, string> },
-) {
-  const updates: Array<{ review_id: number; body: string }> = [];
-  const calls: string[] = [];
-  const octokit: PublisherOctokit = {
-    rest: {
-      pulls: {
-        async createReview() {
-          calls.push('createReview');
-          return {
-            data: {
-              id: 900,
-              html_url: NEW_URL,
-              submitted_at: '2026-11-24T10:00:00Z',
-              user: { login: BOT },
-            },
-          };
-        },
-        async listReviews() {
-          calls.push('listReviews');
-          return { data: reviews };
-        },
-        async updateReview(params) {
-          calls.push('updateReview');
-          if (failIds.includes(params.review_id)) {
-            throw failResponse
-              ? Object.assign(new Error('Not Found'), {
-                  status: failResponse.status,
-                  response: failResponse,
-                })
-              : Object.assign(new Error('Server Error'), { status: 500 });
-          }
-          updates.push({ review_id: params.review_id, body: params.body });
-          return {};
-        },
-        async createReplyForReviewComment() {
-          throw new Error('unexpected createReplyForReviewComment');
-        },
-      },
-    },
-  };
-  return { octokit, updates, calls };
-}
-
-function publishWith(octokit: PublisherOctokit, warnings: string[] = [], dryRun = false) {
-  return publishReview({
-    owner: 'civicrm',
-    repo: 'civicrm-core',
-    prNumber: 99,
-    review: makeSampleReview(),
-    bundle: makeSampleBundle(),
-    octokit,
-    dryRun,
-    logger: { warn: (m) => warnings.push(m) },
-  });
-}
-
-describe('collapsing earlier reviews', () => {
-  test('a review posted after this one is left alone', async () => {
-    const { octokit, updates } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
-      { id: 901, body: oldReviewBody('9999999eeee', 'READY'), user: { login: BOT } },
-    ]);
-
-    const res = await publishWith(octokit);
-
-    expect(res.collapsedReviewIds).toEqual([1]);
-    expect(updates.map((u) => u.review_id)).toEqual([1]);
-  });
-
-  test('both earlier own reviews collapse to a one-line summary above the full body', async () => {
-    const first = oldReviewBody('1111111aaaa', 'NEEDS_CHANGES');
-    const second = oldReviewBody('2222222bbbb', 'READY');
-    const { octokit, updates } = collapseOctokit([
-      { id: 1, body: first, user: { login: BOT } },
-      { id: 2, body: second, user: { login: 'CiviReview-Bot' } },
-    ]);
-
-    const res = await publishWith(octokit);
-
-    expect(res.posted).toBe(true);
-    expect(res.collapsedReviewIds).toEqual([1, 2]);
-    expect(updates.map((u) => u.review_id)).toEqual([1, 2]);
-    const [firstLine, ...rest] = updates[0]!.body.split('\n');
-    expect(firstLine).toMatch(
-      /^Superseded by \[the review of 2026-11-24\]\(https:\/\/github\.com\/civicrm\/civicrm-core\/pull\/99#pullrequestreview-900\) · 🔴 Needs Changes · Confidence [1-5]\/5$/,
-    );
-    expect(rest.join('\n')).toContain(
-      `<details><summary>Earlier review</summary>\n\n${first}\n\n</details>`,
-    );
-    expect(updates[1]!.body.split('\n')[0]).toContain('· 🟢 Ready · Confidence');
-  });
-
-  test('a collapsed review is not wrapped again', async () => {
-    const collapsed = collapseReviewBody(
-      oldReviewBody('1111111aaaa', 'READY'),
-      NEW_URL,
-      '2026-11-23',
-    );
-    const { octokit, updates } = collapseOctokit([
-      { id: 1, body: collapsed, user: { login: BOT } },
-    ]);
-
-    const res = await publishWith(octokit);
-
-    expect(res.collapsedReviewIds).toEqual([]);
-    expect(updates).toHaveLength(0);
-  });
-
-  test('a header that cannot be parsed leaves only the superseded link', () => {
-    const note = 'Hand-written note\n\n<!-- civireview:v1 head_sha=abc base_sha=def -->';
-    const out = collapseReviewBody(note, NEW_URL, '2026-11-24');
-    expect(out.split('\n')[0]).toBe(`Superseded by [the review of 2026-11-24](${NEW_URL})`);
-    expect(out).toContain(note);
-  });
-
-  test("other users' reviews and own reviews without a civireview marker stay untouched", async () => {
-    const { octokit, updates } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: 'alice' } },
-      { id: 2, body: 'LGTM, merging after CI.', user: { login: BOT } },
-      { id: 3, body: oldReviewBody('3333333cccc', 'READY'), user: { login: BOT } },
-    ]);
-
-    const res = await publishWith(octokit);
-
-    expect(updates.map((u) => u.review_id)).toEqual([3]);
-    expect(res.collapsedReviewIds).toEqual([3]);
-  });
-
-  test('a failed update is logged with its review id and the run continues', async () => {
-    const warnings: string[] = [];
-    const { octokit, updates } = collapseOctokit(
-      [
-        { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
-        { id: 2, body: oldReviewBody('2222222bbbb', 'READY'), user: { login: BOT } },
-      ],
-      [1],
-    );
-
-    const res = await publishWith(octokit, warnings);
-
-    expect(res.posted).toBe(true);
-    expect(res.reviewId).toBe(900);
-    expect(updates.map((u) => u.review_id)).toEqual([2]);
-    expect(warnings).toEqual(['Could not collapse earlier review 1: Error: Server Error']);
-  });
-
-  test("a refused update names the token's scopes and the ones the endpoint accepts", async () => {
-    const review = { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } };
-    const classic = collapseOctokit([review], [1], {
-      status: 404,
-      headers: {
-        'x-oauth-scopes': 'notifications, public_repo',
-        'x-accepted-oauth-scopes': 'repo',
-      },
-    });
-    const fineGrained = collapseOctokit([review], [1], { status: 404, headers: {} });
-    const warnings: string[] = [];
-
-    await publishWith(classic.octokit, warnings);
-    await publishWith(fineGrained.octokit, warnings);
-
-    expect(warnings).toEqual([
-      'Could not collapse earlier review 1: Error: Not Found (x-oauth-scopes: notifications, public_repo; x-accepted-oauth-scopes: repo)',
-      'Could not collapse earlier review 1: Error: Not Found (no scope headers: a fine-grained token or a GitHub App)',
-    ]);
-  });
-
-  test('dry-run neither lists nor updates reviews', async () => {
-    const { octokit, calls } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
-    ]);
-
-    const res = await publishWith(octokit, [], true);
-
-    expect(res.posted).toBe(false);
-    expect(calls).toEqual([]);
   });
 });

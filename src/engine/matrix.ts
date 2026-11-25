@@ -779,18 +779,16 @@ export function computeConfidenceScore(params: {
 }
 
 /**
- * Produces a concise 2–3 sentence TL;DR summary visible at the top of every PR review
- * so reviewers can grasp what changed, what empirical checks proved, and what needs
- * attention without expanding the full walkthrough.
+ * The one or two sentences at the top of a review: what the PR changes and what the
+ * A/B run proved. The findings follow as action items.
  */
 export function buildShortSummary(params: {
   prTitle?: string;
   triageSummary?: string;
-  findings: VerifiedFinding[];
   verificationMatrix: VerificationMatrixEntry[];
   scoreRationale: string;
 }): string {
-  const { prTitle, triageSummary, findings, verificationMatrix, scoreRationale } = params;
+  const { prTitle, triageSummary, verificationMatrix, scoreRationale } = params;
 
   const parts: string[] = [];
 
@@ -814,16 +812,8 @@ export function buildShortSummary(params: {
     }
   }
 
-  if (findings.length === 0) {
-    if (parts.length === 0) {
-      parts.push(scoreRationale);
-    }
-  } else {
-    const top = findings[0]!;
-    const more = findings.length > 1 ? ` (+${findings.length - 1} more)` : '';
-    parts.push(
-      `${findings.length} verified finding(s) — top: [${top.reassessedSeverity.toUpperCase()}] ${top.title}${more}.`,
-    );
+  if (parts.length === 0) {
+    parts.push(scoreRationale);
   }
 
   return parts.join(' ').trim();
