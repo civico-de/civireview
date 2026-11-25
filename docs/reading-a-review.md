@@ -16,8 +16,8 @@ PR: civicrm/civicrm-core#12345 · Profile: core-extension · Kind: core-feature 
 
 | Verdict | Condition |
 | --- | --- |
-| Ready | no posted finding, no failed check |
-| Questions Only | findings, but none of them a `PROVEN` or `CONFIRMED` critical or high one, and no failed check; also an unanswered reviewer thread without findings |
+| Ready | no posted finding, no failed check, and for a code PR a runtime check with a result or none that applies |
+| Questions Only | findings, but none of them a `PROVEN` or `CONFIRMED` critical or high one, and no failed check; also an unanswered reviewer thread without findings, or a code PR whose runtime checks (proof of fix, base-test regression, version matrix, browser A/B) should have run but none gave a result, whether the run broke or A/B or its tests were switched off; A/B never applies to a repository that is neither core nor an extension |
 | Needs Changes | a `PROVEN` or `CONFIRMED` critical or high finding, or a failed check among CI, proof of fix, base-test regression, browser A/B, taint delta, demo |
 
 **Profile and kind.** The profile says where the change could be verified
@@ -33,8 +33,12 @@ up to three reasons, the deciding one first.
 | --- | --- |
 | 1 | a confirmed critical finding; two or more confirmed high findings |
 | 2 | one confirmed high finding; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
-| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed |
+| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed; not verified at runtime (the Questions Only case above) |
 | 4 | any other finding; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
+
+A test that civireview leaves out without a check of its own (an extension's browser
+tests with the browser check switched off) only shows under *Not verified*; the review
+can then still be Ready, with the cap of 4 when no A/B test ran.
 
 "Confirmed" in this table covers `PROVEN` and `CONFIRMED`. When the finding that
 decides the score is only `CONFIRMED`, the rationale adds "from reading the code, not

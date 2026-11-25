@@ -11,6 +11,7 @@ import type {
   VerificationMatrixEntry,
   VerifiedFinding,
 } from './schemas.ts';
+import { unverifiedRuntimeChecks } from './findings.ts';
 
 export const CANONICAL_STANDARD_CODES = new Set<string>([
   'r-explain',
@@ -247,6 +248,15 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
   }
 
   const isCore = bundle.repoInfo.kind === 'civicrm-core';
+  // CiviKitchen A/B never applies to a generic repository, whether or not it could start.
+  const notRun = (check: string, detail: string): VerificationMatrixEntry =>
+    bundle.repoInfo.kind === 'generic'
+      ? {
+          check,
+          status: 'SKIPPED',
+          detail: 'CiviKitchen A/B does not apply to a generic repository.',
+        }
+      : { check, status: 'NOT_VERIFIED', detail };
   const proofCheckLabel = isCore ? 'A/B Proof-of-Fix' : 'CiviKitchen A/B Proof-of-Fix';
 
   const merge = bundle.abReport.testedMerge;
@@ -327,16 +337,21 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         detail: `${pairPrefix}${proofCheck.summary} (no fail-to-pass transition observed)`,
       });
     }
-  } else if (!bundle.abReport.executed || !isCore) {
+  } else if (bundle.abReport.testsOff) {
+    matrix.push(notRun(proofCheckLabel, 'A/B tests switched off by the configuration.'));
+  } else if (bundle.abReport.executed && !isCore) {
     matrix.push({
       check: proofCheckLabel,
-      status: bundle.abReport.executed ? 'SKIPPED' : 'NOT_VERIFIED',
-      detail: bundle.abReport.executed
-        ? 'No PR test file triggered proof-of-fix run.'
-        : isCore
-          ? 'A/B test run did not execute.'
-          : 'CiviKitchen A/B did not run.',
+      status: 'SKIPPED',
+      detail: 'No PR test file triggered proof-of-fix run.',
     });
+  } else if (!bundle.abReport.executed) {
+    matrix.push(
+      notRun(
+        proofCheckLabel,
+        isCore ? 'A/B test run did not execute.' : 'CiviKitchen A/B did not run.',
+      ),
+    );
   }
 
   // 3. Base-Test Regression, and the version matrix of an extension
@@ -344,14 +359,16 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
   if (baseCheck) {
     const row = regressionRow('Base-Test Regression', baseCheck, isCore, mergePrefix);
     if (row) matrix.push(row);
-  } else if (!bundle.abReport.executed || !isCore) {
+  } else if (bundle.abReport.testsOff) {
+    matrix.push(notRun('Base-Test Regression', 'A/B tests switched off by the configuration.'));
+  } else if (bundle.abReport.executed && !isCore) {
     matrix.push({
       check: 'Base-Test Regression',
-      status: bundle.abReport.executed ? 'SKIPPED' : 'NOT_VERIFIED',
-      detail: bundle.abReport.executed
-        ? 'No matching base regression test target.'
-        : 'Base-test regression A/B did not run.',
+      status: 'SKIPPED',
+      detail: 'No matching base regression test target.',
     });
+  } else if (!bundle.abReport.executed) {
+    matrix.push(notRun('Base-Test Regression', 'Base-test regression A/B did not run.'));
   }
   const versionCheck = bundle.abReport.checks.find((c) => c.name === 'floor-vs-beta-matrix');
   const versionRow = versionCheck && regressionRow('Version Matrix', versionCheck, false);
@@ -472,11 +489,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       }
     }
   } else if (!bundle.abReport.executed && !isCore) {
-    matrix.push({
-      check: 'Browser A/B (Standalone)',
-      status: 'NOT_VERIFIED',
-      detail: 'Standalone browser A/B did not run.',
-    });
+    matrix.push(notRun('Browser A/B (Standalone)', 'Standalone browser A/B did not run.'));
   }
 
   // 7. Demo (only show when interactive demo actually ran)
@@ -736,7 +749,10 @@ export function computeConfidenceScore(params: {
   }
 
   const isLowRiskKind = prKind === 'docs-only' || prKind === 'core-ref-nfc';
-  if (!isLowRiskKind && !ranTests(proof) && !ranTests(baseReg)) {
+  const unverified = unverifiedRuntimeChecks(verificationMatrix, prKind);
+  if (unverified.length > 0) {
+    capAt(3, `not verified at runtime (${unverified.join(', ')} gave no result)`);
+  } else if (!isLowRiskKind && !ranTests(proof) && !ranTests(baseReg)) {
     capAt(4, 'no A/B test ran');
   }
 

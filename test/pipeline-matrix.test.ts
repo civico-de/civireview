@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { loadConfig } from '../src/config/loader.ts';
+import { findingsVerdict } from '../src/engine/findings.ts';
 import { applyThreadResolutionsToMatrix } from '../src/engine/matrix.ts';
 import {
   buildVerificationMatrix,
@@ -103,133 +104,142 @@ function makeBundle(overrides: Partial<EvidenceBundle> = {}): EvidenceBundle {
 }
 
 describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
-  test('filters non-canonical standards, adopts Stage 2 reconciledStandards, and flips stale ISSUEs on READY', async () => {
-    const config = loadConfig('/tmp/nonexistent-cfg-dir', {
-      preset: 'sonnet',
-      review: {
-        include: ['correctness'],
-        confidenceThreshold: 80,
-      },
-    });
+  test.each([
+    ['A/B ran', false],
+    ['A/B gave no result', true],
+  ])(
+    'filters non-canonical standards, adopts Stage 2 reconciledStandards, and flips stale ISSUEs (%s)',
+    async (_label, abBroke) => {
+      const config = loadConfig('/tmp/nonexistent-cfg-dir', {
+        preset: 'sonnet',
+        review: {
+          include: ['correctness'],
+          confidenceThreshold: 80,
+        },
+      });
 
-    let verifierUserPrompt = '';
-    const mockRunner: StageRunner = {
-      providers: ['anthropic'],
-      async run(req) {
-        if (req.stage === 'triage') {
-          return {
-            output: req.schema.parse({
-              prKind: 'core-bugfix',
-              riskLevel: 'low',
-              activeLenses: ['correctness'],
-              summaryBullets: ['Simple fix'],
-              recommendedAbTests: [],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        if (req.stage === 'specialist:correctness') {
-          return {
-            output: req.schema.parse({
-              lens: 'correctness',
-              summary: 'Potential issue',
-              findings: [
-                {
-                  id: 'corr-fp',
-                  lens: 'correctness',
-                  title: 'Speculative code issue',
-                  severity: 'medium',
-                  path: 'CRM/Contact/BAO/Contact.php',
-                  startLine: 11,
-                  endLine: 11,
-                  side: 'RIGHT',
-                  issue: 'Might fail',
-                  failureScenario: 'Edge case',
-                  evidence: 'Line 11',
-                  suggestedFix: 'Guard',
-                  mcpCitations: [],
-                },
-              ],
-              standards: [
-                { code: 'r-explain', status: 'PASS', note: 'Clear PR' },
-                { code: 'r-code', status: 'ISSUE', note: 'Speculative issue' },
-                { code: 'r-tech', status: 'ISSUE', note: 'Unbacked tech worry' },
-                { code: 'A/B', status: 'PASS', note: 'Invented ad-hoc code' },
-                { code: 'CI', status: 'PASS', note: 'Invented ad-hoc code' },
-                { code: 'upgrade-schema', status: 'N/A', note: 'Invented code' },
-              ],
-              checkedWithoutFindings: [],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        if (req.stage === 'verifier') {
-          verifierUserPrompt = req.userPrompt;
-          return {
-            output: req.schema.parse({
-              notes: 'Disproved corr-fp and reconciled standards',
-              verifiedFindings: [
-                {
-                  id: 'corr-fp',
-                  lens: 'correctness',
-                  title: 'Speculative code issue',
-                  severity: 'medium',
-                  reassessedSeverity: 'medium',
-                  verdict: 'REJECTED',
-                  confidence: 20,
-                  path: 'CRM/Contact/BAO/Contact.php',
-                  startLine: 11,
-                  endLine: 11,
-                  side: 'RIGHT',
-                  issue: 'Might fail',
-                  failureScenario: 'Edge case',
-                  evidence: 'Line 11',
-                  verificationEvidence: 'Disproved',
-                  suggestedFix: 'None',
-                  mcpCitations: [],
-                },
-              ],
-              reconciledStandards: [
-                { code: 'r-code', status: 'PASS', note: 'Candidate rejected by verifier' },
-                { code: 'bogus-code', status: 'ISSUE', note: 'Should be filtered' },
-              ],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        throw new Error(`Unexpected stage ${req.stage}`);
-      },
-    };
+      let verifierUserPrompt = '';
+      const mockRunner: StageRunner = {
+        providers: ['anthropic'],
+        async run(req) {
+          if (req.stage === 'triage') {
+            return {
+              output: req.schema.parse({
+                prKind: 'core-bugfix',
+                riskLevel: 'low',
+                activeLenses: ['correctness'],
+                summaryBullets: ['Simple fix'],
+                recommendedAbTests: [],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          if (req.stage === 'specialist:correctness') {
+            return {
+              output: req.schema.parse({
+                lens: 'correctness',
+                summary: 'Potential issue',
+                findings: [
+                  {
+                    id: 'corr-fp',
+                    lens: 'correctness',
+                    title: 'Speculative code issue',
+                    severity: 'medium',
+                    path: 'CRM/Contact/BAO/Contact.php',
+                    startLine: 11,
+                    endLine: 11,
+                    side: 'RIGHT',
+                    issue: 'Might fail',
+                    failureScenario: 'Edge case',
+                    evidence: 'Line 11',
+                    suggestedFix: 'Guard',
+                    mcpCitations: [],
+                  },
+                ],
+                standards: [
+                  { code: 'r-explain', status: 'PASS', note: 'Clear PR' },
+                  { code: 'r-code', status: 'ISSUE', note: 'Speculative issue' },
+                  { code: 'r-tech', status: 'ISSUE', note: 'Unbacked tech worry' },
+                  { code: 'A/B', status: 'PASS', note: 'Invented ad-hoc code' },
+                  { code: 'CI', status: 'PASS', note: 'Invented ad-hoc code' },
+                  { code: 'upgrade-schema', status: 'N/A', note: 'Invented code' },
+                ],
+                checkedWithoutFindings: [],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          if (req.stage === 'verifier') {
+            verifierUserPrompt = req.userPrompt;
+            return {
+              output: req.schema.parse({
+                notes: 'Disproved corr-fp and reconciled standards',
+                verifiedFindings: [
+                  {
+                    id: 'corr-fp',
+                    lens: 'correctness',
+                    title: 'Speculative code issue',
+                    severity: 'medium',
+                    reassessedSeverity: 'medium',
+                    verdict: 'REJECTED',
+                    confidence: 20,
+                    path: 'CRM/Contact/BAO/Contact.php',
+                    startLine: 11,
+                    endLine: 11,
+                    side: 'RIGHT',
+                    issue: 'Might fail',
+                    failureScenario: 'Edge case',
+                    evidence: 'Line 11',
+                    verificationEvidence: 'Disproved',
+                    suggestedFix: 'None',
+                    mcpCitations: [],
+                  },
+                ],
+                reconciledStandards: [
+                  { code: 'r-code', status: 'PASS', note: 'Candidate rejected by verifier' },
+                  { code: 'bogus-code', status: 'ISSUE', note: 'Should be filtered' },
+                ],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          throw new Error(`Unexpected stage ${req.stage}`);
+        },
+      };
 
-    const registry = createRunnerRegistry({ anthropic: mockRunner });
-    const review = await runReviewPipeline({
-      bundle: makeBundle(),
-      filteredPatch: SAMPLE_PATCH,
-      config,
-      cwd: process.cwd(),
-      registry,
-    });
+      const registry = createRunnerRegistry({ anthropic: mockRunner });
+      const bundle = makeBundle();
+      const review = await runReviewPipeline({
+        bundle: abBroke
+          ? { ...bundle, abReport: { ...bundle.abReport, executed: false, checks: [] } }
+          : bundle,
+        filteredPatch: SAMPLE_PATCH,
+        config,
+        cwd: process.cwd(),
+        registry,
+      });
 
-    // Non-canonical ad-hoc codes were filtered before Stage 2 and from final output
-    expect(verifierUserPrompt).not.toContain('"A/B"');
-    expect(verifierUserPrompt).not.toContain('"upgrade-schema"');
-    expect(verifierUserPrompt).toContain('"r-code"');
+      // Non-canonical ad-hoc codes were filtered before Stage 2 and from final output
+      expect(verifierUserPrompt).not.toContain('"A/B"');
+      expect(verifierUserPrompt).not.toContain('"upgrade-schema"');
+      expect(verifierUserPrompt).toContain('"r-code"');
 
-    expect(review.verdict).toBe('READY');
-    expect(review.findings).toHaveLength(0);
-    const codes = review.standards?.map((s) => s.code) ?? [];
-    expect(codes).toEqual(['r-explain', 'r-code', 'r-tech']);
-    // Stage 2 reconciled r-code -> PASS, deterministic pass flipped stale r-tech -> PASS
-    expect(review.standards?.find((s) => s.code === 'r-code')?.status).toBe('PASS');
-    expect(review.standards?.find((s) => s.code === 'r-tech')?.status).toBe('PASS');
-    expect(review.standards?.find((s) => s.code === 'r-tech')?.note).toContain('Reconciled');
-  });
+      expect(review.verdict).toBe(abBroke ? 'QUESTIONS_ONLY' : 'READY');
+      expect(review.findings).toHaveLength(0);
+      const codes = review.standards?.map((s) => s.code) ?? [];
+      expect(codes).toEqual(['r-explain', 'r-code', 'r-tech']);
+      // Stage 2 reconciled r-code -> PASS, deterministic pass flipped stale r-tech -> PASS
+      expect(review.standards?.find((s) => s.code === 'r-code')?.status).toBe('PASS');
+      expect(review.standards?.find((s) => s.code === 'r-tech')?.status).toBe('PASS');
+      expect(review.standards?.find((s) => s.code === 'r-tech')?.note).toContain('Reconciled');
+    },
+  );
 
   test('buildVerificationMatrix marks tautologicalTests as WARN and pipeline keeps r-maint/r-run consistent', async () => {
     const tautBundle = makeBundle({
@@ -595,6 +605,54 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         'NEEDS_CHANGES',
       );
     }
+  });
+
+  test('a code PR whose runtime checks gave no result is not Ready and scores at most 3', () => {
+    const crashed = [
+      { check: 'CI / Jenkins', status: 'PASS' as const, detail: 'green' },
+      {
+        check: 'A/B Proof-of-Fix',
+        status: 'NOT_VERIFIED' as const,
+        detail: 'Internal A/B test runner error (exit 2)',
+      },
+      {
+        check: 'Base-Test Regression',
+        status: 'NOT_VERIFIED' as const,
+        detail: 'Internal A/B test runner error (exit 2)',
+      },
+      {
+        check: 'Browser A/B (Standalone)',
+        status: 'NOT_VERIFIED' as const,
+        detail: 'no container',
+      },
+    ];
+    expect(computeFinalVerdict([], crashed, 'core-bugfix')).toBe('QUESTIONS_ONLY');
+    // The code standards are reconciled on the findings alone.
+    expect(findingsVerdict([], crashed)).toBe('READY');
+    const crashedScore = computeConfidenceScore({
+      verdict: 'QUESTIONS_ONLY',
+      findings: [],
+      verificationMatrix: crashed,
+      prKind: 'core-bugfix',
+    });
+    expect(crashedScore.score).toBe(3);
+    expect(crashedScore.rationale).toContain('Not verified at runtime');
+
+    // One runtime check with a result is enough.
+    const oneRan = [
+      ...crashed.slice(0, 3),
+      { check: 'Browser A/B (Standalone)', status: 'PASS' as const, detail: '3 routes' },
+    ];
+    expect(computeFinalVerdict([], oneRan, 'core-bugfix')).toBe('READY');
+    // Not applicable (skipped or absent) is no failure, nor is a docs-only PR.
+    expect(
+      computeFinalVerdict(
+        [],
+        [{ check: 'Base-Test Regression', status: 'SKIPPED', detail: 'no target' }],
+        'core-bugfix',
+      ),
+    ).toBe('READY');
+    expect(computeFinalVerdict([], crashed, 'docs-only')).toBe('READY');
   });
 
   test('resolveStageEffort dynamically scales effort per stage and PR risk and respects overrides', () => {

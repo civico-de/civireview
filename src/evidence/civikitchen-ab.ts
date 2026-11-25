@@ -980,6 +980,7 @@ export async function runCiviKitchenAb(
       demoConsoleErrors,
       notVerified: Array.from(new Set([...notVerified, ...surfaceDiff.unverifiedSurfaces])),
       ...(testedMerge ? { testedMerge } : {}),
+      ...(isCheckEnabled(effectiveCfg, 'ab-tests') ? {} : { testsOff: true }),
     },
     staticDelta: {
       executed: toolsRun.length > 0,

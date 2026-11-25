@@ -188,6 +188,8 @@ export const AbRunReportSchema = z.object({
   demoArtifactsDir: z.string().optional(),
   demoConsoleErrors: z.array(z.string()).default([]),
   notVerified: z.array(z.string()),
+  /** Set when the configuration switched the A/B tests (proof of fix, base tests) off. */
+  testsOff: z.boolean().optional(),
   /** Set when A/B ran on GitHub's merge of the PR: A is its first parent, B the merge. */
   testedMerge: z.object({ base: z.string(), merge: z.string() }).optional(),
 });

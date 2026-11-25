@@ -3,6 +3,7 @@ import type {
   BlastRadiusItem,
   FinalVerdict,
   FindingVerdict,
+  PrKind,
   RelatedItem,
   Severity,
   VerificationMatrixEntry,
@@ -33,6 +34,30 @@ const EMPIRICAL_BLOCKING_CHECKS = new Set<string>([
   'Static / Taint Delta',
   'Demo',
 ]);
+
+const RUNTIME_CHECKS = new Set<string>([
+  'A/B Proof-of-Fix',
+  'CiviKitchen A/B Proof-of-Fix',
+  'Base-Test Regression',
+  'Version Matrix',
+  'Browser A/B (Standalone)',
+]);
+
+/**
+ * The runtime checks of a code PR that should have run but gave no result, when none
+ * gave one: nothing was proven by running the code. Empty when a check ran or none applied.
+ */
+export function unverifiedRuntimeChecks(
+  verificationMatrix: VerificationMatrixEntry[] = [],
+  prKind?: PrKind,
+): string[] {
+  if (prKind === 'docs-only' || prKind === 'core-ref-nfc') return [];
+  const runtime = verificationMatrix.filter((m) => RUNTIME_CHECKS.has(m.check));
+  if (runtime.some((m) => m.status === 'PASS' || m.status === 'WARN' || m.status === 'FAIL')) {
+    return [];
+  }
+  return runtime.filter((m) => m.status === 'NOT_VERIFIED').map((m) => m.check);
+}
 
 export function compareVerifiedFindings(a: VerifiedFinding, b: VerifiedFinding): number {
   const sevDiff = SEVERITY_RANK[b.reassessedSeverity] - SEVERITY_RANK[a.reassessedSeverity];
@@ -88,7 +113,20 @@ export function deduplicateVerifiedFindings(findings: VerifiedFinding[]): Verifi
   return kept;
 }
 
+/** The verdict on findings and checks; a code PR not verified at runtime is not Ready. */
 export function computeFinalVerdict(
+  findings: VerifiedFinding[],
+  verificationMatrix?: VerificationMatrixEntry[],
+  prKind?: PrKind,
+): FinalVerdict {
+  const verdict = findingsVerdict(findings, verificationMatrix);
+  return verdict === 'READY' && unverifiedRuntimeChecks(verificationMatrix, prKind).length > 0
+    ? 'QUESTIONS_ONLY'
+    : verdict;
+}
+
+/** The verdict on findings, failed checks and reviewer threads alone. */
+export function findingsVerdict(
   findings: VerifiedFinding[],
   verificationMatrix?: VerificationMatrixEntry[],
 ): FinalVerdict {

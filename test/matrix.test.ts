@@ -7,6 +7,7 @@ import {
   reconcileMatrixForTriage,
   reconcileStandardsDeterministically,
 } from '../src/engine/matrix.ts';
+import { unverifiedRuntimeChecks } from '../src/engine/findings.ts';
 import type {
   TriageOutput,
   VerificationMatrixEntry,
@@ -230,6 +231,34 @@ describe('buildVerificationMatrix: A/B rows', () => {
       status: 'SKIPPED',
       detail: 'No PR test file triggered proof-of-fix run.',
     });
+  });
+
+  test('A/B tests switched off are not verified, even when the version matrix ran', () => {
+    const ext = bundleWithChecks([{ name: 'floor-vs-beta-matrix', status: 'SKIPPED', fixed: [] }], {
+      repoInfo: { ...makeBundle().repoInfo, kind: 'civicrm-extension' },
+    });
+    const off = { ...ext, abReport: { ...ext.abReport, testsOff: true } };
+    expect(rowOf(off, 'CiviKitchen A/B Proof-of-Fix')?.status).toBe('NOT_VERIFIED');
+    expect(rowOf(off, 'Base-Test Regression')?.status).toBe('NOT_VERIFIED');
+    expect(
+      unverifiedRuntimeChecks(buildVerificationMatrix(off).verificationMatrix, 'extension-pr'),
+    ).toEqual(['CiviKitchen A/B Proof-of-Fix', 'Base-Test Regression']);
+  });
+
+  test('a generic repository whose A/B could not start is Ready: A/B never applies there', () => {
+    const base = makeBundle();
+    const generic = makeBundle({
+      abReport: { ...base.abReport, executed: false, checks: [] },
+      repoInfo: { ...base.repoInfo, kind: 'generic' },
+    });
+    const { verificationMatrix } = buildVerificationMatrix(generic);
+    const rows = verificationMatrix.filter((m) =>
+      ['CiviKitchen A/B Proof-of-Fix', 'Base-Test Regression', 'Browser A/B (Standalone)'].includes(
+        m.check,
+      ),
+    );
+    expect(rows.map((m) => m.status)).toEqual(['SKIPPED', 'SKIPPED', 'SKIPPED']);
+    expect(unverifiedRuntimeChecks(verificationMatrix, 'extension-pr')).toEqual([]);
   });
 
   test('base-test regression: failures list the tests, PASS and ERROR are mapped', () => {

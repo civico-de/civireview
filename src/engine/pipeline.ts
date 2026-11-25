@@ -25,6 +25,7 @@ import type { ExtraMcpServerConfig, StageImageInput, StageUsage } from '../runne
 import {
   compareVerifiedFindings,
   computeFinalVerdict,
+  findingsVerdict,
   deduplicateVerifiedFindings,
   filterGroundedRelatedItems,
   mergeBlastRadius,
@@ -434,7 +435,7 @@ async function executeReviewPipeline(
       skipReason ?? 'All specialist lenses selected by triage are disabled by config.';
     if (!skipReason) notVerified.push(`The code was not reviewed: ${skippedReason}`);
     logger?.info?.(`Triage skipped specialists: ${skippedReason}`);
-    const skipVerdict = computeFinalVerdict([], verificationMatrix);
+    const skipVerdict = computeFinalVerdict([], verificationMatrix, triage.prKind);
     const skipScore = computeConfidenceScore({
       verdict: skipVerdict,
       findings: [],
@@ -870,7 +871,7 @@ async function executeReviewPipeline(
     threadResolutions,
     config.review.mentionUsers,
   );
-  const verdict = computeFinalVerdict(survivingFindings, verificationMatrix);
+  const verdict = computeFinalVerdict(survivingFindings, verificationMatrix, triage.prKind);
   const { score, rationale: scoreRationale } = computeConfidenceScore({
     verdict,
     findings: survivingFindings,
@@ -886,7 +887,8 @@ async function executeReviewPipeline(
   });
   standards = reconcileStandardsDeterministically({
     standards,
-    verdict,
+    // A missing runtime check says nothing about the code standards.
+    verdict: findingsVerdict(survivingFindings, verificationMatrix),
     survivingFindings,
     verificationMatrix,
     bundle,
