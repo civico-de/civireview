@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { Octokit } from '@octokit/rest';
 import { loadConfig } from '../src/config/loader.ts';
 import {
   AuthorAssociationSchema,
@@ -18,11 +19,18 @@ import {
 import { runReviewPipeline, runThreadReply } from '../src/engine/pipeline.ts';
 import { FinalReviewSchema, ThreadReplyOutputSchema } from '../src/engine/schemas.ts';
 import { collectEvidence } from '../src/evidence/collector.ts';
+import { resolveGitHubToken } from '../src/evidence/github.ts';
 import { EvidenceBundleSchema } from '../src/evidence/types.ts';
 import { parseMentionCommand } from '../src/github/commands.ts';
 import { formatReviewMarkdown } from '../src/github/formatter.ts';
 import { publishReview, publishThreadReply } from '../src/github/publisher.ts';
 import { buildThreadContextFromBundle, formatThreadReplyBody } from '../src/github/thread-reply.ts';
+import {
+  applyRerender,
+  loadSavedReview,
+  planRerender,
+  type RerenderOctokit,
+} from '../src/github/rerender.ts';
 import { runWatcher } from '../src/github/watcher.ts';
 
 const HELP_TEXT = `civireview — CiviCRM-native multi-model AI PR reviewer
@@ -36,6 +44,7 @@ Usage:
   civireview reply --repo <owner/name> --pr <num> --comment-id <id> --evidence <dir> --question <text> [options]
   civireview parse-command --body-env <ENV_VAR> [--trigger @civireview]
   civireview watch [options]
+  civireview rerender <saved-review-dir> [--apply] [--bot-login <login>]
 
 Subcommands:
   pr              Collect evidence, run multi-model review, and post to GitHub PR
@@ -46,6 +55,7 @@ Subcommands:
   reply           Answer a follow-up question in an inline PR review comment thread
   parse-command   Safely parse @civireview flags from an environment variable
   watch           Poll upstream repos or notifications for @civireview mentions
+  rerender        Render a review the watcher saved in the current layout and update the posted one
 
 Common Options:
   --repo <owner/name>       GitHub repository slug
@@ -101,6 +111,11 @@ Watch Options:
   --open-only                          Only scan open PRs in search mode
   --interval <sec>                     Poll interval in seconds (default: 60)
   --once                               Run a single poll pass and exit
+
+Rerender Options:
+  <saved-review-dir>        Directory with review.json, evidence.json and render.json (watch --out)
+  --apply                   Update the posted review and its inline comments; without it, print the plan
+  --bot-login <login>       Only match reviews posted by this login
 `;
 
 function splitOwnerRepo(slug: string): { owner: string; repo: string } {
@@ -362,6 +377,7 @@ async function main(): Promise<void> {
       'open-only': { type: 'boolean', default: false },
       interval: { type: 'string' },
       once: { type: 'boolean', default: false },
+      apply: { type: 'boolean', default: false },
       cwd: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -376,6 +392,31 @@ async function main(): Promise<void> {
   const includeList = parseCsvList(values.include);
   const excludeList = parseCsvList(values.exclude);
   const pageList = parseCsvList(values.page);
+
+  if (subcommand === 'rerender') {
+    const dir = positionals[0];
+    if (!dir) throw new Error('civireview rerender requires <saved-review-dir>');
+    const token = await resolveGitHubToken();
+    if (!token)
+      throw new Error(
+        'civireview rerender needs GITHUB_TOKEN of the account that posted the review.',
+      );
+    const octokit = new Octokit({ auth: token }) as unknown as RerenderOctokit;
+    const plan = await planRerender(loadSavedReview(resolve(dir)), octokit, values['bot-login']);
+    console.log(plan.body);
+    console.error(
+      `Review ${plan.reviewId}${plan.reviewUrl ? ` (${plan.reviewUrl})` : ''}: body ${plan.bodyChanged ? 'changes' : 'unchanged'}, ` +
+        `${plan.comments.length} inline comment(s) change, ${plan.unchangedComments} unchanged` +
+        `${plan.inlineMovedToSummary ? '; inline findings stay in the summary as posted' : ''}.`,
+    );
+    if (!values.apply) {
+      console.error('Dry run: nothing written. Pass --apply to update the review.');
+      return;
+    }
+    await applyRerender(plan, octokit);
+    console.error('Updated.');
+    return;
+  }
 
   if (subcommand === 'parse-command') {
     const envName = values['body-env'] ?? 'COMMENT_BODY';

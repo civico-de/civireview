@@ -202,6 +202,15 @@ carries `format=<n>`, the version of its layout, and `trigger_comment=<id>`, whi
 the directory. Reviews of a private repository are not saved, so the directory can be
 published.
 
+`civireview rerender <dir>` renders such a directory in the current layout and prints
+the result; with `--apply` it replaces the posted review's body and its inline
+comments. It finds the posted review by head SHA and trigger comment and the inline
+comments by path, line and side, and stops before writing anything when one of them
+does not match. A review collapsed under a later one is left alone. The update needs
+the token of the account that posted the review, so for the watcher's reviews run
+[`.github/workflows/rerender.yml`](../.github/workflows/rerender.yml) with the watcher
+run's id and the directory name; it prints the new body unless `apply` is ticked.
+
 [`.github/workflows/watch-core.yml`](../.github/workflows/watch-core.yml) runs the
 watcher on a schedule. It uploads the saved reviews of a run as the workflow artifact
 `civireview-reviews-<run id>-<attempt>`, kept for 90 days. It does nothing until the repository variable

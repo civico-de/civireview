@@ -1,0 +1,61 @@
+name: Rerender a saved review
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Watcher run whose artifact holds the saved review
+        required: true
+        type: string
+      review_dir:
+        description: Saved review directory, e.g. civicrm-civicrm-core-38280-7170455709
+        required: true
+        type: string
+      apply:
+        description: Update the posted review; off prints the new body only
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rerender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out civireview
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.5'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download the saved review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          REVIEW_DIR: ${{ inputs.review_dir }}
+        run: |
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -D saved
+          dir=$(find saved -mindepth 2 -maxdepth 2 -type d -name "$REVIEW_DIR" | head -1)
+          if [ -z "$dir" ]; then
+            echo "No directory $REVIEW_DIR in the artifacts of run $RUN_ID." >&2
+            exit 1
+          fi
+          echo "SAVED_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Rerender
+        env:
+          GITHUB_TOKEN: ${{ secrets.CIVIREVIEW_GITHUB_TOKEN }}
+        run: |
+          bun run bin/civireview.ts rerender "$SAVED_DIR" --bot-login civireview \
+            ${{ inputs.apply && '--apply' || '' }}

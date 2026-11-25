@@ -45,6 +45,7 @@ export interface PublisherOctokit {
         data: Array<{
           id: number;
           node_id?: string;
+          html_url?: string;
           body?: string | null;
           user?: { login?: string } | null;
           submitted_at?: string;
@@ -127,13 +128,15 @@ function isHttp422(err: unknown): boolean {
   return false;
 }
 
-function appendFallbackCommentsToSummary(
+export const MOVED_TO_SUMMARY_HEADING = '### Inline Findings (Moved to Summary)';
+
+export function appendFallbackCommentsToSummary(
   summaryBody: string,
   comments: GitHubReviewCommentInput[],
 ): string {
   if (comments.length === 0) return summaryBody;
   const fullBlock =
-    `### Inline Findings (Moved to Summary)\n\n` +
+    `${MOVED_TO_SUMMARY_HEADING}\n\n` +
     comments
       .map((c) => {
         const range = c.start_line ? `${c.start_line}-${c.line}` : `${c.line}`;
@@ -191,7 +194,10 @@ async function addCompletionReaction(
   }
 }
 
-async function getOctokit(injected?: PublisherOctokit, token?: string): Promise<PublisherOctokit> {
+export async function getOctokit(
+  injected?: PublisherOctokit,
+  token?: string,
+): Promise<PublisherOctokit> {
   if (injected) return injected;
   const resolvedToken = await resolveGitHubToken(token);
   if (!resolvedToken) {
@@ -203,7 +209,7 @@ async function getOctokit(injected?: PublisherOctokit, token?: string): Promise<
 }
 
 const COLLAPSED_MARKER = '<!-- civireview:collapsed -->';
-const COLLAPSED_RE = /^<!-- civireview:collapsed -->[ \t\r]*$/m;
+export const COLLAPSED_RE = /^<!-- civireview:collapsed -->[ \t\r]*$/m;
 // Format 1 headers name the score "Confidence:", later ones show it bare.
 const HEADER_RE = /^## CiviReview: (\S+) \*\*([^*\n]+)\*\* · (?:Confidence: )?\*\*([1-5])\/5\*\*/m;
 
@@ -229,7 +235,7 @@ export function collapseReviewBody(oldBody: string, newReviewUrl: string, newDat
  * Collapses the poster's earlier civireview reviews on the PR. Cosmetic step after posting:
  * every failure is logged and never fails the run.
  */
-const UPDATE_REVIEW_MUTATION = `mutation ($id: ID!, $body: String!) {
+export const UPDATE_REVIEW_MUTATION = `mutation ($id: ID!, $body: String!) {
   updatePullRequestReview(input: { pullRequestReviewId: $id, body: $body }) {
     pullRequestReview { id }
   }
