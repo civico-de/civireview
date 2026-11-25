@@ -162,9 +162,6 @@ describe('formatter & publisher', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview(params) {
             createReviewCalls.push(params);
             return { data: { id: 777, html_url: 'https://github.com/test/review/777' } };
@@ -223,9 +220,6 @@ describe('formatter & publisher', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview(params) {
             calls.push({
               commentsCount: params.comments?.length ?? 0,
@@ -270,9 +264,6 @@ describe('formatter & publisher', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -311,9 +302,6 @@ describe('formatter & publisher', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview(params) {
             eventsPosted.push(params.event);
             return { data: { id: 999 } };
@@ -350,9 +338,6 @@ describe('formatter & publisher', () => {
         pulls: {
           async listReviews() {
             return { data: [] };
-          },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
           },
           async createReview(params) {
             calls++;
@@ -411,9 +396,6 @@ function recordingOctokit(failWhen: (call: { event: string; comments: number }) 
       pulls: {
         async listReviews() {
           return { data: [] };
-        },
-        async updateReview() {
-          throw new Error('unexpected updateReview');
         },
         async createReview(params) {
           const call = {

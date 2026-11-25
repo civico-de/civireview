@@ -24,6 +24,21 @@ function collapseOctokit(
   const updates: Array<{ review_id: number; body: string }> = [];
   const calls: string[] = [];
   const octokit: PublisherOctokit = {
+    async graphql(query, variables) {
+      calls.push('graphql');
+      expect(query).toContain('updatePullRequestReview');
+      const reviewId = Number(String(variables.id).replace('PRR_', ''));
+      if (failIds.includes(reviewId)) {
+        throw failResponse
+          ? Object.assign(new Error('Not Found'), {
+              status: failResponse.status,
+              response: failResponse,
+            })
+          : Object.assign(new Error('Server Error'), { status: 500 });
+      }
+      updates.push({ review_id: reviewId, body: String(variables.body) });
+      return {};
+    },
     rest: {
       pulls: {
         async createReview() {
@@ -39,20 +54,7 @@ function collapseOctokit(
         },
         async listReviews() {
           calls.push('listReviews');
-          return { data: reviews };
-        },
-        async updateReview(params) {
-          calls.push('updateReview');
-          if (failIds.includes(params.review_id)) {
-            throw failResponse
-              ? Object.assign(new Error('Not Found'), {
-                  status: failResponse.status,
-                  response: failResponse,
-                })
-              : Object.assign(new Error('Server Error'), { status: 500 });
-          }
-          updates.push({ review_id: params.review_id, body: params.body });
-          return {};
+          return { data: reviews.map((r) => ({ ...r, node_id: `PRR_${r.id}` })) };
         },
         async createReplyForReviewComment() {
           throw new Error('unexpected createReplyForReviewComment');
@@ -191,6 +193,31 @@ describe('collapsing earlier reviews', () => {
     expect(warnings).toEqual([
       'Could not collapse earlier review 1: Error: Not Found (x-oauth-scopes: notifications, public_repo; x-accepted-oauth-scopes: repo)',
       'Could not collapse earlier review 1: Error: Not Found (no scope headers: a fine-grained token or a GitHub App)',
+    ]);
+  });
+
+  test('the update goes through GraphQL by node id, which a non-member token may use', async () => {
+    const { octokit, calls } = collapseOctokit([
+      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
+    ]);
+
+    await publishWith(octokit);
+
+    expect(calls).toEqual(['createReview', 'listReviews', 'graphql']);
+  });
+
+  test('a client without GraphQL says so and leaves earlier reviews alone', async () => {
+    const { octokit, updates } = collapseOctokit([
+      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
+    ]);
+    const warnings: string[] = [];
+
+    const res = await publishWith({ rest: octokit.rest }, warnings);
+
+    expect(res.posted).toBe(true);
+    expect(updates).toEqual([]);
+    expect(warnings).toEqual([
+      'The GitHub client has no GraphQL support; earlier reviews not collapsed.',
     ]);
   });
 

@@ -15,6 +15,8 @@ import {
 } from './formatter.ts';
 
 export interface PublisherOctokit {
+  /** Edits earlier reviews; REST `PUT …/reviews/{id}` answers 404 to a non-member's token. */
+  graphql?(query: string, variables: Record<string, unknown>): Promise<unknown>;
   rest: {
     pulls: {
       createReview(params: {
@@ -42,18 +44,12 @@ export interface PublisherOctokit {
       }): Promise<{
         data: Array<{
           id: number;
+          node_id?: string;
           body?: string | null;
           user?: { login?: string } | null;
           submitted_at?: string;
         }>;
       }>;
-      updateReview(params: {
-        owner: string;
-        repo: string;
-        pull_number: number;
-        review_id: number;
-        body: string;
-      }): Promise<unknown>;
       createReplyForReviewComment(params: {
         owner: string;
         repo: string;
@@ -233,6 +229,12 @@ export function collapseReviewBody(oldBody: string, newReviewUrl: string, newDat
  * Collapses the poster's earlier civireview reviews on the PR. Cosmetic step after posting:
  * every failure is logged and never fails the run.
  */
+const UPDATE_REVIEW_MUTATION = `mutation ($id: ID!, $body: String!) {
+  updatePullRequestReview(input: { pullRequestReviewId: $id, body: $body }) {
+    pullRequestReview { id }
+  }
+}`;
+
 async function collapseEarlierReviews(
   octokit: PublisherOctokit,
   pr: { owner: string; repo: string; prNumber: number },
@@ -271,16 +273,22 @@ async function collapseEarlierReviews(
     );
     return [];
   }
+  const { graphql } = octokit;
+  if (!graphql) {
+    warn('The GitHub client has no GraphQL support; earlier reviews not collapsed.');
+    return [];
+  }
   const date = (posted.submitted_at ?? new Date().toISOString()).slice(0, 10);
   const collapsed: number[] = [];
   for (const r of candidates) {
     if (r.user?.login?.toLowerCase() !== login) continue;
+    if (!r.node_id) {
+      warn(`Could not collapse earlier review ${r.id}: the response has no node_id.`);
+      continue;
+    }
     try {
-      await octokit.rest.pulls.updateReview({
-        owner,
-        repo,
-        pull_number: prNumber,
-        review_id: r.id,
+      await graphql.call(octokit, UPDATE_REVIEW_MUTATION, {
+        id: r.node_id,
         body: collapseReviewBody(r.body ?? '', posted.html_url, date),
       });
       collapsed.push(r.id);

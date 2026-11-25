@@ -88,9 +88,6 @@ describe('github watcher auth, budget & dedup', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -186,9 +183,6 @@ describe('github watcher auth, budget & dedup', () => {
           async listReviews() {
             return { data: [] };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -279,9 +273,6 @@ describe('github watcher auth, budget & dedup', () => {
           },
           async listReviews() {
             return { data: [] };
-          },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
           },
           async createReview() {
             return { data: { id: 1 } };
@@ -424,9 +415,6 @@ describe('github watcher auth, budget & dedup', () => {
               ],
             };
           },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
-          },
           async createReview() {
             return { data: { id: 1 } };
           },
@@ -520,9 +508,6 @@ describe('github watcher auth, budget & dedup', () => {
           },
           async get() {
             return { data: { head: { sha: 'abc1234567890' } } };
-          },
-          async updateReview() {
-            throw new Error('unexpected updateReview');
           },
           async createReview() {
             return { data: { id: 1 } };
