@@ -7,6 +7,7 @@ import {
   fitSectionsToLimit,
   formatReviewMarkdown,
   MAX_GITHUB_BODY_CHARS,
+  REVIEW_FORMAT,
 } from '../src/github/formatter.ts';
 import { formatThreadReplyBody } from '../src/github/thread-reply.ts';
 import {
@@ -224,7 +225,7 @@ describe('formatter & publisher', () => {
       'Reviewed by [civireview](https://github.com/civico-de/civireview) · `cross-model` · 650 tokens',
     );
     expect(formatted.summaryBody).toContain(
-      '<!-- civireview:v1 head_sha=bbbb2222 base_sha=aaaa1111 preset=cross-model score=2/5 -->',
+      `<!-- civireview:v1 head_sha=bbbb2222 base_sha=aaaa1111 preset=cross-model score=2/5 format=${REVIEW_FORMAT} -->`,
     );
   });
 

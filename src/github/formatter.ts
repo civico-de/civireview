@@ -244,6 +244,12 @@ function formatSummaryFinding(f: VerifiedFinding): string {
 }
 
 /**
+ * The version of the review's layout. Raise it when the rendering changes, so reviews
+ * rendered before can be told apart and rendered again from their saved data.
+ */
+export const REVIEW_FORMAT = 1;
+
+/**
  * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
  * and batched inline review comments.
  */
@@ -624,7 +630,7 @@ export function formatReviewMarkdown(
   sections.push(
     `---\n` +
       `<sub>Reviewed by [civireview](https://github.com/civico-de/civireview) · \`${preset}\`${tokenLine}</sub>\n` +
-      `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5${triggerAttr} -->`,
+      `<!-- civireview:v1 head_sha=${review.headSha} base_sha=${review.baseSha} preset=${preset} score=${computedScore.score}/5 format=${REVIEW_FORMAT}${triggerAttr} -->`,
   );
 
   return {

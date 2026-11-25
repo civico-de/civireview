@@ -1,3 +1,4 @@
+import { REVIEW_FORMAT } from '../src/github/formatter.ts';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { BudgetExceededError } from '../src/engine/budget.ts';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -153,6 +154,13 @@ describe('watcher failure handling and state file', () => {
     for (const id of [101, 102]) {
       const saved = JSON.parse(readFileSync(join(outDir, `o-r-7-${id}`, 'review.json'), 'utf8'));
       expect(saved.verdict).toBe('READY');
+      // With its evidence the directory is what `civireview publish` reads, to render it again.
+      const evidence = JSON.parse(
+        readFileSync(join(outDir, `o-r-7-${id}`, 'evidence.json'), 'utf8'),
+      );
+      expect(evidence.pr.headSha).toBe('abc1234');
+      const render = JSON.parse(readFileSync(join(outDir, `o-r-7-${id}`, 'render.json'), 'utf8'));
+      expect(render).toMatchObject({ format: REVIEW_FORMAT, triggerCommentId: id });
     }
   });
 

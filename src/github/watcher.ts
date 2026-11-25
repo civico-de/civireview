@@ -7,6 +7,8 @@ import { resolveModels } from '../config/loader.ts';
 import type { AuthorAssociation, ResolvedCiviReviewConfig } from '../config/schema.ts';
 import { runReviewPipeline, runThreadReply } from '../engine/pipeline.ts';
 import { collectEvidence } from '../evidence/collector.ts';
+import type { EvidenceBundle } from '../evidence/types.ts';
+import { REVIEW_FORMAT, type FormatReviewOptions } from './formatter.ts';
 import {
   extractAllReviewedMarkers,
   resolveGitHubToken,
@@ -237,15 +239,18 @@ async function addEyesReaction(octokit: WatcherOctokit, mention: WatcherMention)
  * Executes a single poll-and-review pass for `civireview watch`.
  */
 /**
- * Writes the full review to `<outDir>/<owner>-<repo>-<pr>-<commentId>/review.json`.
+ * Writes the review, its evidence and the options it is rendered with to
+ * `<outDir>/<owner>-<repo>-<pr>-<commentId>/`: `review.json`, `evidence.json`, `render.json`.
  * Only for a repository known to be public: the directory may be published.
  */
 function saveReviewJson(
   options: Pick<WatcherOptions, 'outDir' | 'logger'>,
   mention: WatcherMention,
   review: unknown,
-  isPrivateRepo: boolean | undefined,
+  bundle: EvidenceBundle,
+  render: FormatReviewOptions & { format: number },
 ): void {
+  const isPrivateRepo = bundle.pr.isPrivateRepo;
   if (!options.outDir) return;
   if (isPrivateRepo !== false) {
     options.logger?.info(
@@ -259,6 +264,8 @@ function saveReviewJson(
   );
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'review.json'), JSON.stringify(review, null, 2), 'utf8');
+  writeFileSync(join(dir, 'evidence.json'), JSON.stringify(bundle, null, 2), 'utf8');
+  writeFileSync(join(dir, 'render.json'), JSON.stringify(render, null, 2), 'utf8');
 }
 
 export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPassResult> {
@@ -672,7 +679,13 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
               usage,
             });
             estimatedUsd = review.tokenUsage?.estimatedUsd;
-            saveReviewJson(options, mention, review, bundle.pr.isPrivateRepo);
+            saveReviewJson(options, mention, review, bundle, {
+              format: REVIEW_FORMAT,
+              preset: effectiveConfig.preset,
+              maxInlineComments: effectiveConfig.review.maxInlineComments,
+              triggerCommentId: mention.commentId,
+              mentionUsers: effectiveConfig.review.mentionUsers,
+            });
 
             const published = await publishReviewFn({
               owner: mention.owner,
