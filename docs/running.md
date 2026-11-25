@@ -191,8 +191,10 @@ Limits of the watcher:
 With `--out <dir>` every finished review is also saved as
 `<dir>/<owner>-<repo>-<pr>-<comment id>/review.json`, before it is posted. The file
 holds the whole review including the candidates the verifier rejected, which the
-posted comment and the log only summarise. Reviews of a private repository are not
-saved, so the directory can be published.
+posted comment and the log only summarise. For a public PR, linked issues of private
+repositories and confidential lab.civicrm.org issues are never read, so none of their
+text reaches the review. Reviews of a private repository are not saved, so the
+directory can be published.
 
 [`.github/workflows/watch-core.yml`](../.github/workflows/watch-core.yml) runs the
 watcher on a schedule. It uploads the saved reviews of a run as the workflow artifact

@@ -196,11 +196,13 @@ export function parseGitLabIssueRefs(text: string): GitLabIssueRef[] {
 
 /**
  * Fetches a public (or token-accessible) issue and its human discussion notes
- * from CiviCRM's GitLab instance (`https://lab.civicrm.org`).
+ * from CiviCRM's GitLab instance (`https://lab.civicrm.org`). `anonymous` leaves
+ * the token out, so a public PR's review never reads a confidential issue.
  */
 export async function fetchGitLabIssue(
   ref: GitLabIssueRef,
   fetchImpl: typeof fetch = fetch,
+  anonymous = false,
 ): Promise<LinkedIssue | null> {
   if (!SAFE_GITLAB_PROJECT_RE.test(ref.projectPath) || ref.iid <= 0) {
     return null;
@@ -213,7 +215,9 @@ export async function fetchGitLabIssue(
     // lab.civicrm.org's WAF rejects unrecognized user agents without "curl"
     'User-Agent': 'civireview/0.1 (like curl)',
   };
-  const glToken = process.env.CIVICRM_GITLAB_TOKEN || process.env.GITLAB_TOKEN;
+  const glToken = anonymous
+    ? undefined
+    : process.env.CIVICRM_GITLAB_TOKEN || process.env.GITLAB_TOKEN;
   if (glToken) {
     headers['PRIVATE-TOKEN'] = glToken;
   }
@@ -377,6 +381,7 @@ export async function fetchGitLabIssues(
     mcpScope?: McpScopeResult;
     connectMcp?: (scope: McpScopeResult) => Promise<ConnectedMcpHandle>;
     fetchImpl?: typeof fetch;
+    anonymous?: boolean;
   } = {},
 ): Promise<LinkedIssue[]> {
   if (refs.length === 0) return [];
@@ -462,7 +467,7 @@ export async function fetchGitLabIssues(
 
       // 3. Direct lab.civicrm.org REST v4 fallback (e.g. brand-new unarchived issue or MCP offline)
       if (!resolved) {
-        resolved = await fetchGitLabIssue(ref, options.fetchImpl);
+        resolved = await fetchGitLabIssue(ref, options.fetchImpl, options.anonymous);
       }
 
       if (resolved) {
@@ -659,9 +664,21 @@ export async function fetchGitHubPrContext(
   const linkedRefs = parseIssueRefs(issueSearchCorpus, `${owner}/${repo}`);
   const linkedGitLabRefs = parseGitLabIssueRefs(issueSearchCorpus);
   const linkedIssues: LinkedIssue[] = [];
+  // A public PR's evidence is published: issues of private repositories stay out of it.
+  const privateRepos = new Map<string, boolean>();
+  const isPrivate = async (o: string, r: string): Promise<boolean> => {
+    const key = `${o}/${r}`.toLowerCase();
+    if (key === `${owner}/${repo}`.toLowerCase()) return Boolean(repoData.private);
+    if (!privateRepos.has(key)) {
+      const { data } = await octokit.repos.get({ owner: o, repo: r });
+      privateRepos.set(key, Boolean(data.private));
+    }
+    return privateRepos.get(key)!;
+  };
 
   for (const ref of linkedRefs) {
     try {
+      if (!repoData.private && (await isPrivate(ref.owner, ref.repo))) continue;
       const { data: issue } = await octokit.issues.get({
         owner: ref.owner,
         repo: ref.repo,
@@ -713,7 +730,10 @@ export async function fetchGitHubPrContext(
           config: options.config,
         })
       : undefined;
-    const glResults = await fetchGitLabIssues(linkedGitLabRefs, { mcpScope });
+    const glResults = await fetchGitLabIssues(linkedGitLabRefs, {
+      mcpScope,
+      anonymous: !repoData.private,
+    });
     linkedIssues.push(...glResults);
   }
 

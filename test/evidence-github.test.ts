@@ -16,6 +16,8 @@ interface FakeOptions {
   reviews?: Array<{ id: number; body: string; state: string; submitted_at: string }>;
   compareStatus?: 'ahead' | 'diverged';
   checkRuns?: Array<{ name: string; status: string; conclusion: string | null }>;
+  prBody?: string;
+  privateRepos?: string[];
 }
 
 function makeFakeOctokit(opts: FakeOptions = {}) {
@@ -23,8 +25,11 @@ function makeFakeOctokit(opts: FakeOptions = {}) {
   const user = { login: 'someone' };
   const fake = {
     repos: {
-      async get() {
-        return { data: { private: false } };
+      async get(params: { owner: string; repo: string }) {
+        calls.push(`repo:${params.owner}/${params.repo}`);
+        return {
+          data: { private: (opts.privateRepos ?? []).includes(`${params.owner}/${params.repo}`) },
+        };
       },
       async compareCommitsWithBasehead(params: { mediaType?: unknown }) {
         calls.push(params.mediaType ? 'compare:diff' : 'compare:meta');
@@ -45,7 +50,7 @@ function makeFakeOctokit(opts: FakeOptions = {}) {
         return {
           data: {
             title: 'Fix it',
-            body: 'Fixes #12',
+            body: opts.prBody ?? 'Fixes #12',
             user,
             base: { ref: 'master', sha: BASE },
             head: { ref: 'fix', sha: HEAD },
@@ -74,10 +79,10 @@ function makeFakeOctokit(opts: FakeOptions = {}) {
         calls.push(`issueComments:page${page}`);
         return { data: all.slice(start, start + 100).map((c) => ({ ...c, user })) };
       },
-      async get() {
+      async get(params: { issue_number: number }) {
         return {
           data: {
-            number: 12,
+            number: params.issue_number,
             title: 'Linked',
             body: 'b',
             state: 'open',
@@ -183,6 +188,22 @@ describe('fetchGitHubPrContext', () => {
       isPrivateRepo: false,
     });
     expect(ctx.linkedIssues.map((i) => i.number)).toEqual([12]);
+  });
+
+  test("a public PR's linked issues of a private repository stay out of its evidence", async () => {
+    const { octokit, calls } = makeFakeOctokit({
+      prBody: 'Fixes #12\nFixes acme/secret#5\nFixes acme/open#6',
+      privateRepos: ['acme/secret'],
+    });
+
+    const ctx = await fetchContext(octokit);
+
+    expect(ctx.linkedIssues.map((i) => `${i.repo}#${i.number}`)).toEqual(['o/r#12', 'acme/open#6']);
+    // The PR's own repository is known public; each other repository is asked once.
+    expect(calls.filter((c) => c.startsWith('repo:acme/'))).toEqual([
+      'repo:acme/secret',
+      'repo:acme/open',
+    ]);
   });
 });
 

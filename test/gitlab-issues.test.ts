@@ -40,6 +40,29 @@ describe('GitLab (lab.civicrm.org) & GitHub linked issue extraction', () => {
     ]);
   });
 
+  test('fetchGitLabIssue leaves the token out for a public PR', async () => {
+    const sent: Array<string | null> = [];
+    const mockFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('PRIVATE-TOKEN'));
+      return new Response(
+        JSON.stringify({ iid: 1, title: 't', description: '', state: 'opened', web_url: 'u' }),
+        {
+          status: 200,
+        },
+      );
+    }) as unknown as typeof fetch;
+    const saved = process.env.GITLAB_TOKEN;
+    process.env.GITLAB_TOKEN = 'lab-token';
+    try {
+      await fetchGitLabIssue({ projectPath: 'dev/core', iid: 1 }, mockFetch);
+      await fetchGitLabIssue({ projectPath: 'dev/core', iid: 1 }, mockFetch, true);
+    } finally {
+      if (saved === undefined) delete process.env.GITLAB_TOKEN;
+      else process.env.GITLAB_TOKEN = saved;
+    }
+    expect(sent).toEqual(['lab-token', 'lab-token', null, null]);
+  });
+
   test('fetchGitLabIssue retrieves issue metadata and filters out system notes', async () => {
     const calls: string[] = [];
     const mockFetch = (async (url: string | URL | Request) => {
