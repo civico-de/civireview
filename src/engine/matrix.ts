@@ -11,7 +11,8 @@ import type {
   VerificationMatrixEntry,
   VerifiedFinding,
 } from './schemas.ts';
-import { unverifiedRuntimeChecks } from './findings.ts';
+import { cmsScope } from '../evidence/cms-scope.ts';
+import { CMS_CHECK, unverifiedRuntimeChecks } from './findings.ts';
 
 export const CANONICAL_STANDARD_CODES = new Set<string>([
   'r-explain',
@@ -478,7 +479,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
           check: 'Browser A/B (Standalone)',
           status: 'NOT_VERIFIED',
           detail:
-            'Only the dashboard was probed as a smoke test (0 regressions); no route of the changed UI was found. Name one with `--page <route>`.',
+            'Only the dashboard or a route named on an unchanged line was probed as a smoke test (0 regressions); no route of the change was found. Name one with `--page <route>`.',
         });
       } else {
         matrix.push({
@@ -504,11 +505,54 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
     });
   }
 
+  // 8. CMS integrations: their code runs on no Standalone stack.
+  // Only core PRs can be recorded on a CMS; elsewhere the row could never get a result.
+  const scope = cmsScope(isCore ? bundle.diffFiles : []);
+  const demos = bundle.abReport.cmsDemos;
+  const cmsNotes: string[] = [];
+  if (scope.labels.length > 0 || demos.length > 0) {
+    const ran = new Set(demos.filter((d) => d.status !== 'NOT_VERIFIED').map((d) => d.cms));
+    const unrun = scope.hits.filter((h) => !h.cms || !ran.has(h.cms)).map((h) => h.label);
+    if (unrun.length > 0) {
+      cmsNotes.push(
+        `${unrun.join(', ')} code did not run (${scope.files.slice(0, 5).join(', ')}): the other checks ran on Standalone.`,
+      );
+    }
+    matrix.push({
+      check: CMS_CHECK,
+      // A CMS the configuration adds decides nothing when the changed integrations ran.
+      status: demos.some((d) => d.status === 'FAIL')
+        ? 'FAIL'
+        : unrun.length > 0 || (scope.labels.length === 0 && !demos.some((d) => d.status === 'PASS'))
+          ? 'NOT_VERIFIED'
+          : 'PASS',
+      detail: [...demos.map((d) => d.detail), ...cmsNotes].join(' '),
+      ...(scope.onlyCms ? { coversWholeChange: true } : {}),
+      ...(scope.labels.length > 0 ? { cmsCodeChanged: true } : {}),
+    });
+  }
+  // A Standalone page load says nothing about a change to another CMS's integration alone.
+  const rows = scope.onlyCms
+    ? matrix.map((row) =>
+        row.check === 'Browser A/B (Standalone)' && row.status === 'PASS'
+          ? {
+              ...row,
+              status: 'SKIPPED' as const,
+              detail: `Does not apply: the changed code is ${scope.labels.join(', ')} only and does not run on Standalone.`,
+            }
+          : row,
+      )
+    : matrix;
+
   const notVerified = Array.from(
-    new Set([...bundle.notVerified, ...bundle.abReport.surfaceDiff.unverifiedSurfaces]),
+    new Set([
+      ...bundle.notVerified,
+      ...bundle.abReport.surfaceDiff.unverifiedSurfaces,
+      ...cmsNotes,
+    ]),
   );
 
-  return { verificationMatrix: matrix, notVerified };
+  return { verificationMatrix: rows, notVerified };
 }
 
 /**
@@ -713,6 +757,10 @@ export function computeConfidenceScore(params: {
   if (demo?.status === 'FAIL') {
     capAt(2, 'Interactive demo reported runtime errors');
   }
+  const cms = byCheck.get(CMS_CHECK);
+  if (cms?.status === 'FAIL') {
+    capAt(2, 'the change fails on a CMS other than Standalone');
+  }
 
   if (proof?.status === 'FAIL') {
     if (/regression/i.test(proof.detail)) {
@@ -752,6 +800,10 @@ export function computeConfidenceScore(params: {
   const unverified = unverifiedRuntimeChecks(verificationMatrix, prKind);
   if (unverified.length > 0) {
     capAt(3, `not verified at runtime (${unverified.join(', ')} gave no result)`);
+  } else if (cms?.status === 'NOT_VERIFIED' && cms.cmsCodeChanged) {
+    capAt(4, 'CMS-specific code did not run on its CMS');
+  } else if (cms?.status === 'PASS' && cms.cmsCodeChanged) {
+    capAt(4, 'CMS-specific code ran as a login and page loads only');
   } else if (!isLowRiskKind && !ranTests(proof) && !ranTests(baseReg)) {
     capAt(4, 'no A/B test ran');
   }

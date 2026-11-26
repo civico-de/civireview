@@ -18,6 +18,7 @@ import {
   type AbCheckResult,
   type AbRunReport,
   type BrowserDiffReport,
+  type CmsDemoResult,
   type DiffFile,
   type RepoInfo,
   type StaticDeltaFinding,
@@ -42,6 +43,8 @@ import {
   collectBaseDriftSinceImage,
   resolveAvailableCivikitchenImage,
 } from './ab/image-drift.ts';
+import { defaultExec } from './ab/exec.ts';
+import { runCmsDemosForDiff } from './ab/cms-demo.ts';
 import { checkoutPrMerge } from './ab/merge-ref.ts';
 import { runStandaloneBrowserAb, runStaticAndLifecycleChecks } from './ab/static-browser.ts';
 import { computeSurfaceDiff, mergeLiveSurfaceDiff } from './ab/surface-diff.ts';
@@ -69,57 +72,6 @@ export {
   type ParsedCkAbJsonReport,
   type RunCommandResult,
 };
-
-async function defaultExec(
-  args: string[],
-  opts: {
-    cwd?: string;
-    env?: Record<string, string | undefined>;
-    timeoutMs?: number;
-  } = {},
-): Promise<RunCommandResult> {
-  const [cmd, ...rest] = args;
-  if (!cmd) {
-    return { exitCode: 2, stdout: '', stderr: 'empty command' };
-  }
-  const startMs = Date.now();
-  const proc = Bun.spawn([cmd, ...rest], {
-    cwd: opts.cwd,
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  let timedOut = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  if (opts.timeoutMs && opts.timeoutMs > 0) {
-    timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        proc.kill();
-      } catch {
-        // ignore kill error
-      }
-    }, opts.timeoutMs);
-  }
-
-  try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return {
-      exitCode,
-      stdout,
-      stderr,
-      timedOut,
-      durationMs: Date.now() - startMs,
-    };
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 /**
  * Resolves the `ck` launcher command prefix (`[cmd, ...baseArgs]`).
@@ -246,57 +198,37 @@ export async function runCiviKitchenAb(
     summary: 'Static delta check did not run.',
   };
 
+  // The outcome of a run that stops before any stack boots.
+  const notRun = (): CiviKitchenAbOutcome => ({
+    abReport: {
+      executed: false,
+      imageA,
+      imageB,
+      checks: [],
+      surfaceDiff,
+      demoConsoleErrors: [],
+      cmsDemos: [],
+      notVerified,
+    },
+    staticDelta: emptyStatic,
+    cleanup: noopCleanup,
+  });
+
   if (!abConfig.enabled) {
     notVerified.push('CiviKitchen A/B verification disabled by config (--no-ab).');
-    return {
-      abReport: {
-        executed: false,
-        imageA,
-        imageB,
-        checks: [],
-        surfaceDiff,
-        demoConsoleErrors: [],
-        notVerified,
-      },
-      staticDelta: emptyStatic,
-      cleanup: noopCleanup,
-    };
+    return notRun();
   }
 
   const dockerInfo = await execFn(['docker', 'info'], { timeoutMs: 10_000 });
   if (dockerInfo.exitCode !== 0) {
     notVerified.push('Docker daemon unavailable; live CiviKitchen A/B execution skipped.');
-    return {
-      abReport: {
-        executed: false,
-        imageA,
-        imageB,
-        checks: [],
-        surfaceDiff,
-        demoConsoleErrors: [],
-        notVerified,
-      },
-      staticDelta: emptyStatic,
-      cleanup: noopCleanup,
-    };
+    return notRun();
   }
 
   const ck = await resolveCkCommand(abConfig, execFn);
   if (!ck) {
     notVerified.push('ck CLI not found and Docker unavailable; live A/B checks skipped.');
-    return {
-      abReport: {
-        executed: false,
-        imageA,
-        imageB,
-        checks: [],
-        surfaceDiff,
-        demoConsoleErrors: [],
-        notVerified,
-      },
-      staticDelta: emptyStatic,
-      cleanup: noopCleanup,
-    };
+    return notRun();
   }
 
   const resolvedImg = await resolveAvailableCivikitchenImage(
@@ -310,19 +242,7 @@ export async function runCiviKitchenAb(
     notVerified.push(
       `CiviKitchen image ${civikitchenImageRef(resolvedImg.tag)} is not published; live A/B checks skipped.`,
     );
-    return {
-      abReport: {
-        executed: false,
-        imageA,
-        imageB,
-        checks: [],
-        surfaceDiff,
-        demoConsoleErrors: [],
-        notVerified,
-      },
-      staticDelta: emptyStatic,
-      cleanup: noopCleanup,
-    };
+    return notRun();
   }
   if (resolvedImg.fallbackFrom) {
     notVerified.push(
@@ -347,6 +267,7 @@ export async function runCiviKitchenAb(
   const toolsRun: string[] = [];
   let demoArtifactsDir: string | undefined;
   const demoConsoleErrors: string[] = [];
+  const cmsDemos: CmsDemoResult[] = [];
   let browserDiff: BrowserDiffReport | undefined;
   let keptUrls: { A?: string; B?: string } | undefined;
   let keptComposeFiles: { A?: string; B?: string } | undefined;
@@ -410,6 +331,7 @@ export async function runCiviKitchenAb(
           checks: [],
           surfaceDiff,
           demoConsoleErrors,
+          cmsDemos,
           notVerified,
         },
         staticDelta: emptyStatic,
@@ -787,7 +709,7 @@ export async function runCiviKitchenAb(
       if (abConfig.runDemo && uiTouched) {
         const demoOut = join(outRoot, 'demo');
         mkdirSync(demoOut, { recursive: true });
-        const diffRes = await execFn(['git', '-C', repoRoot, 'diff', baseSha, headSha], {
+        const diffRes = await execFn(['git', '-C', repoRoot, 'diff', `${baseSha}...${headSha}`], {
           timeoutMs: 30_000,
         });
         const patchFile = join(workDir, 'pr.patch');
@@ -801,6 +723,23 @@ export async function runCiviKitchenAb(
         } else {
           notVerified.push(`ck demo exited with ${demoRes.exitCode}`);
         }
+      }
+
+      if (isCheckEnabled(effectiveCfg, 'cms-browser')) {
+        cmsDemos.push(
+          ...(await runCmsDemosForDiff({
+            execFn,
+            ckCommand: ck.command,
+            repoRoot,
+            baseSha,
+            headSha,
+            workDir,
+            outRoot,
+            diffFiles,
+            browserConfig,
+            notVerified,
+          })),
+        );
       }
     } else if (repoInfo.kind === 'civicrm-extension') {
       const extName = repoInfo.extensionName ?? 'myext';
@@ -978,6 +917,7 @@ export async function runCiviKitchenAb(
       ...(browserDiff ? { browserDiff } : {}),
       demoArtifactsDir,
       demoConsoleErrors,
+      cmsDemos,
       notVerified: Array.from(new Set([...notVerified, ...surfaceDiff.unverifiedSurfaces])),
       ...(testedMerge ? { testedMerge } : {}),
       ...(isCheckEnabled(effectiveCfg, 'ab-tests') ? {} : { testsOff: true }),

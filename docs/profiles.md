@@ -64,7 +64,9 @@ belong to the changed classes. Browser-driven end-to-end tests are not run.
   `xml/schema` or an entity definition does not exist in the database of either side, so
   tests that need it fail on both.
 - Composer changes. `vendor/` is the image's.
-- Other CMS integrations. Everything runs on Standalone.
+- Other CMS integrations, apart from a login and page loads on the CMS whose files the
+  PR changes ([reading-a-review.md](reading-a-review.md#empirical-verification-matrix)).
+  Tests and the other checks run on Standalone.
 
 Each of these appears under *Not verified* when the PR touches the corresponding files.
 

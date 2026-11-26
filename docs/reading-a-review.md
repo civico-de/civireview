@@ -21,7 +21,8 @@ To address (2)
 ```
 
 The first line holds verdict and merge confidence, the second what the PR changes and
-what the A/B run proved. *To address* lists every posted finding (severity, location,
+what the A/B run proved. *To address* lists every condition the PR description states
+for merging (a release, a date, another PR), every posted finding (severity, location,
 title), every failed check, every conflicting or duplicate PR and every open reviewer
 thread, one checkbox each. The checks line has one icon per check that applies
 (✅ pass, ⚠️ warning, ❌ failed, ❔ not verified); the details are in *Verification*.
@@ -46,9 +47,9 @@ up to three reasons, the deciding one first.
 | Cap | Reason |
 | --- | --- |
 | 1 | a confirmed critical finding; two or more confirmed high findings |
-| 2 | one confirmed high finding; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
+| 2 | one confirmed high finding; the change fails on a CMS other than Standalone; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
 | 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed; not verified at runtime (the Questions Only case above) |
-| 4 | any other finding; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
+| 4 | any other finding; code of a CMS integration that did not run on its CMS, or ran there only as a login and page loads; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
 
 A test that civireview leaves out without a check of its own (an extension's browser
 tests with the browser check switched off) only shows under *Not verified*; the review
@@ -108,15 +109,31 @@ One row per deterministic check from the evidence layer.
 | Static / Taint Delta | the extension gates ran and found nothing new on the head |
 | Browser A/B (Standalone) | the listed routes load on both sides without new errors, failed requests, a11y violations or render differences |
 | Demo | the recording with the PR logged no script error the base recording lacks (opt-in) |
+| CMS Browser A/B | on each CMS whose integration the PR changes, a login, the dashboard and the contact search work without and with the change, and the change logs no new script error; it fails when a page that loads on the base shows no CiviCRM with the change |
 | Reviewer Thread | questions of human reviewers in the PR are answered by the current head |
 
 A row is absent when the check does not apply to the profile.
 
 **Browser A/B and the dashboard.** If no route of the changed screen could be found,
-only the dashboard is loaded. A clean result is then `NOT_VERIFIED` with a hint to name
+only the dashboard is loaded, or a route the diff names on an unchanged line. A clean result is then `NOT_VERIFIED` with a hint to name
 a route (`@civireview --page civicrm/…`). A regression on the dashboard still fails.
 A `PASS` always lists the routes it covers under *Standalone browser A/B* in
 *Verification*; the browser loads pages and does not operate forms.
+
+**Code of one CMS integration.** Files named after a CMS (`CRM/Utils/System/Joomla.php`,
+`css/wordpress.css`) do not run on Standalone. civireview records the PR on that CMS
+with `ck demo --cms`; the CMS images carry the latest CiviCRM release, so a PR that does
+not apply to it gives `NOT_VERIFIED` with that reason. When the PR changes nothing but
+such files and no run on the CMS gave a result, the review is Questions Only with a
+confidence of at most 3, and the Standalone browser row is left out. When it also
+changes shared code, the confidence is at most 4. A clean run on the CMS is a login and
+page loads; it does not reach an installer or a user sync, so the confidence stays at
+most 4 then too.
+
+**Outside this review.** *Verification* ends with what no check looks at: other CMS than
+those named, other viewports than 1280×800, whether the approach suits the project, and
+when to merge. A merge condition from the PR description is repeated under *To address*
+and does not change verdict or confidence.
 
 ## Not verified
 

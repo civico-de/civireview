@@ -172,10 +172,20 @@ export const BrowserDiffReportSchema = z.object({
     .optional(),
   probedRoutes: z.array(z.string()).default([]),
   probedAnonymousRoutes: z.array(z.string()).default([]),
-  // True when only the dashboard fallback was probed, not a route of the changed UI.
+  // True when only the dashboard fallback or routes on unchanged diff lines were probed.
   smokeOnly: z.boolean().optional(),
 });
 export type BrowserDiffReport = z.infer<typeof BrowserDiffReportSchema>;
+
+/** One `ck demo` run of the PR on a CMS other than Standalone. */
+export const CmsDemoResultSchema = z.object({
+  cms: z.string(),
+  status: z.enum(['PASS', 'FAIL', 'NOT_VERIFIED']),
+  detail: z.string(),
+  routes: z.array(z.string()).default([]),
+  newScriptErrors: z.array(z.string()).default([]),
+});
+export type CmsDemoResult = z.infer<typeof CmsDemoResultSchema>;
 
 export const AbRunReportSchema = z.object({
   executed: z.boolean(),
@@ -187,6 +197,7 @@ export const AbRunReportSchema = z.object({
   browserDiff: BrowserDiffReportSchema.optional(),
   demoArtifactsDir: z.string().optional(),
   demoConsoleErrors: z.array(z.string()).default([]),
+  cmsDemos: z.array(CmsDemoResultSchema).default([]),
   notVerified: z.array(z.string()),
   /** Set when the configuration switched the A/B tests (proof of fix, base tests) off. */
   testsOff: z.boolean().optional(),

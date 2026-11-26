@@ -161,6 +161,7 @@ describe('GitLab (lab.civicrm.org) & GitHub linked issue extraction', () => {
           summary: 'None',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
       staticDelta: {

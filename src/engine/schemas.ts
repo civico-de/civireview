@@ -70,6 +70,8 @@ export const TriageOutputSchema = z.object({
   relatedItems: z.array(RelatedItemSchema).max(6).optional(),
   ciFailureAssessment: CiFailureAssessmentSchema.optional(),
   ciFailureReason: z.string().max(300).optional(),
+  // Conditions the PR's author states for merging it (a release, a date, another PR).
+  mergeConditions: z.array(z.string().min(1).max(240)).max(3).optional(),
   skipReason: z.string().optional(),
 });
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;
@@ -142,6 +144,10 @@ export const VerificationMatrixEntrySchema = z.object({
   check: z.string().min(1),
   status: VerificationStatusSchema,
   detail: z.string(),
+  // True when no other check can have run the changed code (a change to one CMS integration only).
+  coversWholeChange: z.boolean().optional(),
+  // True when the PR changes code of a CMS integration, which a login and page loads only partly reach.
+  cmsCodeChanged: z.boolean().optional(),
 });
 export type VerificationMatrixEntry = z.infer<typeof VerificationMatrixEntrySchema>;
 
@@ -196,6 +202,7 @@ export const FinalReviewSchema = z.object({
   score: ConfidenceScoreSchema.optional(),
   scoreRationale: z.string().optional(),
   shortSummary: z.string().optional(),
+  mergeConditions: z.array(z.string()).optional(),
   walkthrough: z.array(z.string()),
   verificationMatrix: z.array(VerificationMatrixEntrySchema),
   notVerified: z.array(z.string()),

@@ -1,3 +1,4 @@
+import { standaloneRan } from '../engine/findings.ts';
 import { mapFindingsToDiff, type MappedInlineFinding } from '../engine/line-mapper.ts';
 import { buildShortSummary, computeConfidenceScore } from '../engine/pipeline.ts';
 import { formatUsd } from '../runners/pricing.ts';
@@ -9,6 +10,7 @@ import type {
   VerificationStatus,
   VerifiedFinding,
 } from '../engine/schemas.ts';
+import { cmsLabel } from '../evidence/cms-scope.ts';
 import { reviewProfile } from '../evidence/repo-detect.ts';
 import type { EvidenceBundle } from '../evidence/types.ts';
 
@@ -288,6 +290,12 @@ function truncateOneLine(text: string, maxLen = 140): string {
 function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   const items: string[] = [];
 
+  for (const condition of review.mergeConditions ?? []) {
+    items.push(
+      `- [ ] **Merge condition** (from the PR description): ${truncateOneLine(condition, 240)}`,
+    );
+  }
+
   for (const f of review.findings) {
     const question = f.verdict === 'NEEDS_QUESTION' ? ' · question' : '';
     items.push(
@@ -342,6 +350,7 @@ const CHECK_LABELS: Record<string, string> = {
   'Static / Taint Delta': 'Taint',
   'Browser A/B (Standalone)': 'Browser',
   'Reviewer Thread': 'Threads',
+  'CMS Browser A/B': 'CMS',
   Demo: 'Demo',
 };
 
@@ -481,6 +490,18 @@ export function formatReviewMarkdown(
     verification.push(
       '',
       `**Not verified:**\n${review.notVerified.map((item) => `- ${item}`).join('\n')}`,
+    );
+  }
+  if (bundle.repoInfo.kind === 'civicrm-core' || bundle.repoInfo.kind === 'civicrm-extension') {
+    const cmsRan = bundle.abReport.cmsDemos
+      .filter((d) => d.status !== 'NOT_VERIFIED')
+      .map((d) => cmsLabel(d.cms));
+    const ran = [...(standaloneRan(review.verificationMatrix) ? ['Standalone'] : []), ...cmsRan];
+    const otherCms =
+      ran.length > 0 ? `any CMS other than ${ran.join(', ')}` : 'behaviour on a running site';
+    verification.push(
+      '',
+      `**Outside this review:** ${otherCms}; viewports other than 1280×800; whether the approach is right for the project; when to merge. Ready means no technical issue was found in what was checked.`,
     );
   }
   const bd = bundle.abReport.browserDiff;

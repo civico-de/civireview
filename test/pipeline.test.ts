@@ -458,6 +458,7 @@ describe('review pipeline', () => {
           probedAnonymousRoutes: [],
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
     });

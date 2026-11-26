@@ -76,6 +76,7 @@ derives it per stage from the depth and, at `balanced`, from the risk of the PR.
 | `staticDelta` | `static-delta` | on | taint delta |
 | `lifecycle` | `lifecycle` | on | lifecycle and upgrade parity |
 | `browser` | `browser` | on | browser A/B |
+| `cmsBrowser` | `cms-browser` | on | core PRs: record the PR on each CMS whose integration it changes |
 | `a11y` | `a11y` | on | accessibility scan within the browser A/B |
 | `interactiveBrowser` | `interactive-browser` | off | browser the `ui` lens and the verifier can drive |
 | `liveProve` | `live-prove` | on | keeps both instances running so the specialists and the verifier can run commands in them |
@@ -104,6 +105,7 @@ do not get it.
 | `browser.pages` | none | routes always probed as a logged-in user |
 | `browser.anonymousPages` | none | routes probed without a login |
 | `browser.maxAutoPages` | 5 | limit for discovered routes |
+| `browser.cms` | none | CMS recorded for every core PR besides those its files belong to: `joomla`, `wordpress`, `drupal10`, `backdrop`; a review boots two at most |
 | `browser.sendScreenshotsToLlm` | on | hand the screenshots to the `ui` lens and the verifier |
 
 For a repository whose main screens are known, list them in `browser.pages`; route

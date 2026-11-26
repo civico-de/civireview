@@ -259,6 +259,7 @@ describe('related open PRs & GitLab issue discovery', () => {
           summary: 'No surface changes.',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
       staticDelta: { executed: false, toolsRun: [], findings: [], summary: 'Skipped' },

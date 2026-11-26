@@ -36,6 +36,9 @@ CLASSIFICATION RULES:
   - NEVER classify a PR targeting a DIFFERENT base branch (e.g. \`6.20\` vs \`6.21\` vs \`master\` release-branch backports) as \`duplicate\` or \`conflicts\` — omit routine same-author multi-branch backports.
   - Assign a calibrated \`confidence\` (0–100) and ONLY include items with \`confidence >= 60\`. Give a concise 1-sentence \`reason\` citing overlapping files or shared behavior.
   - NEVER invent PR numbers, GitLab refs, or URLs not present in the evidence; return \`[]\` if none are genuinely relevant.
+- mergeConditions (optional, default \`[]\`): conditions the PR title or body itself states for merging — a hold until a release or date ("do not merge before 6.23"), another PR or issue that must land first, "WIP" / "do not merge", a decision the author is waiting for.
+  - One short sentence each, keeping the author's version numbers, dates and PR references. At most 3.
+  - ONLY what the title or body states. Do not derive conditions from the diff, from comments, or from your own judgement; return \`[]\` if the author states none.
 - ciFailureAssessment & ciFailureReason (ONLY when CI / Jenkins Status reports a failure):
   - Inspect \`Failed tests\` and \`Jenkins failure details\` against the PR diff and A/B test results.
   - Set \`ciFailureAssessment: 'related'\` if a failing test, stack trace, or \`CiviCRM-Style\` file is touched by or causally linked to the PR.

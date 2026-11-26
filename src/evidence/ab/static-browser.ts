@@ -427,7 +427,13 @@ export async function runStandaloneBrowserAb(
         ),
         config: { browser: ctx.browserConfig },
       })
-    : { pages: [], anonymousPages: [], reason: 'browser check disabled', usedFallback: false };
+    : {
+        pages: [],
+        anonymousPages: [],
+        reason: 'browser check disabled',
+        usedFallback: false,
+        contextOnly: false,
+      };
   // Bundled extensions ship disabled in the image; their pages exist only once enabled.
   const bundledKeys = ctx.repoInfo.kind === 'civicrm-core' ? targets.map((t) => t.key) : [];
   const setupCommand = bundledKeys.length > 0 ? ['cv', 'ext:enable', ...bundledKeys] : ['true'];
@@ -643,7 +649,7 @@ export async function runStandaloneBrowserAb(
           ? browserDiff.probedAnonymousRoutes
           : routes.anonymousPages,
       screenshots: copiedScreenshots,
-      ...(routes.usedFallback ? { smokeOnly: true } : {}),
+      ...(routes.usedFallback || routes.contextOnly ? { smokeOnly: true } : {}),
       ...(keptUrls ? { urls: keptUrls } : {}),
     };
   }

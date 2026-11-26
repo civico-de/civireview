@@ -54,6 +54,7 @@ export function makeSampleBundle(): EvidenceBundle {
         summary: 'No surface changes.',
       },
       demoConsoleErrors: [],
+      cmsDemos: [],
       notVerified: ['Upgrade step not run'],
     },
     staticDelta: {

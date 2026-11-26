@@ -417,6 +417,7 @@ async function executeReviewPipeline(
   const triage = triageResult.output;
   verificationMatrix = reconcileMatrixForTriage(verificationMatrix, triage);
   const relatedItems = filterGroundedRelatedItems(triage.relatedItems, bundle);
+  const mergeConditions = triage.mergeConditions ?? [];
   const browserSignal = hasBrowserSignal(bundle);
   const candidateLenses = Array.from(
     new Set([...triage.activeLenses, ...(browserSignal ? (['ui'] as const) : [])]),
@@ -472,6 +473,7 @@ async function executeReviewPipeline(
       verificationMatrix,
       notVerified,
       blastRadius: [],
+      ...(mergeConditions.length > 0 ? { mergeConditions } : {}),
       ...(relatedItems.length > 0 ? { relatedItems } : {}),
       findings: [],
       droppedCount: 0,
@@ -912,6 +914,7 @@ async function executeReviewPipeline(
     notVerified,
     standards,
     blastRadius,
+    ...(mergeConditions.length > 0 ? { mergeConditions } : {}),
     ...(relatedItems.length > 0 ? { relatedItems } : {}),
     ...(threadResolutions && threadResolutions.length > 0 ? { threadResolutions } : {}),
     findings: survivingFindings,

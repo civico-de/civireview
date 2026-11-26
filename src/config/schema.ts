@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RUNNABLE_CMS } from '../evidence/cms-scope.ts';
 
 export const MODEL_PROVIDERS = [
   'anthropic',
@@ -132,6 +133,7 @@ export const CHECK_KEYS = [
   'static-delta',
   'lifecycle',
   'browser',
+  'cms-browser',
   'a11y',
   'interactive-browser',
   'matrix',
@@ -148,6 +150,7 @@ export const ChecksConfigSchema = z
     staticDelta: z.boolean().default(true),
     lifecycle: z.boolean().default(true),
     browser: z.boolean().default(true),
+    cmsBrowser: z.boolean().default(true),
     a11y: z.boolean().default(true),
     interactiveBrowser: z.boolean().default(false),
     matrix: z.boolean().default(false),
@@ -162,6 +165,8 @@ export const BrowserConfigSchema = z
     pages: z.array(z.string()).default([]),
     anonymousPages: z.array(z.string()).default([]),
     maxAutoPages: z.number().int().min(1).max(20).default(5),
+    // CMS flavors probed in addition to those the changed files belong to.
+    cms: z.array(z.enum(RUNNABLE_CMS)).default([]),
     sendScreenshotsToLlm: z.boolean().default(true),
     playwrightMcpCommand: z.string().min(1).optional(),
   })
@@ -371,6 +376,8 @@ export function isCheckEnabled(
       return config.checks.lifecycle;
     case 'browser':
       return config.checks.browser;
+    case 'cms-browser':
+      return config.checks.cmsBrowser;
     case 'a11y':
       return config.checks.a11y;
     case 'interactive-browser':

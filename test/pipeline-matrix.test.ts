@@ -84,6 +84,7 @@ function makeBundle(overrides: Partial<EvidenceBundle> = {}): EvidenceBundle {
         summary: 'No structural surface changes.',
       },
       demoConsoleErrors: [],
+      cmsDemos: [],
       notVerified: [],
     },
     staticDelta: {
@@ -285,6 +286,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
           summary: 'No structural surface changes.',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
     });
@@ -454,6 +456,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
           summary: 'No structural surface changes.',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
     });

@@ -70,6 +70,7 @@ export function makeBundle(overrides: Partial<EvidenceBundle> = {}): EvidenceBun
         summary: 'No structural surface changes.',
       },
       demoConsoleErrors: [],
+      cmsDemos: [],
       notVerified: [],
     },
     staticDelta: {

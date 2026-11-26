@@ -49,6 +49,8 @@ export interface DiscoveredStandaloneRoutes {
   reason: string;
   // True when nothing but the dashboard fallback is probed.
   usedFallback: boolean;
+  // True when every probed route is only named on unchanged lines of the diff.
+  contextOnly: boolean;
 }
 
 const FILE_EXT_RE =
@@ -96,6 +98,15 @@ function getActiveDiffLines(rawPatch: string): string {
     active.push(line.startsWith('+') || line.startsWith(' ') ? line.slice(1) : line);
   }
   return active.join('\n');
+}
+
+/** The lines a patch adds: a route named on an unchanged line says nothing about the change. */
+function getAddedDiffLines(rawPatch: string): string {
+  return rawPatch
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('+') && !line.startsWith('+++ '))
+    .map((line) => line.slice(1))
+    .join('\n');
 }
 
 /**
@@ -152,6 +163,13 @@ export function discoverStandaloneRoutes(
     }
   };
 
+  const contextRoutes = new Set<string>();
+  // Routes a changed line, a route definition or the PR description names.
+  const changeRoutes = new Set<string>();
+  const ofChange = (raw: unknown) => {
+    const norm = typeof raw === 'string' ? normalizeStandaloneRoute(raw) : null;
+    if (norm) changeRoutes.add(norm);
+  };
   let liveCount = 0;
   let staticXmlAfformCount = 0;
   let mentionCount = 0;
@@ -190,6 +208,7 @@ export function discoverStandaloneRoutes(
         if (m[1]) {
           const beforeLen = autoPages.length;
           addAutoPage(m[1]);
+          ofChange(m[1]);
           if (autoPages.length > beforeLen) staticXmlAfformCount++;
         }
       }
@@ -202,6 +221,7 @@ export function discoverStandaloneRoutes(
         if (m[1]) {
           const beforeLen = autoPages.length;
           addAutoPage(m[1]);
+          ofChange(m[1]);
           if (autoPages.length > beforeLen) staticXmlAfformCount++;
           if (isPublic) {
             addAutoAnon(m[1]);
@@ -214,8 +234,15 @@ export function discoverStandaloneRoutes(
       if (m[1]) {
         const beforeLen = autoPages.length;
         addAutoPage(m[1]);
-        if (autoPages.length > beforeLen) mentionCount++;
+        if (autoPages.length > beforeLen) {
+          mentionCount++;
+          // A route on an unchanged line is loaded, but says little about the change.
+          contextRoutes.add(autoPages.at(-1)!);
+        }
       }
+    }
+    for (const m of getAddedDiffLines(file.rawPatch).matchAll(ROUTE_MENTION_RE)) {
+      ofChange(m[1]);
     }
   }
 
@@ -223,6 +250,7 @@ export function discoverStandaloneRoutes(
   if (prBody) {
     for (const m of prBody.matchAll(ROUTE_MENTION_RE)) {
       if (m[1]) {
+        ofChange(m[1]);
         const beforeLen = autoPages.length;
         addAutoPage(m[1]);
         if (autoPages.length > beforeLen) mentionCount++;
@@ -249,6 +277,7 @@ export function discoverStandaloneRoutes(
       for (const m of file.content.matchAll(routeRe)) {
         const beforeLen = autoPages.length;
         addAutoPage(m[1]);
+        ofChange(m[1]);
         if (autoPages.length > beforeLen) extensionRouteCount++;
         if (isPublic) addAutoAnon(m[1]);
       }
@@ -300,5 +329,9 @@ export function discoverStandaloneRoutes(
     anonymousPages,
     reason,
     usedFallback,
+    contextOnly:
+      anonymousPages.length === 0 &&
+      pages.length > 0 &&
+      pages.every((p) => contextRoutes.has(p) && !changeRoutes.has(p)),
   };
 }

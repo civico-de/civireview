@@ -404,6 +404,7 @@ describe('github watcher polling & execution', () => {
           summary: 'none',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
       staticDelta: {
@@ -778,6 +779,7 @@ describe('github watcher polling & execution', () => {
           summary: 'none',
         },
         demoConsoleErrors: [],
+        cmsDemos: [],
         notVerified: [],
       },
       staticDelta: {

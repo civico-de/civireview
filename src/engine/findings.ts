@@ -24,6 +24,8 @@ export const EVIDENCE_RANK: Record<FindingVerdict, number> = {
   REJECTED: 0,
 };
 
+export const CMS_CHECK = 'CMS Browser A/B';
+
 const EMPIRICAL_BLOCKING_CHECKS = new Set<string>([
   'CI / Jenkins',
   'A/B Proof-of-Fix',
@@ -33,7 +35,10 @@ const EMPIRICAL_BLOCKING_CHECKS = new Set<string>([
   'Browser A/B (Standalone)',
   'Static / Taint Delta',
   'Demo',
+  CMS_CHECK,
 ]);
+
+const RAN = new Set<string>(['PASS', 'WARN', 'FAIL']);
 
 const RUNTIME_CHECKS = new Set<string>([
   'A/B Proof-of-Fix',
@@ -41,7 +46,15 @@ const RUNTIME_CHECKS = new Set<string>([
   'Base-Test Regression',
   'Version Matrix',
   'Browser A/B (Standalone)',
+  CMS_CHECK,
 ]);
+
+/** True when a check that boots Standalone gave a result. */
+export function standaloneRan(verificationMatrix: VerificationMatrixEntry[]): boolean {
+  return verificationMatrix.some(
+    (m) => RUNTIME_CHECKS.has(m.check) && m.check !== CMS_CHECK && RAN.has(m.status),
+  );
+}
 
 /**
  * The runtime checks of a code PR that should have run but gave no result, when none
@@ -53,10 +66,15 @@ export function unverifiedRuntimeChecks(
 ): string[] {
   if (prKind === 'docs-only' || prKind === 'core-ref-nfc') return [];
   const runtime = verificationMatrix.filter((m) => RUNTIME_CHECKS.has(m.check));
-  if (runtime.some((m) => m.status === 'PASS' || m.status === 'WARN' || m.status === 'FAIL')) {
+  // Results from Standalone do not stand in for a change to another CMS's integration alone.
+  const cms = runtime.find((m) => m.check === CMS_CHECK);
+  if (cms?.coversWholeChange) return cms.status === 'NOT_VERIFIED' ? [cms.check] : [];
+  // Nor does a login on another CMS stand in for running the shared code.
+  const shared = runtime.filter((m) => m.check !== CMS_CHECK);
+  if (shared.some((m) => RAN.has(m.status))) {
     return [];
   }
-  return runtime.filter((m) => m.status === 'NOT_VERIFIED').map((m) => m.check);
+  return shared.filter((m) => m.status === 'NOT_VERIFIED').map((m) => m.check);
 }
 
 export function compareVerifiedFindings(a: VerifiedFinding, b: VerifiedFinding): number {

@@ -116,7 +116,8 @@ are cut off at `browser.maxAutoPages`, separately for logged-in and anonymous pr
 1. routes named with `--page` or in `browser.pages`,
 2. routes and Afforms that the live surface diff reports as changed,
 3. routes defined in menu XML or Afform files that the diff touches,
-4. routes mentioned in the diff or the PR description,
+4. routes mentioned in the diff or the PR description; a route named only on unchanged
+   lines is loaded, but a clean result then counts as a smoke test,
 5. for an extension whose UI files changed (templates, Angular, JS, CSS): the routes
    that extension defines in `xml/Menu/*.xml` and `ang/*.aff.json` or `ang/*.aff.php`.
 
