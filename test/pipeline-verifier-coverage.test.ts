@@ -128,13 +128,13 @@ describe('verifier coverage', () => {
     );
   });
 
-  test('logs a rejected candidate and lists it with its reason without blocking READY', async () => {
+  test('logs a rejected candidate and lists it with its reason without blocking NO_ISSUES_FOUND', async () => {
     const result = await runWith([[verdictFor(SEC_CANDIDATE, 'REJECTED', 20)]]);
     const review = reviewOf(result);
     const body = formatReviewMarkdown(review, makeBundle()).summaryBody;
 
     expect(result.verifierCalls).toHaveLength(1);
-    expect(review.verdict).toBe('READY');
+    expect(review.verdict).toBe('NO_ISSUES_FOUND');
     expect(review.rejectedFindings?.map((f) => f.id)).toEqual(['sec-1']);
     expect(result.logLines.some((l) => l.includes('sec-1') && l.includes('REJECTED'))).toBe(true);
     expect(body).toContain('<summary>More: Rejected (1)</summary>');

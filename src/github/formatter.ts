@@ -168,19 +168,17 @@ export interface FormattedReviewOutput {
 
 function verdictBadge(verdict: FinalVerdict): string {
   switch (verdict) {
-    case 'READY':
-      return '🟢 **Ready**';
-    case 'NEEDS_CHANGES':
-      return '🔴 **Needs Changes**';
+    case 'NO_ISSUES_FOUND':
+      return '🟢 **No issues found**';
+    case 'ISSUES_FOUND':
+      return '🔴 **Issues found**';
     case 'QUESTIONS_ONLY':
-      return '🟡 **Questions Only**';
+      return '🟡 **Questions only**';
   }
 }
 
 function scoreBadge(score: ConfidenceScore): string {
-  const filled = '★'.repeat(score);
-  const empty = '☆'.repeat(5 - score);
-  return `**${score}/5** \`${filled}${empty}\``;
+  return `**${score}/5**`;
 }
 
 function matrixStatusBadge(status: VerificationStatus): string {
@@ -261,7 +259,7 @@ function formatSummaryFinding(f: VerifiedFinding): string {
  * The version of the review's layout. Raise it when the rendering changes, so reviews
  * rendered before can be told apart and rendered again from their saved data.
  */
-export const REVIEW_FORMAT = 2;
+export const REVIEW_FORMAT = 3;
 
 /**
  * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
@@ -473,7 +471,7 @@ export function formatReviewMarkdown(
   }
 
   const verification: string[] = [
-    `**Merge confidence (${computedScore.score}/5):** ${computedScore.rationale}`,
+    `**Score (${computedScore.score}/5):** ${computedScore.rationale}`,
     '',
     `**PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
   ];
@@ -501,7 +499,7 @@ export function formatReviewMarkdown(
       ran.length > 0 ? `any CMS other than ${ran.join(', ')}` : 'behaviour on a running site';
     verification.push(
       '',
-      `**Outside this review:** ${otherCms}; viewports other than 1280×800; whether the approach is right for the project; when to merge. Ready means no technical issue was found in what was checked.`,
+      `**Outside this review:** ${otherCms}; viewports other than 1280×800; whether the approach is right for the project; whether and when to merge. The verdict and the score speak of what was checked: they prepare a human review and do not replace it.`,
     );
   }
   const bd = bundle.abReport.browserDiff;

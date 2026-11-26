@@ -22,7 +22,7 @@ const finding = (id: string, line: number) => ({
 });
 
 describe('review pipeline triage and finding cap', () => {
-  test('refuses to report READY when triage selects no lens and gives no reason', async () => {
+  test('refuses to report NO_ISSUES_FOUND when triage selects no lens and gives no reason', async () => {
     const config = loadConfig('/tmp/nonexistent-cfg-dir', { preset: 'sonnet' });
     const mockRunner: StageRunner = {
       providers: ['anthropic'],

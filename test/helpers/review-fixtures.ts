@@ -81,7 +81,7 @@ export function makeSampleReview(): FinalReview {
     baseSha: 'aaaa1111',
     headSha: 'bbbb2222',
     prKind: 'core-bugfix',
-    verdict: 'NEEDS_CHANGES',
+    verdict: 'ISSUES_FOUND',
     walkthrough: ['Fixes contact lookup'],
     verificationMatrix: [
       { check: 'CI / Jenkins', status: 'PASS', detail: 'All passed' },

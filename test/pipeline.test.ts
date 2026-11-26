@@ -315,7 +315,7 @@ describe('review pipeline', () => {
     expect(review.findings).toHaveLength(1);
     expect(review.findings[0]!.id).toBe('sec-sqli');
     expect(review.droppedCount).toBe(3);
-    expect(review.verdict).toBe('NEEDS_CHANGES');
+    expect(review.verdict).toBe('ISSUES_FOUND');
     expect(review.standards).toHaveLength(2);
     expect(review.blastRadius).toHaveLength(1);
     expect(review.tokenUsage?.totalTokens).toBe(140 + 280 + 310 + 200 + 420);
@@ -368,7 +368,7 @@ describe('review pipeline', () => {
     });
 
     expect(stagesRun).toEqual(['triage']);
-    expect(review.verdict).toBe('READY');
+    expect(review.verdict).toBe('NO_ISSUES_FOUND');
     expect(review.findings).toHaveLength(0);
   });
 
@@ -879,6 +879,6 @@ describe('review pipeline', () => {
     ]);
     expect(review.findings).toHaveLength(1);
     expect(review.findings[0]!.id).toBe('fu-1');
-    expect(review.verdict).toBe('NEEDS_CHANGES');
+    expect(review.verdict).toBe('ISSUES_FOUND');
   });
 });

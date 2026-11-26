@@ -110,10 +110,10 @@ function resolveReviewEvent(
   configured: ReviewEvent = 'COMMENT',
 ): ReviewEvent {
   if (configured === 'REQUEST_CHANGES') {
-    return verdict === 'NEEDS_CHANGES' ? 'REQUEST_CHANGES' : 'COMMENT';
+    return verdict === 'ISSUES_FOUND' ? 'REQUEST_CHANGES' : 'COMMENT';
   }
   if (configured === 'APPROVE') {
-    return verdict === 'READY' ? 'APPROVE' : 'COMMENT';
+    return verdict === 'NO_ISSUES_FOUND' ? 'APPROVE' : 'COMMENT';
   }
   return 'COMMENT';
 }
@@ -169,7 +169,8 @@ async function addCompletionReaction(
   verdict: FinalReview['verdict'],
 ): Promise<void> {
   if (!octokit.rest.reactions) return;
-  const content = verdict === 'READY' ? 'rocket' : verdict === 'NEEDS_CHANGES' ? 'confused' : '+1';
+  const content =
+    verdict === 'NO_ISSUES_FOUND' ? '+1' : verdict === 'ISSUES_FOUND' ? 'confused' : 'eyes';
 
   try {
     await octokit.rest.reactions.createForIssueComment({
@@ -224,7 +225,7 @@ function defaultWarn(msg: string): void {
 export function collapseReviewBody(oldBody: string, newReviewUrl: string, newDate: string): string {
   const header = HEADER_RE.exec(oldBody);
   const parts = [`Superseded by [the review of ${newDate}](${newReviewUrl})`];
-  if (header) parts.push(`${header[1]} ${header[2]}`, `Confidence ${header[3]}/5`);
+  if (header) parts.push(`${header[1]} ${header[2]}`, `${header[3]}/5`);
   return (
     `${parts.join(' · ')}\n\n<details><summary>Earlier review</summary>\n\n` +
     `${oldBody.trimEnd()}\n\n</details>\n${COLLAPSED_MARKER}`

@@ -123,7 +123,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
     expect(row('CMS Browser A/B')).toBeUndefined();
     expect(row('Browser A/B (Standalone)')?.status).toBe('PASS');
     expect(notVerified).toEqual([]);
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
     expect(score.score).toBe(5);
   });
 
@@ -151,7 +151,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
     const { verdict, score, row, notVerified } = judge(bundleOf(JOOMLA_ONLY, [demo('PASS')]));
     expect(row('CMS Browser A/B')?.status).toBe('PASS');
     expect(notVerified).toEqual([]);
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
     // Page loads do not reach every changed path (installer, user sync).
     expect(score.score).toBe(4);
     expect(score.rationale).toContain('login and page loads only');
@@ -159,13 +159,13 @@ describe('CMS-specific changes in the matrix and the score', () => {
 
   test('a CMS named by the configuration does not cap a change to shared code', () => {
     const { verdict, score } = judge(bundleOf(['CRM/Contact/BAO/Contact.php'], [demo('PASS')]));
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
     expect(score.score).toBe(5);
   });
 
   test('a failure on Joomla needs changes', () => {
     const { verdict, score } = judge(bundleOf(JOOMLA_ONLY, [demo('FAIL')]));
-    expect(verdict).toBe('NEEDS_CHANGES');
+    expect(verdict).toBe('ISSUES_FOUND');
     expect(score.score).toBe(2);
   });
 
@@ -175,7 +175,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
     );
     expect(row('CMS Browser A/B')?.coversWholeChange).toBeUndefined();
     expect(row('Browser A/B (Standalone)')?.status).toBe('PASS');
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
     expect(score.score).toBe(4);
     expect(score.rationale).toContain('CMS-specific code did not run');
   });
@@ -187,7 +187,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
       repoInfo: { ...bundle.repoInfo, kind: 'civicrm-extension' },
     });
     expect(row('CMS Browser A/B')).toBeUndefined();
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
   });
 
   test('a CMS the configuration adds does not unverify a change whose own CMS ran', () => {
@@ -196,7 +196,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
     expect(row('CMS Browser A/B')?.status).toBe('PASS');
     expect(row('CMS Browser A/B')?.detail).toContain('Joomla: NOT_VERIFIED');
     expect(notVerified).toEqual([]);
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
   });
 
   test('a configured CMS that gave no result does not cap a change to shared code', () => {
@@ -204,7 +204,7 @@ describe('CMS-specific changes in the matrix and the score', () => {
       bundleOf(['CRM/Contact/BAO/Contact.php'], [demo('NOT_VERIFIED')]),
     );
     expect(row('CMS Browser A/B')?.status).toBe('NOT_VERIFIED');
-    expect(verdict).toBe('READY');
+    expect(verdict).toBe('NO_ISSUES_FOUND');
     expect(score.score).toBe(5);
   });
 

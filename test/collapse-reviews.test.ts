@@ -81,8 +81,8 @@ function publishWith(octokit: PublisherOctokit, warnings: string[] = [], dryRun 
 describe('collapsing earlier reviews', () => {
   test('a review posted after this one is left alone', async () => {
     const { octokit, updates } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
-      { id: 901, body: oldReviewBody('9999999eeee', 'READY'), user: { login: BOT } },
+      { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: BOT } },
+      { id: 901, body: oldReviewBody('9999999eeee', 'NO_ISSUES_FOUND'), user: { login: BOT } },
     ]);
 
     const res = await publishWith(octokit);
@@ -92,8 +92,8 @@ describe('collapsing earlier reviews', () => {
   });
 
   test('both earlier own reviews collapse to a one-line summary above the full body', async () => {
-    const first = oldReviewBody('1111111aaaa', 'NEEDS_CHANGES');
-    const second = oldReviewBody('2222222bbbb', 'READY');
+    const first = oldReviewBody('1111111aaaa', 'ISSUES_FOUND');
+    const second = oldReviewBody('2222222bbbb', 'NO_ISSUES_FOUND');
     const { octokit, updates } = collapseOctokit([
       { id: 1, body: first, user: { login: BOT } },
       { id: 2, body: second, user: { login: 'CiviReview-Bot' } },
@@ -106,17 +106,17 @@ describe('collapsing earlier reviews', () => {
     expect(updates.map((u) => u.review_id)).toEqual([1, 2]);
     const [firstLine, ...rest] = updates[0]!.body.split('\n');
     expect(firstLine).toMatch(
-      /^Superseded by \[the review of 2026-11-24\]\(https:\/\/github\.com\/civicrm\/civicrm-core\/pull\/99#pullrequestreview-900\) · 🔴 Needs Changes · Confidence [1-5]\/5$/,
+      /^Superseded by \[the review of 2026-11-24\]\(https:\/\/github\.com\/civicrm\/civicrm-core\/pull\/99#pullrequestreview-900\) · 🔴 Issues found · [1-5]\/5$/,
     );
     expect(rest.join('\n')).toContain(
       `<details><summary>Earlier review</summary>\n\n${first}\n\n</details>`,
     );
-    expect(updates[1]!.body.split('\n')[0]).toContain('· 🟢 Ready · Confidence');
+    expect(updates[1]!.body.split('\n')[0]).toMatch(/· 🟢 No issues found · [1-5]\/5$/);
   });
 
   test('a collapsed review is not wrapped again', async () => {
     const collapsed = collapseReviewBody(
-      oldReviewBody('1111111aaaa', 'READY'),
+      oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'),
       NEW_URL,
       '2026-11-23',
     );
@@ -133,7 +133,7 @@ describe('collapsing earlier reviews', () => {
   test('a review in the first layout still collapses with its verdict and confidence', () => {
     const v1 = '## CiviReview: 🟡 **Questions Only** · Confidence: **3/5** `★★★☆☆`\n\nBody';
     expect(collapseReviewBody(v1, NEW_URL, '2026-11-24').split('\n')[0]).toBe(
-      `Superseded by [the review of 2026-11-24](${NEW_URL}) · 🟡 Questions Only · Confidence 3/5`,
+      `Superseded by [the review of 2026-11-24](${NEW_URL}) · 🟡 Questions Only · 3/5`,
     );
   });
 
@@ -146,9 +146,9 @@ describe('collapsing earlier reviews', () => {
 
   test("other users' reviews and own reviews without a civireview marker stay untouched", async () => {
     const { octokit, updates } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: 'alice' } },
+      { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: 'alice' } },
       { id: 2, body: 'LGTM, merging after CI.', user: { login: BOT } },
-      { id: 3, body: oldReviewBody('3333333cccc', 'READY'), user: { login: BOT } },
+      { id: 3, body: oldReviewBody('3333333cccc', 'NO_ISSUES_FOUND'), user: { login: BOT } },
     ]);
 
     const res = await publishWith(octokit);
@@ -161,8 +161,8 @@ describe('collapsing earlier reviews', () => {
     const warnings: string[] = [];
     const { octokit, updates } = collapseOctokit(
       [
-        { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
-        { id: 2, body: oldReviewBody('2222222bbbb', 'READY'), user: { login: BOT } },
+        { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: BOT } },
+        { id: 2, body: oldReviewBody('2222222bbbb', 'NO_ISSUES_FOUND'), user: { login: BOT } },
       ],
       [1],
     );
@@ -176,7 +176,11 @@ describe('collapsing earlier reviews', () => {
   });
 
   test("a refused update names the token's scopes and the ones the endpoint accepts", async () => {
-    const review = { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } };
+    const review = {
+      id: 1,
+      body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'),
+      user: { login: BOT },
+    };
     const classic = collapseOctokit([review], [1], {
       status: 404,
       headers: {
@@ -198,7 +202,7 @@ describe('collapsing earlier reviews', () => {
 
   test('the update goes through GraphQL by node id, which a non-member token may use', async () => {
     const { octokit, calls } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
+      { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: BOT } },
     ]);
 
     await publishWith(octokit);
@@ -208,7 +212,7 @@ describe('collapsing earlier reviews', () => {
 
   test('a client without GraphQL says so and leaves earlier reviews alone', async () => {
     const { octokit, updates } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
+      { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: BOT } },
     ]);
     const warnings: string[] = [];
 
@@ -223,7 +227,7 @@ describe('collapsing earlier reviews', () => {
 
   test('dry-run neither lists nor updates reviews', async () => {
     const { octokit, calls } = collapseOctokit([
-      { id: 1, body: oldReviewBody('1111111aaaa', 'READY'), user: { login: BOT } },
+      { id: 1, body: oldReviewBody('1111111aaaa', 'NO_ISSUES_FOUND'), user: { login: BOT } },
     ]);
 
     const res = await publishWith(octokit, [], true);

@@ -6,7 +6,7 @@ decision; everything else sits in disclosure elements below it.
 ## Header
 
 ```text
-CiviReview: 🔴 Needs Changes · 2/5 ★★☆☆☆
+CiviReview: 🔴 Issues found · 2/5
 Fixes the contact lookup. A/B testing proved 1 test(s) failed on base, passed on PR.
 
 To address (2)
@@ -20,7 +20,7 @@ To address (2)
 ▸ More: Walkthrough · standards · blast radius · related (2)
 ```
 
-The first line holds verdict and merge confidence, the second what the PR changes and
+The first line holds verdict and score, the second what the PR changes and
 what the A/B run proved. *To address* lists every condition the PR description states
 for merging (a release, a date, another PR), every posted finding (severity, location,
 title), every failed check, every conflicting or duplicate PR and every open reviewer
@@ -29,17 +29,21 @@ thread, one checkbox each. The checks line has one icon per check that applies
 
 **Verdict**
 
+The verdict says what the checks turned up, not whether the PR should be merged. *No
+issues found* means the PR is ready for a human to review; the approach, the timing and
+everything listed under *Outside this review* are theirs to judge.
+
 | Verdict | Condition |
 | --- | --- |
-| Ready | no posted finding, no failed check, and for a code PR a runtime check with a result or none that applies |
-| Questions Only | findings, but none of them a `PROVEN` or `CONFIRMED` critical or high one, and no failed check; also an unanswered reviewer thread without findings, or a code PR whose runtime checks (proof of fix, base-test regression, version matrix, browser A/B) should have run but none gave a result, whether the run broke or A/B or its tests were switched off; A/B never applies to a repository that is neither core nor an extension |
-| Needs Changes | a `PROVEN` or `CONFIRMED` critical or high finding, or a failed check among CI, proof of fix, base-test regression, browser A/B, taint delta, demo |
+| No issues found | no posted finding, no failed check, and for a code PR a runtime check with a result or none that applies |
+| Questions only | findings, but none of them a `PROVEN` or `CONFIRMED` critical or high one, and no failed check; also an unanswered reviewer thread without findings, or a code PR whose runtime checks (proof of fix, base-test regression, version matrix, browser A/B) should have run but none gave a result, whether the run broke or A/B or its tests were switched off; A/B never applies to a repository that is neither core nor an extension |
+| Issues found | a `PROVEN` or `CONFIRMED` critical or high finding, or a failed check among CI, proof of fix, base-test regression, browser A/B, taint delta, demo |
 
 **Profile and kind.** The PR, profile, kind and commits line opens *Verification*. The profile says where the change could be verified
 ([profiles.md](profiles.md)); the kind is the triage model's classification of the
 change.
 
-## Merge confidence
+## Score
 
 The rationale opens *Verification*. The score starts at 5. Each rule below caps it; the lowest cap wins. The rationale lists
 up to three reasons, the deciding one first.
@@ -48,12 +52,12 @@ up to three reasons, the deciding one first.
 | --- | --- |
 | 1 | a confirmed critical finding; two or more confirmed high findings |
 | 2 | one confirmed high finding; the change fails on a CMS other than Standalone; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
-| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed; not verified at runtime (the Questions Only case above) |
+| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed; not verified at runtime (the Questions only case above) |
 | 4 | any other finding; code of a CMS integration that did not run on its CMS, or ran there only as a login and page loads; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
 
 A test that civireview leaves out without a check of its own (an extension's browser
 tests with the browser check switched off) only shows under *Not verified*; the review
-can then still be Ready, with the cap of 4 when no A/B test ran.
+can then still be No issues found, with the cap of 4 when no A/B test ran.
 
 "Confirmed" in this table covers `PROVEN` and `CONFIRMED`. When the finding that
 decides the score is only `CONFIRMED`, the rationale adds "from reading the code, not
@@ -126,7 +130,7 @@ that way quotes its steps.
 `css/wordpress.css`) do not run on Standalone. civireview records the PR on that CMS
 with `ck demo --cms`, on civikitchen's image of that CMS with core master from its last
 daily build; a PR that does not apply to it gives `NOT_VERIFIED` with that reason. When the PR changes nothing but
-such files and no run on the CMS gave a result, the review is Questions Only with a
+such files and no run on the CMS gave a result, the review is Questions only with a
 confidence of at most 3, and the Standalone browser row is left out. When it also
 changes shared code, the confidence is at most 4. A clean run on the CMS is a login and
 page loads; it does not reach an installer or a user sync, so the confidence stays at
@@ -149,7 +153,7 @@ has not been exercised by anything.
 | Section | Content |
 | --- | --- |
 | Findings outside the diff | each such finding with defect, fix, failure scenario and evidence |
-| Verification | merge confidence rationale, PR/profile/kind/commits, the matrix, *Not verified*, standalone browser A/B (probed routes, counts per regression type, screenshots) |
+| Verification | score rationale, PR/profile/kind/commits, the matrix, *Not verified*, standalone browser A/B (probed routes, counts per regression type, screenshots) |
 | Reviewer threads | open questions of human reviewers and whether the head answers them |
 | More | the parts below, each under its own heading; the summary names the ones present |
 

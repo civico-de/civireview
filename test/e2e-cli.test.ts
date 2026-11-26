@@ -213,7 +213,7 @@ describe('civireview CLI end to end', () => {
     expect(review.exitCode).toBe(0);
 
     const parsed = FinalReviewSchema.parse(JSON.parse(readFileSync(out, 'utf8')));
-    expect(parsed.verdict).toBe('NEEDS_CHANGES');
+    expect(parsed.verdict).toBe('ISSUES_FOUND');
     expect(parsed.findings.map((f) => f.id)).toEqual(['sec-sqli']);
     expect(parsed.modelsUsed).toMatchObject({ verifier: 'claude-cli:claude-opus-5-5' });
     expect(readFileSync(join(dir, 'calls.log'), 'utf8').trim().split('\n')).toEqual([

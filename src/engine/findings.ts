@@ -131,14 +131,15 @@ export function deduplicateVerifiedFindings(findings: VerifiedFinding[]): Verifi
   return kept;
 }
 
-/** The verdict on findings and checks; a code PR not verified at runtime is not Ready. */
+/** The verdict on findings and checks; a code PR not verified at runtime has open questions. */
 export function computeFinalVerdict(
   findings: VerifiedFinding[],
   verificationMatrix?: VerificationMatrixEntry[],
   prKind?: PrKind,
 ): FinalVerdict {
   const verdict = findingsVerdict(findings, verificationMatrix);
-  return verdict === 'READY' && unverifiedRuntimeChecks(verificationMatrix, prKind).length > 0
+  return verdict === 'NO_ISSUES_FOUND' &&
+    unverifiedRuntimeChecks(verificationMatrix, prKind).length > 0
     ? 'QUESTIONS_ONLY'
     : verdict;
 }
@@ -155,9 +156,9 @@ export function findingsVerdict(
     verificationMatrix?.some((m) => m.check === 'Reviewer Thread' && m.status === 'WARN'),
   );
   if (findings.length === 0) {
-    if (hasEmpiricalFailure) return 'NEEDS_CHANGES';
+    if (hasEmpiricalFailure) return 'ISSUES_FOUND';
     if (hasOpenReviewerThread) return 'QUESTIONS_ONLY';
-    return 'READY';
+    return 'NO_ISSUES_FOUND';
   }
   const needsChanges =
     hasEmpiricalFailure ||
@@ -166,7 +167,7 @@ export function findingsVerdict(
         (f.reassessedSeverity === 'critical' || f.reassessedSeverity === 'high') &&
         (f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED'),
     );
-  return needsChanges ? 'NEEDS_CHANGES' : 'QUESTIONS_ONLY';
+  return needsChanges ? 'ISSUES_FOUND' : 'QUESTIONS_ONLY';
 }
 
 export function mergeBlastRadius(lists: Array<BlastRadiusItem[] | undefined>): BlastRadiusItem[] {

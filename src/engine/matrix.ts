@@ -138,7 +138,7 @@ export function reconcileStandardsDeterministically(params: {
   if (byCode.size === 0) return undefined;
 
   // Runs before the measured issues below are set, which no missing finding can clear.
-  if (verdict === 'READY' && survivingFindings.length === 0) {
+  if (verdict === 'NO_ISSUES_FOUND' && survivingFindings.length === 0) {
     for (const [code, item] of byCode.entries()) {
       if (item.status === 'ISSUE' && !isStandardBackedByMatrixFail(code, verificationMatrix)) {
         byCode.set(code, {
@@ -561,7 +561,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
  *   behavior preservation (`PASS`) rather than a missing bugfix transition (`WARN`).
  * - When Jenkins failed with concrete failed test details that Triage assessed as
  *   `likely-flaky` (unrelated to the PR), downgrades `CI / Jenkins` from `FAIL`
- *   to `WARN` so a flaky CI job does not falsely force `NEEDS_CHANGES`.
+ *   to `WARN` so a flaky CI job does not falsely force `ISSUES_FOUND`.
  */
 export function reconcileMatrixForTriage(
   matrix: VerificationMatrixEntry[],
@@ -652,10 +652,10 @@ function isConfirmedFinding(f: VerifiedFinding): boolean {
 }
 
 /**
- * Computes a Greptile-style 1–5 merge-confidence score grounded deterministically
- * in verified findings and the empirical verification matrix.
+ * Computes the 1–5 score of a review from its verified findings and the
+ * verification matrix. It rates what was checked, not whether to merge.
  *
- * - 5/5: Safe to merge — no verified issues; empirical checks passed.
+ * - 5/5: No verified issues; empirical checks passed.
  * - 4/5: Minor follow-up — low-severity / question-only findings or minor verification gap/warning.
  * - 3/5: Moderate risk — confirmed medium defect, base-test regression, or unproven/errored A/B proof.
  * - 2/5: High risk — confirmed high-severity defect or empirical CI/taint/browser/proof regression.

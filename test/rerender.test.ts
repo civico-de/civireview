@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { FinalVerdictSchema } from '../src/engine/schemas.ts';
 import { formatReviewMarkdown } from '../src/github/formatter.ts';
 import {
   applyRerender,
@@ -84,8 +85,8 @@ describe('rerender', () => {
     await applyRerender(plan, octokit);
 
     expect(plan.reviewId).toBe(10);
-    expect(plan.body).toContain('## CiviReview: 🔴 **Needs Changes** · **2/5**');
-    expect(plan.body).toContain(`format=2 trigger_comment=${TRIGGER} -->`);
+    expect(plan.body).toContain('## CiviReview: 🔴 **Issues found** · **2/5**');
+    expect(plan.body).toContain(`format=3 trigger_comment=${TRIGGER} -->`);
     expect(writes.map((w) => [w.id, w.query.includes('updatePullRequestReviewComment')])).toEqual([
       ['PRR_10', false],
       ['PRRC_20', true],
@@ -189,5 +190,14 @@ describe('rerender', () => {
     const dir = mkdtempSync(join(tmpdir(), 'rerender-'));
     writeFileSync(join(dir, 'review.json'), '{}');
     expect(() => loadSavedReview(dir)).toThrow(`${dir} lacks evidence.json, render.json`);
+  });
+});
+
+describe('saved reviews', () => {
+  test('a verdict saved under its earlier name is read as the current one', () => {
+    expect(FinalVerdictSchema.parse('READY')).toBe('NO_ISSUES_FOUND');
+    expect(FinalVerdictSchema.parse('NEEDS_CHANGES')).toBe('ISSUES_FOUND');
+    expect(FinalVerdictSchema.parse('QUESTIONS_ONLY')).toBe('QUESTIONS_ONLY');
+    expect(FinalVerdictSchema.safeParse('APPROVED').success).toBe(false);
   });
 });

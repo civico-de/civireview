@@ -182,7 +182,7 @@ describe('buildVerificationMatrix: A/B rows', () => {
         { code: 'r-maint', status: 'PASS', note: 'ok' },
         { code: 'r-code', status: 'ISSUE', note: 'a finding that did not survive' },
       ],
-      verdict: 'READY',
+      verdict: 'NO_ISSUES_FOUND',
       survivingFindings: [],
       verificationMatrix: buildVerificationMatrix(b).verificationMatrix,
       bundle: b,
@@ -431,7 +431,7 @@ describe('mergeStandards', () => {
 describe('computeConfidenceScore rationale', () => {
   test('names the cap that decides the score even when many weaker reasons exist', () => {
     const result = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [
         finding('m', 'CONFIRMED', 'medium'),
         finding('q', 'NEEDS_QUESTION', 'high'),
@@ -446,7 +446,7 @@ describe('computeConfidenceScore rationale', () => {
 
   test('lists the strictest reasons first and at most three', () => {
     const result = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [finding('c', 'PROVEN', 'critical'), finding('l', 'CONFIRMED', 'low')],
       verificationMatrix: [entry('CI / Jenkins', 'FAIL'), entry('Static / Taint Delta', 'FAIL')],
     });
@@ -459,7 +459,7 @@ describe('computeConfidenceScore rationale', () => {
 
   test('a clean review scores 5 and names the passed checks', () => {
     const result = computeConfidenceScore({
-      verdict: 'READY',
+      verdict: 'NO_ISSUES_FOUND',
       findings: [],
       verificationMatrix: [entry('CI / Jenkins', 'PASS'), entry('Base-Test Regression', 'PASS')],
     });
@@ -471,7 +471,7 @@ describe('computeConfidenceScore rationale', () => {
 
   test('without any test run a code PR is capped at 4, a docs-only PR is not', () => {
     const noTests = {
-      verdict: 'READY' as const,
+      verdict: 'NO_ISSUES_FOUND' as const,
       findings: [],
       verificationMatrix: [entry('CI / Jenkins', 'PASS'), entry('A/B Proof-of-Fix', 'SKIPPED')],
     };
@@ -540,14 +540,14 @@ describe('browser smoke probe and score basis', () => {
 
   test('the rationale says whether the deciding finding was reproduced or only read', () => {
     const read = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [highFinding('CONFIRMED')],
       verificationMatrix: [],
     });
     expect(read.score).toBe(2);
     expect(read.rationale).toContain('from reading the code, not reproduced in a run');
     const proven = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [highFinding('PROVEN')],
       verificationMatrix: [],
     });

@@ -231,7 +231,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       expect(verifierUserPrompt).not.toContain('"upgrade-schema"');
       expect(verifierUserPrompt).toContain('"r-code"');
 
-      expect(review.verdict).toBe(abBroke ? 'QUESTIONS_ONLY' : 'READY');
+      expect(review.verdict).toBe(abBroke ? 'QUESTIONS_ONLY' : 'NO_ISSUES_FOUND');
       expect(review.findings).toHaveLength(0);
       const codes = review.standards?.map((s) => s.code) ?? [];
       expect(codes).toEqual(['r-explain', 'r-code', 'r-tech']);
@@ -525,7 +525,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
 
     // 5/5: clean checks, 0 findings
     const s5 = computeConfidenceScore({
-      verdict: 'READY',
+      verdict: 'NO_ISSUES_FOUND',
       findings: [],
       verificationMatrix: cleanMatrix,
       prKind: 'core-bugfix',
@@ -558,7 +558,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
 
     // 2/5: confirmed high finding
     const s2 = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [{ ...baseFinding, severity: 'high', reassessedSeverity: 'high' }],
       verificationMatrix: cleanMatrix,
       prKind: 'security-sensitive',
@@ -567,7 +567,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
 
     // 1/5: confirmed critical finding
     const s1 = computeConfidenceScore({
-      verdict: 'NEEDS_CHANGES',
+      verdict: 'ISSUES_FOUND',
       findings: [
         { ...baseFinding, severity: 'critical', reassessedSeverity: 'critical', verdict: 'PROVEN' },
       ],
@@ -577,11 +577,11 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     expect(s1.score).toBe(1);
   });
 
-  test('computeFinalVerdict upgrades READY to NEEDS_CHANGES when empirical checks fail', () => {
-    // Without a verification matrix (optional param), 0 findings -> READY
-    expect(computeFinalVerdict([])).toBe('READY');
+  test('computeFinalVerdict upgrades NO_ISSUES_FOUND to ISSUES_FOUND when empirical checks fail', () => {
+    // Without a verification matrix (optional param), 0 findings -> NO_ISSUES_FOUND
+    expect(computeFinalVerdict([])).toBe('NO_ISSUES_FOUND');
 
-    // Clean or WARN/SKIPPED/NOT_VERIFIED matrix -> READY
+    // Clean or WARN/SKIPPED/NOT_VERIFIED matrix -> NO_ISSUES_FOUND
     expect(
       computeFinalVerdict(
         [],
@@ -591,9 +591,9 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
           { check: 'Live Surface Diff', status: 'FAIL', detail: 'non-blocking check' },
         ],
       ),
-    ).toBe('READY');
+    ).toBe('NO_ISSUES_FOUND');
 
-    // Each blocking empirical check with status FAIL upgrades READY -> NEEDS_CHANGES
+    // Each blocking empirical check with status FAIL upgrades NO_ISSUES_FOUND -> ISSUES_FOUND
     const blockingChecks = [
       'CI / Jenkins',
       'A/B Proof-of-Fix',
@@ -605,7 +605,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     ];
     for (const check of blockingChecks) {
       expect(computeFinalVerdict([], [{ check, status: 'FAIL', detail: `${check} failed` }])).toBe(
-        'NEEDS_CHANGES',
+        'ISSUES_FOUND',
       );
     }
   });
@@ -631,7 +631,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     ];
     expect(computeFinalVerdict([], crashed, 'core-bugfix')).toBe('QUESTIONS_ONLY');
     // The code standards are reconciled on the findings alone.
-    expect(findingsVerdict([], crashed)).toBe('READY');
+    expect(findingsVerdict([], crashed)).toBe('NO_ISSUES_FOUND');
     const crashedScore = computeConfidenceScore({
       verdict: 'QUESTIONS_ONLY',
       findings: [],
@@ -646,7 +646,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       ...crashed.slice(0, 3),
       { check: 'Browser A/B (Standalone)', status: 'PASS' as const, detail: '3 routes' },
     ];
-    expect(computeFinalVerdict([], oneRan, 'core-bugfix')).toBe('READY');
+    expect(computeFinalVerdict([], oneRan, 'core-bugfix')).toBe('NO_ISSUES_FOUND');
     // Not applicable (skipped or absent) is no failure, nor is a docs-only PR.
     expect(
       computeFinalVerdict(
@@ -654,8 +654,8 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         [{ check: 'Base-Test Regression', status: 'SKIPPED', detail: 'no target' }],
         'core-bugfix',
       ),
-    ).toBe('READY');
-    expect(computeFinalVerdict([], crashed, 'docs-only')).toBe('READY');
+    ).toBe('NO_ISSUES_FOUND');
+    expect(computeFinalVerdict([], crashed, 'docs-only')).toBe('NO_ISSUES_FOUND');
   });
 
   test('resolveStageEffort dynamically scales effort per stage and PR risk and respects overrides', () => {
@@ -839,6 +839,6 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       },
     ]);
     expect(allResolved.find((m) => m.check === 'Reviewer Thread')?.status).toBe('PASS');
-    expect(computeFinalVerdict([], allResolved)).toBe('READY');
+    expect(computeFinalVerdict([], allResolved)).toBe('NO_ISSUES_FOUND');
   });
 });

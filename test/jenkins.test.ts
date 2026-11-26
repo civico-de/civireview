@@ -135,9 +135,9 @@ describe('Jenkins / Duderino CI evidence & flaky-CI reconciliation', () => {
     expect(proofRow?.status).toBe('PASS');
     expect(proofRow?.detail).toContain('NFC/refactor: behavior preserved');
 
-    expect(computeFinalVerdict([], reconciled)).toBe('READY');
+    expect(computeFinalVerdict([], reconciled)).toBe('NO_ISSUES_FOUND');
     const score = computeConfidenceScore({
-      verdict: 'READY',
+      verdict: 'NO_ISSUES_FOUND',
       findings: [],
       verificationMatrix: reconciled,
       prKind: 'core-ref-nfc',

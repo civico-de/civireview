@@ -52,7 +52,7 @@ describe('formatter & publisher', () => {
     expect(inline.indexOf('<details>')).toBeLessThan(inline.indexOf('**Failure scenario:**'));
 
     const [visible, folded] = splitAtFirstDetails(formatted.summaryBody);
-    expect(visible).toContain('## CiviReview: 🔴 **Needs Changes** · **2/5** `★★☆☆☆`');
+    expect(visible).toContain('## CiviReview: 🔴 **Issues found** · **2/5**\n');
     expect(visible).toContain('**To address (2)**');
     expect(visible).toContain('- [ ] **HIGH** `CRM/Contact/BAO/Contact.php:11` — Inline bug');
     expect(visible).toContain(
@@ -60,7 +60,7 @@ describe('formatter & publisher', () => {
     );
     expect(visible).toContain('✅ CI · ✅ Proof of fix');
     expect(folded).toContain('<summary>Findings outside the diff (1)</summary>');
-    expect(folded).toContain('**Merge confidence (2/5):**');
+    expect(folded).toContain('**Score (2/5):**');
     expect(folded).toContain('<summary>Verification (2 checks, 1 not verified)</summary>');
     expect(folded).toContain('| CiviKitchen A/B Proof-of-Fix | ✅ PASS |');
     expect(folded).toContain('**Not verified:**\n- Upgrade step not run');
@@ -81,7 +81,7 @@ describe('formatter & publisher', () => {
   test('formatReviewMarkdown omits extension-only clutter on core and avoids Summary/Confidence duplication', () => {
     const bundle = makeSampleBundle();
     const review = makeSampleReview();
-    review.verdict = 'READY';
+    review.verdict = 'NO_ISSUES_FOUND';
     review.findings = [];
     review.droppedCount = 0;
     review.verificationMatrix = [
@@ -106,7 +106,7 @@ describe('formatter & publisher', () => {
         .length - 1;
     expect(rationaleOccurrences).toBe(1);
     expect(formatted.summaryBody).toContain(
-      '`★★★★★`\n\nChanges: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
+      '## CiviReview: 🟢 **No issues found** · **5/5**\n\nChanges: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
     );
     expect(formatted.summaryBody).not.toContain('**To address');
     expect(formatted.summaryBody).toContain('No findings above the confidence gate.');
@@ -575,7 +575,7 @@ describe('formatter reference sections', () => {
     const [visible] = splitAtFirstDetails(body(review, makeSampleBundle()));
     expect(visible).not.toMatch(/^\|/m);
     expect(visible).not.toContain('Failure scenario');
-    expect(visible).not.toContain('Merge confidence');
+    expect(visible).not.toContain('**Score (');
     expect(visible).not.toContain('Base tests');
     expect(visible.trim().split('\n').length).toBeLessThanOrEqual(10);
   });

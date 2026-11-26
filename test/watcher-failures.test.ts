@@ -89,7 +89,7 @@ function makeFailingSetup(commentIds: number[], pipelineError?: Error, isPrivate
       // The stages before the failure cost 0.4.
       if (pipelineError && opts.usage) opts.usage.estimatedUsd = 0.4;
       if (pipelineError) throw pipelineError;
-      return { verdict: 'READY', tokenUsage: { estimatedUsd: 1.5 } };
+      return { verdict: 'NO_ISSUES_FOUND', tokenUsage: { estimatedUsd: 1.5 } };
     },
     publishReview: async (opts: { commentId?: number }) => {
       if (opts.commentId === 101) throw new Error('HTTP 403 Resource not accessible');
@@ -153,7 +153,7 @@ describe('watcher failure handling and state file', () => {
     await pass({ outDir });
     for (const id of [101, 102]) {
       const saved = JSON.parse(readFileSync(join(outDir, `o-r-7-${id}`, 'review.json'), 'utf8'));
-      expect(saved.verdict).toBe('READY');
+      expect(saved.verdict).toBe('NO_ISSUES_FOUND');
       // With its evidence the directory is what `civireview publish` reads, to render it again.
       const evidence = JSON.parse(
         readFileSync(join(outDir, `o-r-7-${id}`, 'evidence.json'), 'utf8'),

@@ -33,7 +33,7 @@ export function buildVerifierPrompt(
     triageBullets && triageBullets.length > 0
       ? `\n9. Walkthrough Reconciliation (\`reconciledWalkthrough\`):
    - Reconcile Stage 0's initial \`walkthrough\` bullets against your verified evidence and Stage 1 findings: replace any early \`NEEDS_QUESTION: I did not confirm...\` bullet whose question was answered by your code inspection with a factual \`CONFIRMED:\` or \`PROVEN:\` bullet, strip any bullet that merely repeats third-party bot comments (e.g. Greptile/CodeRabbit), and keep 3–6 crisp, non-contradictory bullets.
-   - CONSISTENCY RULE: Only state \`CONFIRMED:\` for a defect in \`reconciledWalkthrough\` if that defect is also emitted in \`verifiedFindings\` with \`confidence >= ${threshold}\` (otherwise it will be filtered out by the posting gate and contradict a \`READY\` verdict).${
+   - CONSISTENCY RULE: Only state \`CONFIRMED:\` for a defect in \`reconciledWalkthrough\` if that defect is also emitted in \`verifiedFindings\` with \`confidence >= ${threshold}\` (otherwise it will be filtered out by the posting gate and contradict a \`NO_ISSUES_FOUND\` verdict).${
      options?.liveTools
        ? `
    - SETTLE GAPS LIVE: before you keep a \`NOT VERIFIED:\` or \`NEEDS_QUESTION:\` bullet, try to settle it with \`live_probe_ab\` (set up the scenario on A and B, run the job or call, compare). Replace it with what you observed; keep it only when the stacks cannot reach the question, and say why.`

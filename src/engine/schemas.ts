@@ -179,7 +179,15 @@ export const TokenUsageTotalsSchema = z.object({
 });
 export type TokenUsageTotals = z.infer<typeof TokenUsageTotalsSchema>;
 
-export const FinalVerdictSchema = z.enum(['READY', 'NEEDS_CHANGES', 'QUESTIONS_ONLY']);
+// Reviews saved before the verdicts were renamed are still rendered again.
+const SAVED_VERDICT_NAMES: Record<string, string> = {
+  READY: 'NO_ISSUES_FOUND',
+  NEEDS_CHANGES: 'ISSUES_FOUND',
+};
+export const FinalVerdictSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? (SAVED_VERDICT_NAMES[value] ?? value) : value),
+  z.enum(['NO_ISSUES_FOUND', 'ISSUES_FOUND', 'QUESTIONS_ONLY']),
+);
 export type FinalVerdict = z.infer<typeof FinalVerdictSchema>;
 
 export const ConfidenceScoreSchema = z.union([
