@@ -721,7 +721,7 @@ async function main(): Promise<void> {
     const tempScreenshotDir = outDir ? undefined : mkdtempSync(join(tmpdir(), 'civireview-pr-'));
     const effectiveOutDir = outDir ?? tempScreenshotDir;
 
-    const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidence({
+    const { bundle, filteredPatch, urls, composeFiles, browser, cleanup } = await collectEvidence({
       repoRoot: cwd,
       config,
       outputDir: effectiveOutDir,
@@ -752,6 +752,7 @@ async function main(): Promise<void> {
         cwd,
         liveUrls: urls,
         composeFiles,
+        browser,
         logger: {
           info: (msg) => console.error(`[civireview] ${msg}`),
           warn: (msg) => console.error(`[civireview:warn] ${msg}`),
@@ -823,7 +824,7 @@ async function main(): Promise<void> {
     const outDir = values.out ? resolve(values.out) : undefined;
     const tempOutDir = outDir ? undefined : mkdtempSync(join(tmpdir(), 'civireview-local-'));
 
-    const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidence({
+    const { bundle, filteredPatch, urls, composeFiles, browser, cleanup } = await collectEvidence({
       repoRoot: cwd,
       config,
       outputDir: outDir ?? tempOutDir,
@@ -840,6 +841,7 @@ async function main(): Promise<void> {
         cwd,
         liveUrls: urls,
         composeFiles,
+        browser,
         logger: {
           info: (msg) => console.error(`[civireview] ${msg}`),
           warn: (msg) => console.error(`[civireview:warn] ${msg}`),

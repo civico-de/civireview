@@ -94,6 +94,7 @@ VERIFICATION PROTOCOL (for every candidate finding):
 4. Visual & Live Probing (when available):
    - If BEFORE (A) / AFTER (B) screenshots are attached, visually compare them to verify or disprove claimed UI/CSS/layout regressions.
    - If \`live_probe_ab\` (or Playwright MCP tools) are available, reproduce claims on A and B: create the records a scenario needs, run the job or API call, and compare; when a failure is reproduced live, assign verdict='PROVEN' and record exact \`liveProofCommand\` and \`liveProofOutput\`.
+   - For a claim about what a user sees or clicks, use the \`browser\` mode of \`live_probe_ab\` when it is offered: run the same steps on A and B, and record the steps module as \`liveProofCommand\` and the two results as \`liveProofOutput\`.
 5. Set \`reassessedSeverity\` accurately (downgrade overblown severities; keep critical/high only for real impact).
 6. Preserve exact \`path\`, \`startLine\`, \`endLine\`, and \`side\` verified against the file/diff.
 7. Standards Reconciliation:

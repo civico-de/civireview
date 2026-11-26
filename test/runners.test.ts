@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -323,6 +331,279 @@ describe('runners', () => {
     expect(exact.exitCode).toBe(0);
     expect(exact.stdout.length).toBe(1_000_000);
     expect(exact.stdout).not.toContain('output stopped');
+  });
+
+  test('browser mode runs the steps module on both stacks through ck steps', async () => {
+    const dir = makeTempDir();
+    const composeA = join(dir, 'a.yml');
+    const composeB = join(dir, 'b.yml');
+    writeFileSync(composeA, 'services: {}');
+    writeFileSync(composeB, 'services: {}');
+    const stepsDir = join(dir, 'steps');
+    const calls: Array<{ args: string[]; module: string; timeoutMs?: number }> = [];
+    const source = 'export default async ({ page, url }) => { await page.goto(url("civicrm")); };';
+    const probe = createLiveProbeTool({
+      urlA: 'http://localhost:41001',
+      urlB: 'http://localhost:41002',
+      composeFileA: composeA,
+      composeFileB: composeB,
+      ck: ['/opt/ck', 'wrapped'],
+      stepsDir,
+      execFn: async (args, opts) => {
+        calls.push({ args, module: readFileSync(args[4]!, 'utf8'), timeoutMs: opts?.timeoutMs });
+        const isA = args[3] === 'http://localhost:41001';
+        const report = isA
+          ? { ok: true, value: { rows: 2 }, url: 'http://localhost:41001/civicrm', errors: [] }
+          : { ok: false, error: 'locator.click: Timeout', errors: ['TypeError: x is null'] };
+        return {
+          exitCode: isA ? 0 : 1,
+          stdout: `booting\n${JSON.stringify(report)}\n`,
+          stderr: '',
+        };
+      },
+    }).live_probe_ab!;
+
+    const res = (await probe.execute!(
+      { mode: 'browser', steps: source, target: 'both', timeoutSeconds: 40 },
+      { toolCallId: 'b1', messages: [], context: undefined },
+    )) as {
+      a: { ran: boolean; ok: boolean; value: unknown };
+      b: { ran: boolean; ok: boolean; error: string; errors: string[] };
+      differs: boolean;
+    };
+
+    expect(calls.map((c) => c.args.slice(0, 4))).toEqual([
+      ['/opt/ck', 'wrapped', 'steps', 'http://localhost:41001'],
+      ['/opt/ck', 'wrapped', 'steps', 'http://localhost:41002'],
+    ]);
+    expect(calls.map((c) => c.args.slice(5))).toEqual([
+      ['--cms', 'standalone', '--phase', 'before', '--timeout', '40'],
+      ['--cms', 'standalone', '--phase', 'after', '--timeout', '40'],
+    ]);
+    expect(calls[0]!.module).toBe(source);
+    expect(calls[0]!.args[4]!.startsWith(stepsDir)).toBe(true);
+    expect(calls[0]!.timeoutMs).toBe(85_000);
+    expect(res.a).toMatchObject({ ran: true, ok: true, value: { rows: 2 } });
+    expect(res.b).toMatchObject({ ran: true, ok: false, error: 'locator.click: Timeout' });
+    expect(res.differs).toBe(true);
+    // The module is gone once both runs returned.
+    expect(readdirSync(stepsDir)).toEqual([]);
+  });
+
+  test('browser mode: equal runs on pages that differ only in address do not differ', async () => {
+    const dir = makeTempDir();
+    const composeA = join(dir, 'a.yml');
+    writeFileSync(composeA, 'services: {}');
+    const probe = createLiveProbeTool({
+      urlA: 'http://localhost:41001',
+      urlB: 'http://localhost:41002',
+      composeFileA: composeA,
+      composeFileB: composeA,
+      ck: ['ck'],
+      stepsDir: join(dir, 'steps'),
+      execFn: async (args) => ({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          ok: true,
+          value: { heading: 'Contact Saved' },
+          url: `${args[2]}/civicrm/contact/view?cid=${args[2]!.endsWith('1') ? 3 : 7}`,
+          text: `- link "View": /url: ${args[2]}`,
+          errors: [],
+        }),
+        stderr: '',
+      }),
+    }).live_probe_ab!;
+    const res = (await probe.execute!(
+      {
+        mode: 'browser',
+        steps: 'export default async () => {};',
+        target: 'both',
+        timeoutSeconds: 60,
+      },
+      { toolCallId: 'b2', messages: [], context: undefined },
+    )) as { differs: boolean };
+    expect(res.differs).toBe(false);
+  });
+
+  test('browser mode reports a run that gave no report as not run, and one stack alone', async () => {
+    const dir = makeTempDir();
+    const compose = join(dir, 'a.yml');
+    writeFileSync(compose, 'services: {}');
+    const probe = createLiveProbeTool({
+      urlA: 'http://localhost:41001',
+      urlB: 'http://localhost:41002',
+      composeFileA: compose,
+      composeFileB: compose,
+      ck: ['ck'],
+      stepsDir: join(dir, 'steps'),
+      execFn: async () => ({
+        exitCode: 2,
+        stdout: '',
+        stderr: 'could not log into standalone at http://localhost:41002\n',
+      }),
+    }).live_probe_ab!;
+    const res = (await probe.execute!(
+      { mode: 'browser', steps: 'export default async () => {};', target: 'B', timeoutSeconds: 60 },
+      { toolCallId: 'b3', messages: [], context: undefined },
+    )) as { a?: unknown; b: { ran: boolean; error: string }; differs?: boolean };
+    expect(res.a).toBeUndefined();
+    expect(res.differs).toBeUndefined();
+    expect(res.b).toEqual({
+      ran: false,
+      error: 'could not log into standalone at http://localhost:41002',
+    });
+    await expect(
+      probe.execute!(
+        { mode: 'browser', steps: '  ', target: 'both', timeoutSeconds: 60 },
+        { toolCallId: 'b4', messages: [], context: undefined },
+      ),
+    ).rejects.toThrow('browser needs the source of a steps module');
+  });
+
+  test('browser mode drives a kept CMS site by name, with the change applied', async () => {
+    const dir = makeTempDir();
+    const compose = join(dir, 'a.yml');
+    writeFileSync(compose, 'services: {}');
+    const calls: string[][] = [];
+    const probe = createLiveProbeTool({
+      urlA: 'http://localhost:41001',
+      urlB: 'http://localhost:41002',
+      composeFileA: compose,
+      composeFileB: compose,
+      ck: ['ck'],
+      stepsDir: join(dir, 'steps'),
+      cmsSites: [
+        { cms: 'joomla', url: 'http://localhost:8301' },
+        { cms: 'wordpress', url: 'http://example.org:8302' },
+      ],
+      execFn: async (args) => {
+        calls.push(args);
+        return { exitCode: 0, stdout: JSON.stringify({ ok: true, errors: [] }), stderr: '' };
+      },
+    }).live_probe_ab!;
+    const call = (cms: string) =>
+      probe.execute!(
+        {
+          mode: 'browser',
+          steps: 'export default async () => {};',
+          cms,
+          target: 'both',
+          timeoutSeconds: 30,
+        },
+        { toolCallId: 'c1', messages: [], context: undefined },
+      );
+
+    expect(await call('joomla')).toEqual({
+      mode: 'browser',
+      cms: 'joomla',
+      site: { ran: true, ok: true, errors: [] },
+    });
+    expect(calls).toHaveLength(1);
+    expect([calls[0]![2], ...calls[0]!.slice(4)]).toEqual([
+      'http://localhost:8301',
+      '--cms',
+      'joomla',
+      '--phase',
+      'after',
+      '--timeout',
+      '30',
+    ]);
+    // A site that is not on localhost is not offered, nor is a CMS that never booted.
+    await expect(call('wordpress')).rejects.toThrow(
+      'No wordpress site is running (available: joomla)',
+    );
+    await expect(call('backdrop')).rejects.toThrow('No backdrop site is running');
+    expect(calls).toHaveLength(1);
+    expect(probe.description).toContain('With `cms` (joomla)');
+  });
+
+  test('a browser call stays within the limit of one exec, and is not offered below it', async () => {
+    const dir = makeTempDir();
+    const compose = join(dir, 'a.yml');
+    writeFileSync(compose, 'services: {}');
+    const calls: Array<{ args: string[]; timeoutMs?: number }> = [];
+    const toolWith = (maxExecSeconds: number) =>
+      createLiveProbeTool({
+        urlA: 'http://localhost:41001',
+        urlB: 'http://localhost:41002',
+        composeFileA: compose,
+        composeFileB: compose,
+        ck: ['ck'],
+        stepsDir: join(dir, 'steps'),
+        maxExecSeconds,
+        execFn: async (args, opts) => {
+          calls.push({ args, timeoutMs: opts?.timeoutMs });
+          return { exitCode: 0, stdout: JSON.stringify({ ok: true, errors: [] }), stderr: '' };
+        },
+      }).live_probe_ab!;
+
+    // The fast depth: a 180 s stage allows 90 s per call, 45 of them for the steps.
+    await toolWith(90).execute!(
+      { mode: 'browser', steps: 'export default async () => {};', target: 'A', timeoutSeconds: 90 },
+      { toolCallId: 't1', messages: [], context: undefined },
+    );
+    expect(calls[0]!.args.at(-1)).toBe('45');
+    expect(calls[0]!.timeoutMs).toBe(90_000);
+
+    const short = toolWith(60);
+    expect(
+      (short.inputSchema as z.ZodType).safeParse({ mode: 'browser', steps: 'x' }).success,
+    ).toBe(false);
+    expect(short.description).not.toContain('browser');
+  });
+
+  test('without a ck launcher or a URL there is no browser mode and no browser note', () => {
+    const dir = makeTempDir();
+    const A = join(dir, 'a.yml');
+    const B = join(dir, 'b.yml');
+    writeFileSync(A, 'services: {}');
+    writeFileSync(B, 'services: {}');
+    const modes = (ck?: string[]) => {
+      const schema = createLiveProbeTool({ composeFileA: A, composeFileB: B, ck }).live_probe_ab!
+        .inputSchema as z.ZodType;
+      return schema.safeParse({ mode: 'browser', steps: 'x' }).success;
+    };
+    expect(modes()).toBe(false);
+    expect(modes(['ck'])).toBe(true);
+
+    const runner = {
+      providers: ['anthropic'] as const,
+      supportsLiveStacks: true,
+      run: async () => {
+        throw new Error('not called');
+      },
+    };
+    const note = (urls: { A?: string; B?: string }, ck?: string[]) =>
+      createStageLiveTools({
+        enabled: true,
+        stageTimeoutMs: 360_000,
+        registry: createRunnerRegistry({ anthropic: runner as unknown as StageRunner }),
+        urls,
+        composeFiles: { A, B },
+        ck,
+      })('anthropic:claude-opus-5-5').note;
+    const urls = { A: 'http://localhost:41001', B: 'http://localhost:41002' };
+    expect(note(urls, ['ck'])).toContain('LIVE BROWSER');
+    expect(note(urls)).not.toContain('LIVE BROWSER');
+    expect(note({ A: urls.A }, ['ck'])).not.toContain('LIVE BROWSER');
+    expect(note(urls)).toContain('LIVE INSTANCES');
+    const withCms = (ck?: string[]) =>
+      createStageLiveTools({
+        enabled: true,
+        stageTimeoutMs: 360_000,
+        registry: createRunnerRegistry({ anthropic: runner as unknown as StageRunner }),
+        urls,
+        composeFiles: { A, B },
+        ck,
+        cmsSites: [{ cms: 'joomla', url: 'http://localhost:8301' }],
+      })('anthropic:claude-opus-5-5');
+    expect(withCms(['ck']).note).toContain(
+      'LIVE CMS SITES: the PR is also applied on a running joomla site',
+    );
+    expect(withCms(['ck']).stacks?.cmsSites).toEqual([
+      { cms: 'joomla', url: 'http://localhost:8301' },
+    ]);
+    expect(withCms().note).not.toContain('LIVE CMS SITES');
   });
 
   test('createStageLiveTools caps one exec at half the stage timeout', () => {

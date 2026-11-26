@@ -118,12 +118,14 @@ A row is absent when the check does not apply to the profile.
 only the dashboard is loaded, or a route the diff names on an unchanged line. A clean result is then `NOT_VERIFIED` with a hint to name
 a route (`@civireview --page civicrm/…`). A regression on the dashboard still fails.
 A `PASS` always lists the routes it covers under *Standalone browser A/B* in
-*Verification*; the browser loads pages and does not operate forms.
+*Verification*; this check loads pages and does not operate forms. Forms and dialogs are
+clicked through by the review stages where they judge it necessary, and a finding proven
+that way quotes its steps.
 
 **Code of one CMS integration.** Files named after a CMS (`CRM/Utils/System/Joomla.php`,
 `css/wordpress.css`) do not run on Standalone. civireview records the PR on that CMS
-with `ck demo --cms`; the CMS images carry the latest CiviCRM release, so a PR that does
-not apply to it gives `NOT_VERIFIED` with that reason. When the PR changes nothing but
+with `ck demo --cms`, on civikitchen's image of that CMS with core master from its last
+daily build; a PR that does not apply to it gives `NOT_VERIFIED` with that reason. When the PR changes nothing but
 such files and no run on the CMS gave a result, the review is Questions Only with a
 confidence of at most 3, and the Standalone browser row is left out. When it also
 changes shared code, the confidence is at most 4. A clean run on the CMS is a login and

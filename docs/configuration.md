@@ -98,6 +98,23 @@ off, since its instances end with the job. API models get the tool directly; `cl
 models get the same tool from a local MCP server. `codex-cli` and `opencode-cli` models
 do not get it.
 
+The same tool drives a browser. In its `browser` mode a stage passes the source of a
+Playwright steps module, and civikitchen's `ck steps` runs it on A and on B in a browser
+logged in as admin: open a page, fill a form, submit, open a dialog. Per side the stage
+gets back whether the steps finished, what they threw or returned, the page they ended
+on as an accessibility tree, and the script errors. The `ui` lens and the verifier are
+told to click through a changed form or dialog instead of judging it from the diff. The
+mode needs a civikitchen that has `ck steps` and both instance URLs; without them the
+tool offers its other modes only. A browser call counts against the same limit as an
+`exec`, half the stage timeout, and 45 s of it go to browser start and login; a stage
+timeout below 150 s leaves the steps under 30 s, and the mode is not offered then.
+
+When the CMS Browser A/B recorded the PR on a CMS, that site stays up for the review
+with the change applied, and the `browser` mode can run the steps there by name
+(`cms: joomla`). There is no base site beside it, so a stage sees there whether the
+change works on that CMS, not what it changed. The site is reached through the same tool as A
+and B: when those two did not come up, the CMS site is not offered either.
+
 ## Browser
 
 | Key | Default | Meaning |

@@ -44,7 +44,8 @@ import {
   resolveAvailableCivikitchenImage,
 } from './ab/image-drift.ts';
 import { defaultExec } from './ab/exec.ts';
-import { runCmsDemosForDiff } from './ab/cms-demo.ts';
+import { removeCmsStack, runCmsDemosForDiff, type KeptCmsSite } from './ab/cms-demo.ts';
+
 import { checkoutPrMerge } from './ab/merge-ref.ts';
 import { runStandaloneBrowserAb, runStaticAndLifecycleChecks } from './ab/static-browser.ts';
 import { computeSurfaceDiff, mergeLiveSurfaceDiff } from './ab/surface-diff.ts';
@@ -143,11 +144,21 @@ export interface RunCiviKitchenAbOptions {
   worktreeBaseDir?: string;
 }
 
+/** What the review stages need to drive a browser on the kept sites. */
+export interface LiveBrowser {
+  /** The `ck` launcher, which has `ck steps`. */
+  ck: string[];
+  /** CMS sites left running with the change applied, until `cleanup()`. */
+  cmsSites: KeptCmsSite[];
+}
+
 export interface CiviKitchenAbOutcome {
   abReport: AbRunReport;
   staticDelta: StaticDeltaReport;
   urls?: { A?: string; B?: string };
   composeFiles?: { A?: string; B?: string };
+  /** Set when the stacks are kept and `ck` can drive a browser on them. */
+  browser?: LiveBrowser;
   workDir?: string;
   cleanup: () => Promise<void>;
 }
@@ -268,6 +279,7 @@ export async function runCiviKitchenAb(
   let demoArtifactsDir: string | undefined;
   const demoConsoleErrors: string[] = [];
   const cmsDemos: CmsDemoResult[] = [];
+  const keptCmsSites: KeptCmsSite[] = [];
   let browserDiff: BrowserDiffReport | undefined;
   let keptUrls: { A?: string; B?: string } | undefined;
   let keptComposeFiles: { A?: string; B?: string } | undefined;
@@ -275,6 +287,12 @@ export async function runCiviKitchenAb(
   const interactiveBrowser = isCheckEnabled(effectiveCfg, 'interactive-browser');
   const liveProve = isCheckEnabled(effectiveCfg, 'live-prove');
   const keepLive = abConfig.keepStacks || interactiveBrowser || liveProve;
+  // Builds the browser's image ahead of the stages' time limits. A civikitchen without
+  // `ck steps` fails here; the stages then get the live tool without a browser.
+  const browserImage = keepLive
+    ? await execFn([...ck.command, 'steps', '--build-image'], { timeoutMs: 900_000 })
+    : undefined;
+  const browserCk = browserImage?.exitCode === 0 ? ck.command : undefined;
   const wantSurface = isCheckEnabled(effectiveCfg, 'surface');
 
   let testedMerge: { base: string; merge: string } | undefined;
@@ -738,6 +756,7 @@ export async function runCiviKitchenAb(
             diffFiles,
             browserConfig,
             notVerified,
+            ...(browserCk ? { kept: keptCmsSites } : {}),
           })),
         );
       }
@@ -878,6 +897,11 @@ export async function runCiviKitchenAb(
   } finally {
     // Kept for a live probe only after a complete run; each worktree is removed on its own,
     // since the first can exist without the second.
+    if (!completed) {
+      for (const site of keptCmsSites.splice(0)) {
+        await removeCmsStack(execFn, site.project);
+      }
+    }
     if (!keepLive || !completed) {
       await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeA]);
       await execFn(['git', '-C', repoRoot, 'worktree', 'remove', '--force', worktreeB]);
@@ -896,6 +920,9 @@ export async function runCiviKitchenAb(
             timeoutMs: 60_000,
           });
         }
+      }
+      for (const site of keptCmsSites) {
+        await removeCmsStack(execFn, site.project);
       }
     } finally {
       if (worktreesCreated) {
@@ -933,6 +960,7 @@ export async function runCiviKitchenAb(
     },
     ...(keptUrls ? { urls: keptUrls } : {}),
     ...(keptComposeFiles ? { composeFiles: keptComposeFiles } : {}),
+    ...(browserCk ? { browser: { ck: browserCk, cmsSites: keptCmsSites } } : {}),
     ...(keepLive ? { workDir } : {}),
     cleanup,
   };

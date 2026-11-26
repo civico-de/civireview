@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { BrowserConfigSchema } from '../src/config/schema.ts';
 import { computeFinalVerdict, unverifiedRuntimeChecks } from '../src/engine/findings.ts';
 import { buildVerificationMatrix, computeConfidenceScore } from '../src/engine/matrix.ts';
-import { cmsDemoProject, parseCmsDemoOutcome, runCmsDemos } from '../src/evidence/ab/cms-demo.ts';
+import {
+  cmsDemoProject,
+  parseCmsDemoOutcome,
+  runCmsDemos,
+  type KeptCmsSite,
+} from '../src/evidence/ab/cms-demo.ts';
 import { discoverStandaloneRoutes } from '../src/evidence/browser-routes.ts';
 import { cmsOfPath, cmsScope } from '../src/evidence/cms-scope.ts';
 import { parseUnifiedDiff } from '../src/evidence/diff-filter.ts';
@@ -322,6 +327,42 @@ describe('runCmsDemos', () => {
     expect(result?.status).toBe('NOT_VERIFIED');
     // The teardown failed here too (the stub answers 124 to every command).
     expect(result?.detail).toContain('ck-demo-cr-run-ab3x-joomla could not be removed (exit 124)');
+  });
+});
+
+const runKept = (stdout: string, exitCode = 0) => {
+  const calls: string[][] = [];
+  const kept: KeptCmsSite[] = [];
+  return runCmsDemos({
+    execFn: async (args) => {
+      calls.push(args);
+      return { exitCode, stdout, stderr: '' };
+    },
+    ckCommand: ['ck'],
+    patchFile: '/w/run-Ab3x/cr-run-Ab3x.patch',
+    outRoot: `${process.env.TMPDIR ?? '/tmp'}/civireview-cms-test`,
+    cms: ['joomla'],
+    routes: ['civicrm/dashboard?reset=1'],
+    kept,
+  }).then(() => ({ calls, kept }));
+};
+
+describe('kept CMS sites', () => {
+  test('a kept run names its site for the stages', async () => {
+    const { calls, kept } = await runKept(
+      'ck demo: recording Joomla after\nck demo: kept Joomla at http://localhost:8301 (admin / admin)\n',
+    );
+    expect(calls[0]!.at(-1)).toBe('--keep');
+    expect(kept).toEqual([
+      { cms: 'joomla', url: 'http://localhost:8301', project: 'ck-demo-cr-run-ab3x-joomla' },
+    ]);
+  });
+
+  test('a failed run keeps no site, and one that names none is not guessed', async () => {
+    expect(
+      (await runKept('ck demo: kept Joomla at http://localhost:8301 (admin / admin)\n', 1)).kept,
+    ).toEqual([]);
+    expect((await runKept('ck demo: /out/index.html\n')).kept).toEqual([]);
   });
 });
 

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stages click through the change**: `live_probe_ab` has a `browser` mode. A stage passes a Playwright steps module, and civikitchen's `ck steps` runs it on A and B in a browser logged in as admin; the stage gets back whether the steps finished, their error or return value, the page they ended on as text and the script errors. The `ui` lens and the verifier use it for changed forms, dialogs and lists. It comes with `live-prove` and needs a civikitchen that has `ck steps`. A CMS site that the CMS Browser A/B booted stays up for the review with the change applied, and the stages can click through it too.
 - **CMS Browser A/B**: a core PR that changes files of one CMS integration (`CRM/Utils/System/Joomla.php`, `css/wordpress.css`) is recorded on that CMS with `ck demo --cms`: login and page loads without and with the change. `browser.cms` names CMS to record for every core PR; a review boots two at most. `checks.cmsBrowser: false` switches it off.
 - **Merge conditions**: a condition the PR description states for merging (a release, a date, another PR) is the first item under *To address*. Verdict and confidence stay as they are.
 - **Outside this review**: *Verification* ends with what no check looks at: other CMS, other viewports, the approach, and when to merge.

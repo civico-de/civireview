@@ -96,6 +96,8 @@ export interface RunReviewPipelineOptions {
   logger?: PipelineLogger;
   liveUrls?: { A?: string; B?: string };
   composeFiles?: { A?: string; B?: string };
+  /** The `ck` launcher that has `ck steps`, and the CMS sites kept with the change applied. */
+  browser?: { ck: string[]; cmsSites: Array<{ cms: string; url: string }> };
   /** Filled stage by stage, so a caller can read the cost of a review that threw. */
   usage?: TokenUsageTotals;
 }
@@ -500,6 +502,8 @@ async function executeReviewPipeline(
     registry,
     urls: { A: effectiveUrlA, B: effectiveUrlB },
     composeFiles: options.composeFiles,
+    ck: options.browser?.ck,
+    cmsSites: options.browser?.cmsSites,
   });
 
   // Stage 1: Sequential Specialist Lenses

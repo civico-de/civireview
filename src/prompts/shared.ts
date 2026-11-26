@@ -208,3 +208,14 @@ ${bundle.notVerified.map((n) => `- ${n}`).join('\n') || '- none'}`);
 export const LIVE_INSTANCE_NOTE = `
 
 LIVE INSTANCES: \`live_probe_ab\` runs commands in the running, disposable CiviCRM Standalone stacks A (base) and B (PR head). Use it when reading code leaves a question open: create the records a scenario needs on both, run the job or API call, and compare A with B. A result observed on both stacks is evidence; quote the command and its output. Other stages use the same stacks, so create your own records and filter by their IDs instead of relying on totals.`;
+
+export const LIVE_BROWSER_NOTE = `
+
+LIVE BROWSER: the \`browser\` mode of \`live_probe_ab\` clicks through the change as a logged-in admin on A and B. Use it for whatever a user reaches with the mouse: a changed form, button, dialog, list, tab or page script. Open the page first and read its \`text\` to find the labels and selectors, then run the steps that exercise the changed code path: fill the form, submit, open the dialog. Return what you observed as the module's value. The same steps passing on A and failing on B, or a script error only on B, is evidence of a regression; steps that fail on both show a mistake in the steps, not in the PR. A change with a user-facing path that you did not click through is not verified by reading alone: say so.`;
+
+/** The CMS sites the browser mode can drive, for the stage prompt. */
+export function liveCmsNote(cms: string[]): string {
+  return `
+
+LIVE CMS SITES: the PR is also applied on a running ${cms.join(' and ')} site. Code of a CMS integration (\`CRM/Utils/System/<Cms>.php\`, its templates, styles and scripts) runs only there, never on the Standalone stacks. Pass \`cms\` to the \`browser\` mode to click through what the PR changes for that CMS. There is no base site beside it: a failure there is evidence only when the steps are right, so open the page and read its \`text\` before you conclude.`;
+}

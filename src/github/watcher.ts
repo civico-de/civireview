@@ -637,15 +637,16 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
         const effectiveConfig = applyMentionFlagsToConfig(options.config, mention.flags, {
           lockModels,
         });
-        const { bundle, filteredPatch, urls, composeFiles, cleanup } = await collectEvidenceFn({
-          repoRoot: options.repoRoot,
-          config: effectiveConfig,
-          owner: mention.owner,
-          repo: mention.repo,
-          prNumber: mention.prNumber,
-          githubToken: token,
-          incremental: !mention.flags.full,
-        });
+        const { bundle, filteredPatch, urls, composeFiles, browser, cleanup } =
+          await collectEvidenceFn({
+            repoRoot: options.repoRoot,
+            config: effectiveConfig,
+            owner: mention.owner,
+            repo: mention.repo,
+            prNumber: mention.prNumber,
+            githubToken: token,
+            incremental: !mention.flags.full,
+          });
         options.logger?.info(
           `Collected evidence for ${mention.repoFullName}#${mention.prNumber}: ${bundle.diffFiles.length} file(s), A/B=${bundle.abReport.executed ? `executed (${bundle.abReport.checks.length} check(s))` : 'skipped'}`,
         );
@@ -675,6 +676,7 @@ export async function runWatcherOnce(options: WatcherOptions): Promise<WatcherPa
               cwd: options.repoRoot,
               liveUrls: urls,
               composeFiles,
+              browser,
               logger: options.logger,
               usage,
             });

@@ -28,6 +28,7 @@ CIVICRM UI & ACCESSIBILITY CHECKLIST:
    - Inspect \`browserDiff\` in Layer 1 evidence (new console errors, page errors, network failures, a11y violations, render regressions) and any attached BEFORE (base A) / AFTER (head B) screenshots for visual/layout breakage, overlapping elements, missing styles, or broken widgets.
    - Inspect \`demoConsoleErrors\` if \`ck demo\` executed; report concrete runtime errors with exact route and cause.
    - If Playwright MCP browser tools are attached (Tier 2 interactive mode), you may inspect the live Standalone A/B URLs directly to confirm DOM/CSS/console behavior.
+   - If \`live_probe_ab\` offers the \`browser\` mode, click through each changed form, dialog, button and list on A and B before you report on it or clear it: a page that loads is not a form that submits.
 5. False-alarm check for warnings/validation messages:
    - For any code that warns or flags user input, test mentally against the most plausible healthy input; a false alarm is a top finding.`;
 

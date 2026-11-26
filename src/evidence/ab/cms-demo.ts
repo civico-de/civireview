@@ -14,6 +14,13 @@ export const CMS_SMOKE_ROUTES = ['civicrm/dashboard?reset=1', 'civicrm/contact/s
 // `ck demo` waits up to 900 s for a stack to boot, then records twice.
 const DEMO_TIMEOUT_MS = 1_500_000;
 
+/** A CMS site `ck demo --keep` left running, with the change applied. */
+export interface KeptCmsSite {
+  cms: RunnableCms;
+  url: string;
+  project: string;
+}
+
 /** The compose project `ck demo` boots for a patch file on one CMS. */
 export function cmsDemoProject(patchFile: string, cms: string): string {
   const label = basename(patchFile, extname(patchFile))
@@ -60,7 +67,7 @@ export function parseCmsDemoOutcome(
           detail: `${label}: logged in and loaded ${routes.length} route(s) without and with the change; no new script errors.`,
         };
   }
-  // The image carries a release; a PR against master may not apply to its core.
+  // The image carries master as of its daily build; a PR on a newer or older base may not apply.
   const unapplied = /the change does not apply to [^(\n]+/.exec(stripAnsi(res.stderr))?.[0].trim();
   const reason =
     unapplied ?? (lastLine(res.stderr) || lastLine(res.stdout) || `exit ${res.exitCode}`);
@@ -82,6 +89,15 @@ export function parseCmsDemoOutcome(
   };
 }
 
+/** Removes a `ck demo` stack and its volumes; returns the exit code of the removal. */
+export async function removeCmsStack(execFn: ExecFn, project: string): Promise<number> {
+  const down = await execFn(
+    ['docker', 'compose', '-p', project, 'down', '--remove-orphans', '-v'],
+    { timeoutMs: 120_000 },
+  );
+  return down.exitCode;
+}
+
 /** Records the PR without and with its change on each CMS, one `ck demo` run per CMS. */
 export async function runCmsDemos(params: {
   execFn: ExecFn;
@@ -90,6 +106,8 @@ export async function runCmsDemos(params: {
   outRoot: string;
   cms: RunnableCms[];
   routes: string[];
+  /** Filled with the sites left running, for stages that drive a browser on them. */
+  kept?: KeptCmsSite[];
 }): Promise<CmsDemoResult[]> {
   const results: CmsDemoResult[] = [];
   for (const cms of params.cms) {
@@ -105,20 +123,22 @@ export async function runCmsDemos(params: {
         ...params.routes.flatMap((r) => ['--page', r]),
         '--out',
         out,
+        ...(params.kept ? ['--keep'] : []),
       ],
       { timeoutMs: DEMO_TIMEOUT_MS },
     );
     const outcome = parseCmsDemoOutcome(cms, params.routes, res);
+    const project = cmsDemoProject(params.patchFile, cms);
+    const keptUrl = /^ck demo: kept .+ at (http:\/\/localhost:\d+) /m.exec(
+      stripAnsi(res.stdout),
+    )?.[1];
+    if (res.exitCode === 0 && keptUrl) params.kept?.push({ cms, url: keptUrl, project });
     if (res.exitCode !== 0) {
       // A run killed by the timeout never reached its own teardown. Compose 5.8 removes the
       // containers and volumes of a project by name, without its compose file.
-      const project = cmsDemoProject(params.patchFile, cms);
-      const down = await params.execFn(
-        ['docker', 'compose', '-p', project, 'down', '--remove-orphans', '-v'],
-        { timeoutMs: 120_000 },
-      );
-      if (down.exitCode !== 0) {
-        outcome.detail += ` Its stack ${project} could not be removed (exit ${down.exitCode}).`;
+      const down = await removeCmsStack(params.execFn, project);
+      if (down !== 0) {
+        outcome.detail += ` Its stack ${project} could not be removed (exit ${down}).`;
       }
     }
     results.push(outcome);
@@ -141,6 +161,7 @@ export async function runCmsDemosForDiff(params: {
   diffFiles: DiffFile[];
   browserConfig: BrowserConfig;
   notVerified: string[];
+  kept?: KeptCmsSite[];
 }): Promise<CmsDemoResult[]> {
   const { diffFiles, browserConfig } = params;
   const wanted = Array.from(new Set([...cmsScope(diffFiles).runnable, ...browserConfig.cms]));
@@ -164,6 +185,7 @@ export async function runCmsDemosForDiff(params: {
     patchFile,
     outRoot: params.outRoot,
     cms: wanted.slice(0, MAX_CMS_DEMOS),
+    ...(params.kept ? { kept: params.kept } : {}),
     // `ck demo` loads every route on the base too: only routes every release has.
     routes: [...CMS_SMOKE_ROUTES],
   });

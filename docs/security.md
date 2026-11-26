@@ -18,6 +18,13 @@ the kept containers, through `docker compose exec` with an argument list, never 
 shell. The containers hold no credentials, and the PR's code already runs in them, so
 this adds no access a PR author does not have.
 
+The tool's `browser` mode runs a script the model wrote: a Playwright steps module, in a
+container of civikitchen's Playwright image. That container gets the module read-only
+and nothing else of the host: no checkout, no Docker socket, no environment of the
+review. It joins the host network to reach the two instances on `localhost`, so the
+script can also reach other services listening on the host and the internet. Run reviews
+on a host where that is acceptable, as the workflow's runner is.
+
 The `claude` CLI works in the PR's worktree. The MCP servers it starts for these tools
 (the live tool, the browser) run from civireview's own directory instead, so a
 `bunfig.toml`, `.env` or `.npmrc` in the PR is not read on the host.

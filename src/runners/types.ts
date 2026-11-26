@@ -71,6 +71,10 @@ export interface LiveStacks {
   urls: { A?: string; B?: string };
   /** Longest timeout a single exec may ask for. */
   maxExecSeconds: number;
+  /** The `ck` launcher; with it and both URLs the tool can drive a browser. */
+  ck?: string[];
+  /** CMS sites with the change applied, for the browser mode; they have no base to compare. */
+  cmsSites?: Array<{ cms: string; url: string }>;
 }
 
 export interface StageRequest<T> {

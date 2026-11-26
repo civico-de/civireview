@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedCiviReviewConfig } from '../config/schema.ts';
-import { runCiviKitchenAb, type ExecFn } from './civikitchen-ab.ts';
+import { runCiviKitchenAb, type ExecFn, type LiveBrowser } from './civikitchen-ab.ts';
 import { filterAndTruncateDiff } from './diff-filter.ts';
 import { fetchGitHubPrContext } from './github.ts';
 import { fetchJenkinsStatus } from './jenkins.ts';
@@ -73,6 +73,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
   filteredPatch: string;
   urls?: { A?: string; B?: string };
   composeFiles?: { A?: string; B?: string };
+  browser?: LiveBrowser;
   cleanup: () => Promise<void>;
 }> {
   const { repoRoot, config } = options;
@@ -229,6 +230,7 @@ export async function collectEvidence(options: CollectEvidenceOptions): Promise<
     filteredPatch: filtered.filteredPatch,
     urls: abOutcome.urls,
     composeFiles: abOutcome.composeFiles,
+    ...(abOutcome.browser ? { browser: abOutcome.browser } : {}),
     cleanup: abOutcome.cleanup,
   };
 }
