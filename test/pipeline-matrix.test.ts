@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { loadConfig } from '../src/config/loader.ts';
-import { findingsVerdict } from '../src/engine/findings.ts';
+import { findingsVerdict, hasBlockingIssue } from '../src/engine/findings.ts';
 import { applyThreadResolutionsToMatrix } from '../src/engine/matrix.ts';
 import {
   buildVerificationMatrix,
@@ -14,6 +14,7 @@ import type { EvidenceBundle } from '../src/evidence/types.ts';
 import { createRunnerRegistry } from '../src/runners/registry.ts';
 import { sanitizeGitHubMentions } from '../src/github/formatter.ts';
 import type { StageRunner } from '../src/runners/types.ts';
+import { makeSampleReview } from './helpers/review-fixtures.ts';
 
 const SAMPLE_PATCH = `diff --git a/CRM/Contact/BAO/Contact.php b/CRM/Contact/BAO/Contact.php
 index 1111111..2222222 100644
@@ -231,7 +232,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       expect(verifierUserPrompt).not.toContain('"upgrade-schema"');
       expect(verifierUserPrompt).toContain('"r-code"');
 
-      expect(review.verdict).toBe(abBroke ? 'QUESTIONS_ONLY' : 'NO_ISSUES_FOUND');
+      expect(review.verdict).toBe(abBroke ? 'NOT_VERIFIED' : 'NO_ISSUES_FOUND');
       expect(review.findings).toHaveLength(0);
       const codes = review.standards?.map((s) => s.code) ?? [];
       expect(codes).toEqual(['r-explain', 'r-code', 'r-tech']);
@@ -412,7 +413,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       registry,
     });
 
-    expect(review.verdict).toBe('QUESTIONS_ONLY');
+    expect(review.verdict).toBe('ISSUES_FOUND');
     expect(review.findings).toHaveLength(1);
     expect(review.findings[0]!.verdict).toBe('PROVEN');
     expect(review.standards?.find((s) => s.code === 'r-maint')?.status).toBe('ISSUE');
@@ -535,7 +536,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
 
     // 4/5: low-severity finding OR minor surface risk flag
     const s4 = computeConfidenceScore({
-      verdict: 'QUESTIONS_ONLY',
+      verdict: 'ISSUES_FOUND',
       findings: [baseFinding],
       verificationMatrix: cleanMatrix,
       prKind: 'core-bugfix',
@@ -544,7 +545,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
 
     // 3/5: confirmed medium finding or base-test regression failure
     const s3 = computeConfidenceScore({
-      verdict: 'QUESTIONS_ONLY',
+      verdict: 'ISSUES_FOUND',
       findings: [{ ...baseFinding, severity: 'medium', reassessedSeverity: 'medium' }],
       verificationMatrix: [
         ...cleanMatrix.slice(0, 2),
@@ -575,6 +576,29 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
       prKind: 'security-sensitive',
     });
     expect(s1.score).toBe(1);
+  });
+
+  test('a confirmed finding of any severity is an issue; unconfirmed ones are questions', () => {
+    const base = makeSampleReview().findings[0]!;
+    const finding = (
+      reassessedSeverity: typeof base.reassessedSeverity,
+      verdict: typeof base.verdict,
+    ) => ({ ...base, reassessedSeverity, verdict });
+
+    expect(findingsVerdict([finding('medium', 'CONFIRMED')])).toBe('ISSUES_FOUND');
+    expect(findingsVerdict([finding('low', 'PROVEN')])).toBe('ISSUES_FOUND');
+    expect(findingsVerdict([finding('critical', 'NEEDS_QUESTION')])).toBe('QUESTIONS_ONLY');
+    expect(findingsVerdict([finding('high', 'NEEDS_QUESTION'), finding('low', 'CONFIRMED')])).toBe(
+      'ISSUES_FOUND',
+    );
+
+    // A change request stands on a failed check or a confirmed critical or high finding.
+    expect(hasBlockingIssue([finding('medium', 'CONFIRMED')])).toBe(false);
+    expect(hasBlockingIssue([finding('high', 'NEEDS_QUESTION')])).toBe(false);
+    expect(hasBlockingIssue([finding('high', 'CONFIRMED')])).toBe(true);
+    expect(hasBlockingIssue([], [{ check: 'CI / Jenkins', status: 'FAIL', detail: 'red' }])).toBe(
+      true,
+    );
   });
 
   test('computeFinalVerdict upgrades NO_ISSUES_FOUND to ISSUES_FOUND when empirical checks fail', () => {
@@ -629,11 +653,11 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         detail: 'no container',
       },
     ];
-    expect(computeFinalVerdict([], crashed, 'core-bugfix')).toBe('QUESTIONS_ONLY');
+    expect(computeFinalVerdict([], crashed, 'core-bugfix')).toBe('NOT_VERIFIED');
     // The code standards are reconciled on the findings alone.
     expect(findingsVerdict([], crashed)).toBe('NO_ISSUES_FOUND');
     const crashedScore = computeConfidenceScore({
-      verdict: 'QUESTIONS_ONLY',
+      verdict: 'NOT_VERIFIED',
       findings: [],
       verificationMatrix: crashed,
       prKind: 'core-bugfix',

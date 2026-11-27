@@ -1,9 +1,8 @@
-import { standaloneRan } from '../engine/findings.ts';
+import { isConfirmedFinding, standaloneRan, unverifiedRuntimeChecks } from '../engine/findings.ts';
 import { mapFindingsToDiff, type MappedInlineFinding } from '../engine/line-mapper.ts';
 import { buildShortSummary, computeConfidenceScore } from '../engine/pipeline.ts';
 import { formatUsd } from '../runners/pricing.ts';
 import type {
-  ConfidenceScore,
   FinalReview,
   FinalVerdict,
   VerificationMatrixEntry,
@@ -174,11 +173,22 @@ function verdictBadge(verdict: FinalVerdict): string {
       return '🔴 **Issues found**';
     case 'QUESTIONS_ONLY':
       return '🟡 **Questions only**';
+    case 'NOT_VERIFIED':
+      return '⚪ **Not verified**';
   }
 }
 
-function scoreBadge(score: ConfidenceScore): string {
-  return `**${score}/5**`;
+/** What stands behind Issues found: confirmed findings by severity and failed checks. */
+function issuesDetail(review: FinalReview): string {
+  const parts: string[] = [];
+  const confirmed = review.findings.filter(isConfirmedFinding);
+  for (const severity of ['critical', 'high', 'medium', 'low'] as const) {
+    const n = confirmed.filter((f) => f.reassessedSeverity === severity).length;
+    if (n > 0) parts.push(`${n} ${severity}`);
+  }
+  const failed = review.verificationMatrix.filter((m) => m.status === 'FAIL').length;
+  if (failed > 0) parts.push(`${failed} check${failed === 1 ? '' : 's'} failed`);
+  return parts.join(', ');
 }
 
 function matrixStatusBadge(status: VerificationStatus): string {
@@ -259,7 +269,7 @@ function formatSummaryFinding(f: VerifiedFinding): string {
  * The version of the review's layout. Raise it when the rendering changes, so reviews
  * rendered before can be told apart and rendered again from their saved data.
  */
-export const REVIEW_FORMAT = 3;
+export const REVIEW_FORMAT = 4;
 
 /**
  * Formats a verified `FinalReview` and `EvidenceBundle` into a GitHub PR summary body
@@ -285,8 +295,13 @@ function truncateOneLine(text: string, maxLen = 140): string {
   return `${cut.replace(/[,;:\-–—]+$/, '').trimEnd()}…`;
 }
 
-function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
+/** Confirmed things to act on, and what is still an open question. */
+function buildActionItems(
+  review: FinalReview,
+  mentionUsers = false,
+): { items: string[]; questions: string[] } {
   const items: string[] = [];
+  const questions: string[] = [];
 
   for (const condition of review.mergeConditions ?? []) {
     items.push(
@@ -295,9 +310,8 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
   }
 
   for (const f of review.findings) {
-    const question = f.verdict === 'NEEDS_QUESTION' ? ' · question' : '';
-    items.push(
-      `- [ ] **${f.reassessedSeverity.toUpperCase()}${question}** \`${lineRefOf(f)}\` — ${f.title}`,
+    (isConfirmedFinding(f) ? items : questions).push(
+      `- [ ] **${f.reassessedSeverity.toUpperCase()}** \`${lineRefOf(f)}\` — ${f.title}`,
     );
   }
 
@@ -331,11 +345,11 @@ function buildActionItems(review: FinalReview, mentionUsers = false): string[] {
       }
       const cleanAuthor = tr.author.replace(/^@/, '');
       const handle = mentionUsers ? `@${cleanAuthor}` : `\`${cleanAuthor}\``;
-      items.push(`- [ ] **Open thread** ${handle}: ${truncateOneLine(tr.topic, 160)}`);
+      questions.push(`- [ ] **Open thread** ${handle}: ${truncateOneLine(tr.topic, 160)}`);
     }
   }
 
-  return items;
+  return { items, questions };
 }
 
 const CHECK_LABELS: Record<string, string> = {
@@ -445,16 +459,25 @@ export function formatReviewMarkdown(
     ? ` · **Images:** \`${bundle.abReport.imageA}\` vs \`${bundle.abReport.imageB}\``
     : '';
 
-  // Visible: verdict, what the PR does, what to address, one line of checks.
+  // Visible: verdict, what the PR does, what to address, open questions, one line of checks.
+  const detail = review.verdict === 'ISSUES_FOUND' ? issuesDetail(review) : '';
   sections.push(
-    `## CiviReview: ${verdictBadge(review.verdict)} · ${scoreBadge(computedScore.score)}\n\n${shortSummary}`,
+    `## CiviReview: ${verdictBadge(review.verdict)}${detail ? ` · ${detail}` : ''}\n\n${shortSummary}`,
   );
-  const actionItems = buildActionItems(review, mentionUsers);
-  sections.push(
-    actionItems.length > 0
-      ? `**To address (${actionItems.length})**\n${actionItems.join('\n')}`
-      : 'No findings above the confidence gate.',
-  );
+  const { items: actionItems, questions } = buildActionItems(review, mentionUsers);
+  if (actionItems.length > 0)
+    sections.push(`**To address (${actionItems.length})**\n${actionItems.join('\n')}`);
+  if (questions.length > 0) {
+    sections.push(`**Questions (${questions.length})**\n${questions.join('\n')}`);
+  }
+  if (actionItems.length + questions.length === 0) {
+    const unverified = unverifiedRuntimeChecks(review.verificationMatrix, review.prKind);
+    sections.push(
+      review.verdict === 'NOT_VERIFIED'
+        ? `No findings above the confidence gate, but no runtime check gave a result (${unverified.map(checkLabel).join(', ')}).`
+        : 'No findings above the confidence gate.',
+    );
+  }
   const checks = checksLine(review.verificationMatrix);
   if (checks) sections.push(checks);
 

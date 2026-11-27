@@ -186,7 +186,7 @@ const SAVED_VERDICT_NAMES: Record<string, string> = {
 };
 export const FinalVerdictSchema = z.preprocess(
   (value) => (typeof value === 'string' ? (SAVED_VERDICT_NAMES[value] ?? value) : value),
-  z.enum(['NO_ISSUES_FOUND', 'ISSUES_FOUND', 'QUESTIONS_ONLY']),
+  z.enum(['NO_ISSUES_FOUND', 'NOT_VERIFIED', 'QUESTIONS_ONLY', 'ISSUES_FOUND']),
 );
 export type FinalVerdict = z.infer<typeof FinalVerdictSchema>;
 

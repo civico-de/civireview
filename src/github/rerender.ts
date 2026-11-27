@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { computeFinalVerdict } from '../engine/findings.ts';
 import { FinalReviewSchema, type FinalReview } from '../engine/schemas.ts';
 import { extractAllReviewedMarkers, fetchAllPages } from '../evidence/github.ts';
 import { EvidenceBundleSchema, type EvidenceBundle } from '../evidence/types.ts';
@@ -37,8 +38,13 @@ export function loadSavedReview(dir: string): SavedReview {
     throw new Error(`${dir} lacks ${missing.join(', ')}; nothing to rerender.`);
   }
   const read = (f: string): unknown => JSON.parse(readFileSync(join(dir, f), 'utf8'));
+  const review = FinalReviewSchema.parse(read('review.json'));
   return {
-    review: FinalReviewSchema.parse(read('review.json')),
+    // The verdict is derived: it follows the saved findings and checks by the current rules.
+    review: {
+      ...review,
+      verdict: computeFinalVerdict(review.findings, review.verificationMatrix, review.prKind),
+    },
     bundle: EvidenceBundleSchema.parse(read('evidence.json')),
     render: RenderOptionsSchema.parse(read('render.json')),
   };

@@ -136,14 +136,14 @@ describe('CMS-specific changes in the matrix and the score', () => {
     // The Standalone page load cannot count for code Standalone never runs.
     expect(row('Browser A/B (Standalone)')?.status).toBe('SKIPPED');
     expect(notVerified.join(' ')).toContain('Joomla code did not run');
-    expect(verdict).toBe('QUESTIONS_ONLY');
+    expect(verdict).toBe('NOT_VERIFIED');
     expect(score.score).toBe(3);
     expect(score.rationale).toContain('CMS Browser A/B gave no result');
   });
 
   test('a run that gave no result leaves the Joomla-only change unverified', () => {
     const { verdict, score } = judge(bundleOf(JOOMLA_ONLY, [demo('NOT_VERIFIED')]));
-    expect(verdict).toBe('QUESTIONS_ONLY');
+    expect(verdict).toBe('NOT_VERIFIED');
     expect(score.score).toBe(3);
   });
 

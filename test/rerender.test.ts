@@ -85,8 +85,8 @@ describe('rerender', () => {
     await applyRerender(plan, octokit);
 
     expect(plan.reviewId).toBe(10);
-    expect(plan.body).toContain('## CiviReview: 🔴 **Issues found** · **2/5**');
-    expect(plan.body).toContain(`format=3 trigger_comment=${TRIGGER} -->`);
+    expect(plan.body).toContain('## CiviReview: 🔴 **Issues found** · 1 high, 1 medium');
+    expect(plan.body).toContain(`format=4 trigger_comment=${TRIGGER} -->`);
     expect(writes.map((w) => [w.id, w.query.includes('updatePullRequestReviewComment')])).toEqual([
       ['PRR_10', false],
       ['PRRC_20', true],
@@ -190,6 +190,16 @@ describe('rerender', () => {
     const dir = mkdtempSync(join(tmpdir(), 'rerender-'));
     writeFileSync(join(dir, 'review.json'), '{}');
     expect(() => loadSavedReview(dir)).toThrow(`${dir} lacks evidence.json, render.json`);
+  });
+
+  test('a saved verdict is computed again from the saved findings and checks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rerender-'));
+    const review = makeSampleReview();
+    const mediumOnly = { ...review, verdict: 'QUESTIONS_ONLY', findings: [review.findings[1]] };
+    writeFileSync(join(dir, 'review.json'), JSON.stringify(mediumOnly));
+    writeFileSync(join(dir, 'evidence.json'), JSON.stringify(makeSampleBundle()));
+    writeFileSync(join(dir, 'render.json'), JSON.stringify({ format: 3 }));
+    expect(loadSavedReview(dir).review.verdict).toBe('ISSUES_FOUND');
   });
 });
 

@@ -131,7 +131,7 @@ export function deduplicateVerifiedFindings(findings: VerifiedFinding[]): Verifi
   return kept;
 }
 
-/** The verdict on findings and checks; a code PR not verified at runtime has open questions. */
+/** The verdict on findings and checks; a code PR with nothing found and no runtime result is not verified. */
 export function computeFinalVerdict(
   findings: VerifiedFinding[],
   verificationMatrix?: VerificationMatrixEntry[],
@@ -140,34 +140,47 @@ export function computeFinalVerdict(
   const verdict = findingsVerdict(findings, verificationMatrix);
   return verdict === 'NO_ISSUES_FOUND' &&
     unverifiedRuntimeChecks(verificationMatrix, prKind).length > 0
-    ? 'QUESTIONS_ONLY'
+    ? 'NOT_VERIFIED'
     : verdict;
 }
 
-/** The verdict on findings, failed checks and reviewer threads alone. */
+export function isConfirmedFinding(f: VerifiedFinding): boolean {
+  return f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED';
+}
+
+function hasEmpiricalFailure(verificationMatrix?: VerificationMatrixEntry[]): boolean {
+  return Boolean(
+    verificationMatrix?.some((m) => m.status === 'FAIL' && EMPIRICAL_BLOCKING_CHECKS.has(m.check)),
+  );
+}
+
+/** The verdict on findings, failed checks and reviewer threads alone: the strongest thing found. */
 export function findingsVerdict(
   findings: VerifiedFinding[],
   verificationMatrix?: VerificationMatrixEntry[],
 ): FinalVerdict {
-  const hasEmpiricalFailure = Boolean(
-    verificationMatrix?.some((m) => m.status === 'FAIL' && EMPIRICAL_BLOCKING_CHECKS.has(m.check)),
-  );
+  if (hasEmpiricalFailure(verificationMatrix) || findings.some(isConfirmedFinding)) {
+    return 'ISSUES_FOUND';
+  }
   const hasOpenReviewerThread = Boolean(
     verificationMatrix?.some((m) => m.check === 'Reviewer Thread' && m.status === 'WARN'),
   );
-  if (findings.length === 0) {
-    if (hasEmpiricalFailure) return 'ISSUES_FOUND';
-    if (hasOpenReviewerThread) return 'QUESTIONS_ONLY';
-    return 'NO_ISSUES_FOUND';
-  }
-  const needsChanges =
-    hasEmpiricalFailure ||
+  return findings.length > 0 || hasOpenReviewerThread ? 'QUESTIONS_ONLY' : 'NO_ISSUES_FOUND';
+}
+
+/** True for a failed check or a confirmed critical or high finding: what a change request stands on. */
+export function hasBlockingIssue(
+  findings: VerifiedFinding[],
+  verificationMatrix?: VerificationMatrixEntry[],
+): boolean {
+  return (
+    hasEmpiricalFailure(verificationMatrix) ||
     findings.some(
       (f) =>
-        (f.reassessedSeverity === 'critical' || f.reassessedSeverity === 'high') &&
-        (f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED'),
-    );
-  return needsChanges ? 'ISSUES_FOUND' : 'QUESTIONS_ONLY';
+        isConfirmedFinding(f) &&
+        (f.reassessedSeverity === 'critical' || f.reassessedSeverity === 'high'),
+    )
+  );
 }
 
 export function mergeBlastRadius(lists: Array<BlastRadiusItem[] | undefined>): BlastRadiusItem[] {

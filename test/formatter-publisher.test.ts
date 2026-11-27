@@ -52,7 +52,7 @@ describe('formatter & publisher', () => {
     expect(inline.indexOf('<details>')).toBeLessThan(inline.indexOf('**Failure scenario:**'));
 
     const [visible, folded] = splitAtFirstDetails(formatted.summaryBody);
-    expect(visible).toContain('## CiviReview: 🔴 **Issues found** · **2/5**\n');
+    expect(visible).toContain('## CiviReview: 🔴 **Issues found** · 1 high, 1 medium\n');
     expect(visible).toContain('**To address (2)**');
     expect(visible).toContain('- [ ] **HIGH** `CRM/Contact/BAO/Contact.php:11` — Inline bug');
     expect(visible).toContain(
@@ -106,7 +106,7 @@ describe('formatter & publisher', () => {
         .length - 1;
     expect(rationaleOccurrences).toBe(1);
     expect(formatted.summaryBody).toContain(
-      '## CiviReview: 🟢 **No issues found** · **5/5**\n\nChanges: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
+      '## CiviReview: 🟢 **No issues found**\n\nChanges: Test PR. A/B testing proved 1 test(s) failed on base, passed on PR.',
     );
     expect(formatted.summaryBody).not.toContain('**To address');
     expect(formatted.summaryBody).toContain('No findings above the confidence gate.');
@@ -417,6 +417,104 @@ function recordingOctokit(failWhen: (call: { event: string; comments: number }) 
   };
   return { calls, octokit };
 }
+
+const mediumOnly = (verdict: 'CONFIRMED' | 'NEEDS_QUESTION'): FinalReview => {
+  const review = makeSampleReview();
+  return {
+    ...review,
+    verdict: verdict === 'CONFIRMED' ? 'ISSUES_FOUND' : 'QUESTIONS_ONLY',
+    findings: [{ ...review.findings[1]!, verdict }],
+  };
+};
+
+const reactionFor = async (review: FinalReview) => {
+  const reactions: string[] = [];
+  const { octokit } = recordingOctokit(() => false);
+  octokit.rest.reactions = {
+    async createForIssueComment(params) {
+      reactions.push(params.content);
+    },
+  };
+  await publishReview({
+    owner: 'civicrm',
+    repo: 'civicrm-core',
+    prNumber: 99,
+    review,
+    bundle: makeSampleBundle(),
+    commentId: 555,
+    octokit,
+  });
+  return reactions;
+};
+
+describe('verdict in the header, the lists and the reaction', () => {
+  test('an unconfirmed finding and an open thread are questions, not things to address', () => {
+    const review: FinalReview = {
+      ...mediumOnly('NEEDS_QUESTION'),
+      threadResolutions: [
+        { author: 'bob', topic: 'Why public?', status: 'open', detail: 'Still public.' },
+      ],
+    };
+    const [visible] = splitAtFirstDetails(
+      formatReviewMarkdown(review, makeSampleBundle()).summaryBody,
+    );
+    expect(visible).toContain('## CiviReview: 🟡 **Questions only**\n');
+    expect(visible).not.toContain('**To address');
+    expect(visible).toContain(
+      '**Questions (2)**\n- [ ] **MEDIUM** `CRM/Contact/Page/View.php:40` — Untouched caller mismatch\n- [ ] **Open thread** `bob`: Why public?',
+    );
+  });
+
+  test('a single confirmed medium finding is named as the issue found', () => {
+    const [visible] = splitAtFirstDetails(
+      formatReviewMarkdown(mediumOnly('CONFIRMED'), makeSampleBundle()).summaryBody,
+    );
+    expect(visible).toContain('## CiviReview: 🔴 **Issues found** · 1 medium\n');
+    expect(visible).toContain('**To address (1)**');
+    expect(visible).not.toContain('**Questions');
+  });
+
+  test('nothing found without a runtime result names the checks that gave none', () => {
+    const review: FinalReview = {
+      ...makeSampleReview(),
+      verdict: 'NOT_VERIFIED',
+      findings: [],
+      verificationMatrix: [
+        { check: 'CI / Jenkins', status: 'PASS', detail: 'All passed' },
+        { check: 'A/B Proof-of-Fix', status: 'NOT_VERIFIED', detail: 'runner error' },
+      ],
+    };
+    const [visible] = splitAtFirstDetails(
+      formatReviewMarkdown(review, makeSampleBundle()).summaryBody,
+    );
+    expect(visible).toContain('## CiviReview: ⚪ **Not verified**\n');
+    expect(visible).toContain(
+      'No findings above the confidence gate, but no runtime check gave a result (Proof of fix).',
+    );
+  });
+
+  test('the reaction is a thumbs-up only for no issues and never the eyes of a running review', async () => {
+    const clean: FinalReview = { ...makeSampleReview(), verdict: 'NO_ISSUES_FOUND', findings: [] };
+    expect(await reactionFor(clean)).toEqual(['+1']);
+    expect(await reactionFor({ ...clean, verdict: 'NOT_VERIFIED' })).toEqual(['confused']);
+    expect(await reactionFor(mediumOnly('NEEDS_QUESTION'))).toEqual(['confused']);
+    expect(await reactionFor(mediumOnly('CONFIRMED'))).toEqual(['confused']);
+  });
+
+  test('a confirmed medium finding alone does not request changes', async () => {
+    const { calls, octokit } = recordingOctokit(() => false);
+    await publishReview({
+      owner: 'civicrm',
+      repo: 'civicrm-core',
+      prNumber: 99,
+      review: mediumOnly('CONFIRMED'),
+      bundle: makeSampleBundle(),
+      octokit,
+      reviewEvent: 'REQUEST_CHANGES',
+    });
+    expect(calls.map((c) => c.event)).toEqual(['COMMENT']);
+  });
+});
 
 describe('publishing limits and fallbacks', () => {
   test('a refused REQUEST_CHANGES is retried as COMMENT with the inline comments kept', async () => {

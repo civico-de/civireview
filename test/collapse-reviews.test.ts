@@ -106,12 +106,24 @@ describe('collapsing earlier reviews', () => {
     expect(updates.map((u) => u.review_id)).toEqual([1, 2]);
     const [firstLine, ...rest] = updates[0]!.body.split('\n');
     expect(firstLine).toMatch(
-      /^Superseded by \[the review of 2026-11-24\]\(https:\/\/github\.com\/civicrm\/civicrm-core\/pull\/99#pullrequestreview-900\) · 🔴 Issues found · [1-5]\/5$/,
+      /^Superseded by \[the review of 2026-11-24\]\(https:\/\/github\.com\/civicrm\/civicrm-core\/pull\/99#pullrequestreview-900\) · 🔴 Issues found$/,
     );
     expect(rest.join('\n')).toContain(
       `<details><summary>Earlier review</summary>\n\n${first}\n\n</details>`,
     );
-    expect(updates[1]!.body.split('\n')[0]).toMatch(/· 🟢 No issues found · [1-5]\/5$/);
+    expect(updates[1]!.body.split('\n')[0]).toMatch(/· 🟢 No issues found$/);
+  });
+
+  test('a review whose header carries a score keeps it in the one-line summary', () => {
+    for (const header of [
+      '## CiviReview: 🟡 **Questions only** · **3/5**',
+      '## CiviReview: 🟡 **Questions only** · Confidence: **3/5**',
+    ]) {
+      const line = collapseReviewBody(`${header}\n\nbody`, 'https://example.org/r', '2026-11-24');
+      expect(line.split('\n')[0]).toBe(
+        'Superseded by [the review of 2026-11-24](https://example.org/r) · 🟡 Questions only · 3/5',
+      );
+    }
   });
 
   test('a collapsed review is not wrapped again', async () => {

@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import type { ReviewEvent } from '../config/schema.ts';
+import { hasBlockingIssue } from '../engine/findings.ts';
 import type { FinalReview } from '../engine/schemas.ts';
 import {
   extractAllReviewedMarkers,
@@ -105,15 +106,14 @@ export interface PublishReviewResult {
   collapsedReviewIds?: number[];
 }
 
-function resolveReviewEvent(
-  verdict: FinalReview['verdict'],
-  configured: ReviewEvent = 'COMMENT',
-): ReviewEvent {
+function resolveReviewEvent(review: FinalReview, configured: ReviewEvent = 'COMMENT'): ReviewEvent {
   if (configured === 'REQUEST_CHANGES') {
-    return verdict === 'ISSUES_FOUND' ? 'REQUEST_CHANGES' : 'COMMENT';
+    return hasBlockingIssue(review.findings, review.verificationMatrix)
+      ? 'REQUEST_CHANGES'
+      : 'COMMENT';
   }
   if (configured === 'APPROVE') {
-    return verdict === 'NO_ISSUES_FOUND' ? 'APPROVE' : 'COMMENT';
+    return review.verdict === 'NO_ISSUES_FOUND' ? 'APPROVE' : 'COMMENT';
   }
   return 'COMMENT';
 }
@@ -169,8 +169,8 @@ async function addCompletionReaction(
   verdict: FinalReview['verdict'],
 ): Promise<void> {
   if (!octokit.rest.reactions) return;
-  const content =
-    verdict === 'NO_ISSUES_FOUND' ? '+1' : verdict === 'ISSUES_FOUND' ? 'confused' : 'eyes';
+  // Eyes mark a running review, so the result never uses them.
+  const content = verdict === 'NO_ISSUES_FOUND' ? '+1' : 'confused';
 
   try {
     await octokit.rest.reactions.createForIssueComment({
@@ -211,8 +211,9 @@ export async function getOctokit(
 
 const COLLAPSED_MARKER = '<!-- civireview:collapsed -->';
 export const COLLAPSED_RE = /^<!-- civireview:collapsed -->[ \t\r]*$/m;
-// Format 1 headers name the score "Confidence:", later ones show it bare.
-const HEADER_RE = /^## CiviReview: (\S+) \*\*([^*\n]+)\*\* · (?:Confidence: )?\*\*([1-5])\/5\*\*/m;
+// Format 1 headers name the score "Confidence:", formats 2 and 3 show it bare, later ones not at all.
+const HEADER_RE =
+  /^## CiviReview: (\S+) \*\*([^*\n]+)\*\*(?: · (?:Confidence: )?\*\*([1-5])\/5\*\*)?/m;
 
 function defaultWarn(msg: string): void {
   console.error(`[civireview:warn] ${msg}`);
@@ -225,7 +226,7 @@ function defaultWarn(msg: string): void {
 export function collapseReviewBody(oldBody: string, newReviewUrl: string, newDate: string): string {
   const header = HEADER_RE.exec(oldBody);
   const parts = [`Superseded by [the review of ${newDate}](${newReviewUrl})`];
-  if (header) parts.push(`${header[1]} ${header[2]}`, `${header[3]}/5`);
+  if (header) parts.push(`${header[1]} ${header[2]}`, ...(header[3] ? [`${header[3]}/5`] : []));
   return (
     `${parts.join(' · ')}\n\n<details><summary>Earlier review</summary>\n\n` +
     `${oldBody.trimEnd()}\n\n</details>\n${COLLAPSED_MARKER}`
@@ -362,9 +363,7 @@ export async function publishReview(options: PublishReviewOptions): Promise<Publ
   const octokit = await getOctokit(options.octokit, options.token);
   // Closed/merged PRs only accept COMMENT reviews (GitHub returns 422 for REQUEST_CHANGES/APPROVE)
   const isClosedOrMerged = bundle.pr.state === 'closed' || Boolean(bundle.pr.merged);
-  const event = isClosedOrMerged
-    ? 'COMMENT'
-    : resolveReviewEvent(review.verdict, options.reviewEvent);
+  const event = isClosedOrMerged ? 'COMMENT' : resolveReviewEvent(review, options.reviewEvent);
 
   // 422 fallbacks, most to least faithful: a plain COMMENT review (e.g. REQUEST_CHANGES or
   // APPROVE is refused on one's own PR), then the inline comments folded into the summary.

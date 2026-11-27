@@ -87,8 +87,8 @@ watcher for repositories you cannot install a workflow in, and all comment flags
 
 ## Reading the result
 
-A review opens with a verdict (`No issues found`, `Questions only`, `Issues found`) and a
-score from 1 to 5. Both speak of what was checked; whether and when to merge stays with
+A review opens with a verdict (`No issues found`, `Not verified`, `Questions only`,
+`Issues found`); a score from 1 to 5 sits folded under *Verification*. Both speak of what was checked; whether and when to merge stays with
 the human reviewers. The score is computed, not chosen by a model: each verified
 finding and each failed check caps it, and the rationale names the strictest cap and
 whether the deciding finding was reproduced in a run or only read in the code.

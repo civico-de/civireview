@@ -12,7 +12,7 @@ import type {
   VerifiedFinding,
 } from './schemas.ts';
 import { cmsScope } from '../evidence/cms-scope.ts';
-import { CMS_CHECK, unverifiedRuntimeChecks } from './findings.ts';
+import { CMS_CHECK, isConfirmedFinding, unverifiedRuntimeChecks } from './findings.ts';
 
 export const CANONICAL_STANDARD_CODES = new Set<string>([
   'r-explain',
@@ -645,10 +645,6 @@ function basis(fs: VerifiedFinding[]): string {
   return fs.some((f) => f.verdict === 'PROVEN')
     ? ''
     : ' (from reading the code, not reproduced in a run)';
-}
-
-function isConfirmedFinding(f: VerifiedFinding): boolean {
-  return f.verdict === 'PROVEN' || f.verdict === 'CONFIRMED';
 }
 
 /**
