@@ -7,7 +7,7 @@ import {
   type AbCheckResult,
   type BrowserDiffReport,
   type LiveSurfaceDiff,
-  type TautologicalTest,
+  type BasePassingTest,
 } from '../types.ts';
 import { matchesPhpUnitMethod } from './test-targets.ts';
 
@@ -390,7 +390,7 @@ export function buildAbCheckFromJson(params: {
     params;
   const isProofOfFix = name === 'proof-of-fix';
 
-  const tautologicalTests: TautologicalTest[] = [];
+  const basePassingTests: BasePassingTest[] = [];
   if (isProofOfFix && hasProductionCodeChange && addedTestMethods.length > 0) {
     for (const added of addedTestMethods) {
       const wasFixed = parsedJson.fixed.some((tc) => matchesPhpUnitMethod(tc, added.method));
@@ -399,7 +399,7 @@ export function buildAbCheckFromJson(params: {
         matchesPhpUnitMethod(tc, added.method),
       );
       if (matchedPassedBoth) {
-        tautologicalTests.push({
+        basePassingTests.push({
           file: added.file,
           method: added.method,
           line: added.line,
@@ -446,9 +446,9 @@ export function buildAbCheckFromJson(params: {
             ? 'FAIL'
             : 'ERROR';
 
-  const tautSummary =
-    tautologicalTests.length > 0
-      ? `${tautologicalTests.length} added test method(s) PASSED on unfixed base A (tautological: ${tautologicalTests.map((t) => t.method).join(', ')})`
+  const basePassingSummary =
+    basePassingTests.length > 0
+      ? `${basePassingTests.length} added test method(s) pass on base A and on B (${basePassingTests.map((t) => t.method).join(', ')})`
       : undefined;
 
   const aFailedBPassedOnlyOnB =
@@ -471,8 +471,8 @@ export function buildAbCheckFromJson(params: {
               parsedJson.exitCodeA !== undefined &&
               parsedJson.exitCodeB !== undefined
             ? `exit-status mode: A=${parsedJson.exitCodeA}, B=${parsedJson.exitCodeB}`
-            : tautSummary
-              ? tautSummary
+            : basePassingSummary
+              ? basePassingSummary
               : parsedJson.passedBoth.length > 0 && parsedJson.bothFail.length === 0
                 ? `${parsedJson.passedBoth.length} test(s) passed on A and B`
                 : parsedJson.passedBoth.length > 0 && parsedJson.bothFail.length > 0
@@ -483,8 +483,8 @@ export function buildAbCheckFromJson(params: {
 
   const summary = noResult
     ? 'the report of the run lists no test'
-    : tautSummary && baseSummary !== tautSummary
-      ? `${baseSummary}; ${tautSummary}`
+    : basePassingSummary && baseSummary !== basePassingSummary
+      ? `${baseSummary}; ${basePassingSummary}`
       : baseSummary;
 
   const anyNonZeroExit =
@@ -505,7 +505,7 @@ export function buildAbCheckFromJson(params: {
     gone: parsedJson.gone,
     onlyOnB: parsedJson.onlyOnB,
     passedBoth: parsedJson.passedBoth,
-    tautologicalTests,
+    basePassingTests,
     addedTestMethods: isProofOfFix ? addedTestMethods : [],
     counts: parsedJson.counts,
     summary,
@@ -540,7 +540,7 @@ export function buildAbCheckFromStdout(params: {
       bothFail: [],
       gone: [],
       passedBoth: [],
-      tautologicalTests: [],
+      basePassingTests: [],
       addedTestMethods,
       summary: 'the base stopped before its tests ran; the result on the PR was not compared',
       outputSnippet: formatAbOutputSnippet(res.stdout, res.stderr, res.exitCode),
@@ -565,7 +565,7 @@ export function buildAbCheckFromStdout(params: {
       bothFail: [],
       gone: [],
       passedBoth: [],
-      tautologicalTests: [],
+      basePassingTests: [],
       addedTestMethods: isProofOfFix ? addedTestMethods : [],
       summary: /holds no test case/i.test(combined)
         ? 'No matching headless PHPUnit test cases in target.'
@@ -589,7 +589,7 @@ export function buildAbCheckFromStdout(params: {
     bothFail: parsed.bothFail,
     gone: parsed.gone,
     passedBoth: [],
-    tautologicalTests: [],
+    basePassingTests: [],
     addedTestMethods: isProofOfFix ? addedTestMethods : [],
     summary:
       parsed.regressions.length > 0

@@ -123,9 +123,8 @@ export function reconcileStandardsDeterministically(params: {
   verdict: FinalVerdict;
   survivingFindings: VerifiedFinding[];
   verificationMatrix: VerificationMatrixEntry[];
-  bundle: EvidenceBundle;
 }): StandardVerdict[] | undefined {
-  const { standards, verdict, survivingFindings, verificationMatrix, bundle } = params;
+  const { standards, verdict, survivingFindings, verificationMatrix } = params;
   if (!standards || standards.length === 0) return undefined;
 
   const byCode = new Map<string, StandardVerdict>();
@@ -150,29 +149,12 @@ export function reconcileStandardsDeterministically(params: {
     }
   }
 
-  const proofCheck = bundle.abReport.checks.find((c) => c.name === 'proof-of-fix');
-  const tautological = proofCheck?.tautologicalTests ?? [];
-  if (tautological.length > 0 && (proofCheck?.fixed.length ?? 0) === 0) {
-    const names = tautological.map((t) => `${t.method} (${t.file}:${t.line})`).join(', ');
-    byCode.set('r-maint', {
-      code: 'r-maint',
-      status: 'ISSUE',
-      note: `${tautological.length} added test method(s) PASSED on unfixed base A (tautological: ${names}).`,
-    });
-    const existingRun = byCode.get('r-run');
-    if (existingRun) {
-      byCode.set('r-run', {
-        code: 'r-run',
-        status: 'ISSUE',
-        note: `CiviKitchen A/B ran, but added test(s) passed on unfixed base A without proving fix (${names}).`,
-      });
-    }
-  }
-
   return Array.from(byCode.values());
 }
 
 type AbCheck = EvidenceBundle['abReport']['checks'][number];
+
+const NO_FAIL_TO_PASS = ' (no fail-to-pass transition observed)';
 
 /** Row of a check that runs the same tests on two sides and looks for pass-to-fail. */
 function regressionRow(
@@ -271,7 +253,7 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       (proofCheck.imageA !== proofCheck.imageB
         ? `${proofCheck.imageA} vs ${proofCheck.imageB}: `
         : '');
-    const tautological = proofCheck.tautologicalTests ?? [];
+    const basePassing = proofCheck.basePassingTests ?? [];
     if (proofCheck.regressions.length > 0 || proofCheck.status === 'FAIL') {
       matrix.push({
         check: proofCheckLabel,
@@ -280,10 +262,10 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       });
     } else if (proofCheck.fixed.length > 0 && proofCheck.status === 'PASS') {
       const guardSuffix =
-        tautological.length > 0
+        basePassing.length > 0
           ? isCore
-            ? ` (+${tautological.length} regression-guard test(s) passed on both base & PR: ${tautological.map((t) => t.method).join(', ')})`
-            : ` (+${tautological.length} regression-guard test(s) passed on both A & B: ${tautological.map((t) => t.method).join(', ')})`
+            ? ` (+${basePassing.length} regression-guard test(s) passed on both base & PR: ${basePassing.map((t) => t.method).join(', ')})`
+            : ` (+${basePassing.length} regression-guard test(s) passed on both A & B: ${basePassing.map((t) => t.method).join(', ')})`
           : '';
       matrix.push({
         check: proofCheckLabel,
@@ -292,12 +274,13 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
           ? `${pairPrefix}${proofCheck.fixed.length} test(s) failed on base, passed on PR${guardSuffix}`
           : `${pairPrefix}${proofCheck.fixed.length} test(s) red on A, green on B${guardSuffix}`,
       });
-    } else if (tautological.length > 0) {
-      const names = tautological.map((t) => `${t.method} (${t.file}:${t.line})`).join(', ');
+    } else if (basePassing.length > 0) {
+      const names = basePassing.map((t) => `${t.method} (${t.file}:${t.line})`).join(', ');
       matrix.push({
         check: proofCheckLabel,
         status: 'WARN',
-        detail: `${pairPrefix}${tautological.length} added test method(s) passed on unfixed base (tautological: ${names})`,
+        detail: `${pairPrefix}${basePassing.length} added test method(s) pass on base and PR: ${names}${NO_FAIL_TO_PASS}`,
+        noFailToPass: true,
       });
     } else if (
       proofCheck.status === 'PASS' &&
@@ -335,7 +318,8 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
       matrix.push({
         check: proofCheckLabel,
         status: proofCheck.status === 'PASS' ? 'WARN' : 'FAIL',
-        detail: `${pairPrefix}${proofCheck.summary} (no fail-to-pass transition observed)`,
+        detail: `${pairPrefix}${proofCheck.summary}${NO_FAIL_TO_PASS}`,
+        ...(proofCheck.status === 'PASS' ? { noFailToPass: true } : {}),
       });
     }
   } else if (bundle.abReport.testsOff) {
@@ -557,8 +541,8 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
 
 /**
  * Refines deterministic matrix entries using Stage 0 Triage context:
- * - On `core-ref-nfc` (refactor/NFC) PRs, tests passing on both base & PR prove
- *   behavior preservation (`PASS`) rather than a missing bugfix transition (`WARN`).
+ * - Only a bugfix has to show a test that fails without the change. For every other
+ *   intent, tests passing on both base & PR are what the PR should show (`PASS`).
  * - When Jenkins failed with concrete failed test details that Triage assessed as
  *   `likely-flaky` (unrelated to the PR), downgrades `CI / Jenkins` from `FAIL`
  *   to `WARN` so a flaky CI job does not falsely force `ISSUES_FOUND`.
@@ -568,21 +552,8 @@ export function reconcileMatrixForTriage(
   triage: TriageOutput,
 ): VerificationMatrixEntry[] {
   return matrix.map((row) => {
-    if (
-      triage.prKind === 'core-ref-nfc' &&
-      (row.check === 'A/B Proof-of-Fix' || row.check === 'CiviKitchen A/B Proof-of-Fix') &&
-      row.status === 'WARN' &&
-      /passed on A and B|passed on both/i.test(row.detail) &&
-      !/tautological/i.test(row.detail)
-    ) {
-      return {
-        ...row,
-        status: 'PASS',
-        detail: row.detail.replace(
-          /\s*\(no fail-to-pass transition observed\)/i,
-          ' (NFC/refactor: behavior preserved)',
-        ),
-      };
+    if (row.noFailToPass && row.status === 'WARN' && triage.intent !== 'bugfix') {
+      return { ...row, status: 'PASS', detail: row.detail.replace(NO_FAIL_TO_PASS, '') };
     }
     if (
       row.check === 'CI / Jenkins' &&
@@ -765,11 +736,7 @@ export function computeConfidenceScore(params: {
       capAt(3, 'A/B Proof-of-Fix failed to execute cleanly');
     }
   } else if (proof?.status === 'WARN') {
-    if (/tautological/i.test(proof.detail)) {
-      capAt(3, 'added PR test(s) passed on unfixed base without proving fix');
-    } else {
-      capAt(4, 'A/B Proof-of-Fix did not observe a fail-to-pass transition');
-    }
+    capAt(4, 'A/B Proof-of-Fix did not observe a fail-to-pass transition');
   }
 
   if (baseReg?.status === 'FAIL') {

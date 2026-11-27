@@ -30,6 +30,7 @@ describe('review pipeline triage and finding cap', () => {
         return {
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'low',
             activeLenses: [],
             summaryBullets: ['Changes a query.'],
@@ -64,6 +65,7 @@ describe('review pipeline triage and finding cap', () => {
         return {
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'low',
             activeLenses: ['correctness'],
             summaryBullets: ['Changes a query.'],
@@ -98,6 +100,7 @@ describe('review pipeline triage and finding cap', () => {
           req.stage === 'triage'
             ? {
                 prKind: 'core-bugfix',
+                intent: 'bugfix',
                 riskLevel: 'low',
                 activeLenses: ['correctness'],
                 summaryBullets: ['Changes a query.'],
@@ -139,6 +142,7 @@ describe('review pipeline triage and finding cap', () => {
         if (req.stage === 'triage') {
           output = {
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'low',
             activeLenses: ['correctness'],
             summaryBullets: ['Changes a query.'],

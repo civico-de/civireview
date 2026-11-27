@@ -150,7 +150,7 @@ ${
   bundle.abReport.checks
     .map((c) => {
       const passedBoth = c.passedBoth ?? [];
-      const tautological = c.tautologicalTests ?? [];
+      const basePassing = c.basePassingTests ?? [];
       const lines = [
         `- ${c.name}: ${c.status} — ${c.summary}`,
         `  Fixed (red on A, green on B): ${c.fixed.join(', ') || 'none'}`,
@@ -160,9 +160,9 @@ ${
       if (passedBoth.length > 0) {
         lines.push(`  Passed on both: ${passedBoth.join(', ')}`);
       }
-      if (tautological.length > 0) {
+      if (basePassing.length > 0) {
         lines.push(
-          `  Tautological added tests (PASSED on unfixed base A): ${tautological.map((t) => `${t.file}:${t.line} ${t.method} (${t.testCaseName})`).join(', ')}`,
+          `  Added tests that pass on base A and on B (guards of existing behaviour): ${basePassing.map((t) => `${t.file}:${t.line} ${t.method} (${t.testCaseName})`).join(', ')}`,
         );
       }
       return lines.join('\n');

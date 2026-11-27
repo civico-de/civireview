@@ -496,7 +496,7 @@ export function formatReviewMarkdown(
   const verification: string[] = [
     `**Score (${computedScore.score}/5):** ${computedScore.rationale}`,
     '',
-    `**PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\` · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
+    `**PR:** \`${review.repo}#${review.prNumber}\` · **Profile:** \`${reviewProfile(bundle.repoInfo)}\` · **Kind:** \`${review.prKind}\`${review.intent ? ` · **Intent:** \`${review.intent}\`` : ''} · **Commits:** \`${review.baseSha.slice(0, 7)}\` → \`${review.headSha.slice(0, 7)}\`${imagesMeta}`,
   ];
   if (review.verificationMatrix.length > 0) {
     const matrixRows = review.verificationMatrix

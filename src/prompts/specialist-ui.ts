@@ -32,7 +32,7 @@ CIVICRM UI & ACCESSIBILITY CHECKLIST:
 5. False-alarm check for warnings/validation messages:
    - For any code that warns or flags user input, test mentally against the most plausible healthy input; a false alarm is a top finding.`;
 
-  const userPrompt = `Perform the 'ui' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, risk=${triage.riskLevel}).
+  const userPrompt = `Perform the 'ui' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, intent=${triage.intent}, risk=${triage.riskLevel}).
 Return SpecialistOutput JSON with lens='ui'.`;
 
   return { systemPrompt, userPrompt };

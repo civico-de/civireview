@@ -115,11 +115,13 @@ describe('Jenkins / Duderino CI evidence & flaky-CI reconciliation', () => {
         check: 'A/B Proof-of-Fix',
         status: 'WARN' as const,
         detail: '1 test(s) passed on A and B (no fail-to-pass transition observed)',
+        noFailToPass: true,
       },
     ];
 
     const reconciled = reconcileMatrixForTriage(matrix, {
       prKind: 'core-ref-nfc',
+      intent: 'refactor',
       riskLevel: 'low',
       activeLenses: ['correctness', 'tests'],
       summaryBullets: ['Refactor'],
@@ -133,7 +135,7 @@ describe('Jenkins / Duderino CI evidence & flaky-CI reconciliation', () => {
     expect(ciRow?.status).toBe('WARN');
     expect(ciRow?.detail).toContain('likely unrelated flake');
     expect(proofRow?.status).toBe('PASS');
-    expect(proofRow?.detail).toContain('NFC/refactor: behavior preserved');
+    expect(proofRow?.detail).toBe('1 test(s) passed on A and B');
 
     expect(computeFinalVerdict([], reconciled)).toBe('NO_ISSUES_FOUND');
     const score = computeConfidenceScore({

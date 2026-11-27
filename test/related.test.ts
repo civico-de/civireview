@@ -290,6 +290,7 @@ describe('related open PRs & GitLab issue discovery', () => {
         return {
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'low',
             activeLenses: ['correctness'],
             summaryBullets: ['Fixes min=0 attribute'],

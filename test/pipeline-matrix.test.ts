@@ -73,7 +73,7 @@ function makeBundle(overrides: Partial<EvidenceBundle> = {}): EvidenceBundle {
           bothFail: [],
           gone: [],
           passedBoth: [],
-          tautologicalTests: [],
+          basePassingTests: [],
           addedTestMethods: [],
           summary: '1 test(s) red on A, green on B',
         },
@@ -128,6 +128,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
             return {
               output: req.schema.parse({
                 prKind: 'core-bugfix',
+                intent: 'bugfix',
                 riskLevel: 'low',
                 activeLenses: ['correctness'],
                 summaryBullets: ['Simple fix'],
@@ -243,7 +244,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     },
   );
 
-  test('buildVerificationMatrix marks tautologicalTests as WARN and pipeline keeps r-maint/r-run consistent', async () => {
+  test('an added test that passes on base is a question on a bugfix and nothing on a refactor', async () => {
     const tautBundle = makeBundle({
       abReport: {
         executed: true,
@@ -261,7 +262,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
             bothFail: [],
             gone: [],
             passedBoth: ['QueryTest::testOrderByAlwaysIncludesContactId'],
-            tautologicalTests: [
+            basePassingTests: [
               {
                 file: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
                 method: 'testOrderByAlwaysIncludesContactId',
@@ -277,7 +278,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
               },
             ],
             summary:
-              '1 added test method(s) PASSED on unfixed base A (tautological: testOrderByAlwaysIncludesContactId)',
+              '1 added test method(s) pass on base A and on B (testOrderByAlwaysIncludesContactId)',
           },
         ],
         surfaceDiff: {
@@ -306,118 +307,144 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         confidenceThreshold: 80,
       },
     });
-    const mockRunner: StageRunner = {
-      providers: ['anthropic'],
-      async run(req) {
-        if (req.stage === 'triage') {
-          return {
-            output: req.schema.parse({
-              prKind: 'core-bugfix',
-              riskLevel: 'medium',
-              activeLenses: ['correctness', 'tests'],
-              summaryBullets: ['Bugfix with tautological test'],
-              recommendedAbTests: [],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        if (req.stage === 'specialist:correctness') {
-          return {
-            output: req.schema.parse({
-              lens: 'correctness',
-              summary: 'Code ok',
-              findings: [],
-              standards: [
-                { code: 'r-run', status: 'PASS', note: 'A/B ran' },
-                { code: 'r-maint', status: 'PASS', note: 'Test present' },
-              ],
-              checkedWithoutFindings: ['Code logic'],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        if (req.stage === 'specialist:tests') {
-          return {
-            output: req.schema.parse({
-              lens: 'tests',
-              summary: 'Tautological test detected',
-              findings: [
-                {
-                  id: 'test-taut-1',
-                  lens: 'tests',
-                  title: 'Added test passes on unfixed base A',
-                  severity: 'medium',
-                  path: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
-                  startLine: 100,
-                  endLine: 100,
-                  side: 'RIGHT',
-                  issue: 'testOrderByAlwaysIncludesContactId passed on unfixed base A',
-                  failureScenario: 'Regression would not be caught',
-                  evidence: 'ck ab passed_both',
-                  suggestedFix: 'Assert pre-fix failure',
-                  mcpCitations: [],
-                },
-              ],
-              checkedWithoutFindings: [],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        if (req.stage === 'verifier') {
-          return {
-            output: req.schema.parse({
-              notes: 'Confirmed tautological test via ck ab passed_both',
-              verifiedFindings: [
-                {
-                  id: 'test-taut-1',
-                  lens: 'tests',
-                  title: 'Added test passes on unfixed base A',
-                  severity: 'medium',
-                  reassessedSeverity: 'medium',
-                  verdict: 'PROVEN',
-                  confidence: 95,
-                  path: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
-                  startLine: 100,
-                  endLine: 100,
-                  side: 'RIGHT',
-                  issue: 'testOrderByAlwaysIncludesContactId passed on unfixed base A',
-                  failureScenario: 'Regression would not be caught',
-                  evidence: 'ck ab passed_both',
-                  verificationEvidence: 'ck ab proved test passed on unfixed base A',
-                  suggestedFix: 'Assert pre-fix failure',
-                  mcpCitations: [],
-                },
-              ],
-            }),
-            model: req.model,
-            provider: 'anthropic',
-            durationMs: 1,
-          };
-        }
-        throw new Error(`Unexpected stage ${req.stage}`);
-      },
+    const reviewWith = async (intent: 'bugfix' | 'refactor') => {
+      const asksQuestion = intent === 'bugfix';
+      const mockRunner: StageRunner = {
+        providers: ['anthropic'],
+        async run(req) {
+          if (req.stage === 'triage') {
+            return {
+              output: req.schema.parse({
+                prKind: 'core-bugfix',
+                intent,
+                riskLevel: 'medium',
+                activeLenses: ['correctness', 'tests'],
+                summaryBullets: ['Change with a test that passes on base'],
+                recommendedAbTests: [],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          if (req.stage === 'specialist:correctness') {
+            return {
+              output: req.schema.parse({
+                lens: 'correctness',
+                summary: 'Code ok',
+                findings: [],
+                standards: [
+                  { code: 'r-run', status: 'PASS', note: 'A/B ran' },
+                  { code: 'r-maint', status: 'PASS', note: 'Test present' },
+                ],
+                checkedWithoutFindings: ['Code logic'],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          if (req.stage === 'specialist:tests') {
+            return {
+              output: req.schema.parse({
+                lens: 'tests',
+                summary: 'Added test passes on base',
+                findings: !asksQuestion
+                  ? []
+                  : [
+                      {
+                        id: 'test-taut-1',
+                        lens: 'tests',
+                        title: 'No added test fails without the fix',
+                        severity: 'low',
+                        path: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
+                        startLine: 100,
+                        endLine: 100,
+                        side: 'RIGHT',
+                        issue: 'testOrderByAlwaysIncludesContactId passed on unfixed base A',
+                        failureScenario: 'Regression would not be caught',
+                        evidence: 'ck ab passed_both',
+                        suggestedFix: 'Assert pre-fix failure',
+                        mcpCitations: [],
+                      },
+                    ],
+                checkedWithoutFindings: [],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          if (req.stage === 'verifier') {
+            return {
+              output: req.schema.parse({
+                notes: 'ck ab passed_both',
+                verifiedFindings: !asksQuestion
+                  ? []
+                  : [
+                      {
+                        id: 'test-taut-1',
+                        lens: 'tests',
+                        title: 'No added test fails without the fix',
+                        severity: 'low',
+                        reassessedSeverity: 'low',
+                        verdict: 'NEEDS_QUESTION',
+                        confidence: 85,
+                        path: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
+                        startLine: 100,
+                        endLine: 100,
+                        side: 'RIGHT',
+                        issue: 'testOrderByAlwaysIncludesContactId passed on unfixed base A',
+                        failureScenario: 'Regression would not be caught',
+                        evidence: 'ck ab passed_both',
+                        verificationEvidence: 'ck ab proved test passed on unfixed base A',
+                        suggestedFix: 'Assert pre-fix failure',
+                        mcpCitations: [],
+                      },
+                    ],
+              }),
+              model: req.model,
+              provider: 'anthropic',
+              durationMs: 1,
+            };
+          }
+          throw new Error(`Unexpected stage ${req.stage}`);
+        },
+      };
+
+      const registry = createRunnerRegistry({ anthropic: mockRunner });
+      return runReviewPipeline({
+        bundle: tautBundle,
+        filteredPatch: SAMPLE_PATCH,
+        config,
+        cwd: process.cwd(),
+        registry,
+      });
     };
+    const proofOf = (review: Awaited<ReturnType<typeof reviewWith>>) =>
+      review.verificationMatrix.find((m) => m.check === 'A/B Proof-of-Fix');
+    const standardsOf = (review: Awaited<ReturnType<typeof reviewWith>>) =>
+      Object.fromEntries((review.standards ?? []).map((s) => [s.code, s.status]));
 
-    const registry = createRunnerRegistry({ anthropic: mockRunner });
-    const review = await runReviewPipeline({
-      bundle: tautBundle,
-      filteredPatch: SAMPLE_PATCH,
-      config,
-      cwd: process.cwd(),
-      registry,
-    });
+    // A bugfix: the added test does not prove the fix, which is a question to the author.
+    const bugfix = await reviewWith('bugfix');
+    expect(bugfix.intent).toBe('bugfix');
+    expect(proofOf(bugfix)?.status).toBe('WARN');
+    expect(bugfix.verdict).toBe('QUESTIONS_ONLY');
+    expect(bugfix.findings.map((f) => [f.verdict, f.reassessedSeverity])).toEqual([
+      ['NEEDS_QUESTION', 'low'],
+    ]);
+    expect(bugfix.score).toBe(4);
+    expect(standardsOf(bugfix)).toEqual({ 'r-run': 'PASS', 'r-maint': 'PASS' });
 
-    expect(review.verdict).toBe('ISSUES_FOUND');
-    expect(review.findings).toHaveLength(1);
-    expect(review.findings[0]!.verdict).toBe('PROVEN');
-    expect(review.standards?.find((s) => s.code === 'r-maint')?.status).toBe('ISSUE');
-    expect(review.standards?.find((s) => s.code === 'r-run')?.status).toBe('ISSUE');
+    // A refactor: tests that pass on both sides are what it should show.
+    const refactor = await reviewWith('refactor');
+    expect(proofOf(refactor)).toMatchObject({ status: 'PASS' });
+    expect(proofOf(refactor)?.detail).not.toContain('no fail-to-pass');
+    expect(refactor.verdict).toBe('NO_ISSUES_FOUND');
+    expect(refactor.findings).toEqual([]);
+    expect(refactor.score).toBe(5);
+    expect(standardsOf(refactor)).toEqual({ 'r-run': 'PASS', 'r-maint': 'PASS' });
   });
 
   test('buildVerificationMatrix keeps PASS with regression-guard note when fixed > 0 alongside passed_both guard tests', () => {
@@ -438,7 +465,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
             bothFail: [],
             gone: [],
             passedBoth: ['AfformContributionTest::testGuard'],
-            tautologicalTests: [
+            basePassingTests: [
               {
                 file: 'ext/civi_contribute/tests/phpunit/AfformContributionTest.php',
                 method: 'testGuard',
@@ -611,7 +638,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
         [],
         [
           { check: 'CI / Jenkins', status: 'PASS', detail: 'green' },
-          { check: 'A/B Proof-of-Fix', status: 'WARN', detail: 'tautological' },
+          { check: 'A/B Proof-of-Fix', status: 'WARN', detail: 'passes on base' },
           { check: 'Live Surface Diff', status: 'FAIL', detail: 'non-blocking check' },
         ],
       ),
@@ -688,6 +715,7 @@ describe('pipeline matrix, scoring, effort & verdict reconciliation', () => {
     const cleanMatrix = [{ check: 'CI / Jenkins', status: 'PASS' as const, detail: 'green' }];
     const smallTriage = {
       prKind: 'core-bugfix' as const,
+      intent: 'bugfix' as const,
       riskLevel: 'low' as const,
       shortSummary: 'Fixes edge case.',
       summaryBullets: ['Fixes edge case.'],

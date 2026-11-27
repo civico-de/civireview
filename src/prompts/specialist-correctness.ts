@@ -47,7 +47,7 @@ MCP & REPO TOOLS WORKFLOW:
 - Use \`civicrm_find_entity\` and \`civicrm_read\` / \`read_file\` to check surrounding BAO/DAO/APIv4 layers and cache invalidation.
 - Cite MCP findings in \`mcpCitations\`.`;
 
-  const userPrompt = `Perform the 'correctness' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, risk=${triage.riskLevel}).
+  const userPrompt = `Perform the 'correctness' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, intent=${triage.intent}, risk=${triage.riskLevel}).
 Return SpecialistOutput JSON with lens='correctness'.`;
 
   return { systemPrompt, userPrompt };

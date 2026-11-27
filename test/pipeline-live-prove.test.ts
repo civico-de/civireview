@@ -30,6 +30,7 @@ async function runWith(composeFiles?: { A?: string; B?: string }, supportsExtraT
           ...base,
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'medium',
             activeLenses: ['correctness'],
             summaryBullets: ['NOT VERIFIED: the job was not run.'],

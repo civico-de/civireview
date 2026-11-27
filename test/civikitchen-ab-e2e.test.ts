@@ -756,7 +756,7 @@ describe('proof of fix with unmatched test files', () => {
 });
 
 describe('fixtures are not production changes', () => {
-  test('a new test of a fixture-only PR that passes on both sides is not tautological', async () => {
+  test('a new test of a fixture-only PR that passes on both sides is not listed as passing on base', async () => {
     const repoDir = makeTempDir();
     const { wtA, wtB } = makeMockWorktrees();
     const t = 'ext/afform/mock/tests/phpunit/api/v4/Afform/MockJoinUsageTest.php';
@@ -816,6 +816,6 @@ describe('fixtures are not production changes', () => {
 
     const proof = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
     expect(proof).toBeDefined();
-    expect(proof!.tautologicalTests ?? []).toEqual([]);
+    expect(proof!.basePassingTests ?? []).toEqual([]);
   });
 });

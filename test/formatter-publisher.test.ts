@@ -447,6 +447,8 @@ const reactionFor = async (review: FinalReview) => {
   return reactions;
 };
 
+const kindLine = (review: FinalReview) =>
+  formatReviewMarkdown(review, makeSampleBundle()).summaryBody.match(/\*\*Kind:\*\*[^\n]*/)![0];
 describe('verdict in the header, the lists and the reaction', () => {
   test('an unconfirmed finding and an open thread are questions, not things to address', () => {
     const review: FinalReview = {
@@ -472,6 +474,13 @@ describe('verdict in the header, the lists and the reaction', () => {
     expect(visible).toContain('## CiviReview: 🔴 **Issues found** · 1 medium\n');
     expect(visible).toContain('**To address (1)**');
     expect(visible).not.toContain('**Questions');
+  });
+
+  test('the intent stands next to the kind when triage gave one', () => {
+    expect(kindLine({ ...makeSampleReview(), intent: 'bugfix' })).toContain(
+      '**Kind:** `core-bugfix` · **Intent:** `bugfix` · **Commits:**',
+    );
+    expect(kindLine(makeSampleReview())).toContain('**Kind:** `core-bugfix` · **Commits:**');
   });
 
   test('nothing found without a runtime result names the checks that gave none', () => {

@@ -54,6 +54,7 @@ async function runWith(responses: VerifiedFinding[][], confidenceThreshold = 80)
           ...base,
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'medium',
             activeLenses: ['security'],
             summaryBullets: [],

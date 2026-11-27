@@ -22,6 +22,13 @@ CLASSIFICATION RULES:
   - 'ui-change': touches Smarty .tpl, Afform .aff.html/.aff.json, SearchKit, JS/TS/CSS UI assets.
   - 'extension-pr': ONLY when repoKind is 'civicrm-extension' (standalone extension repo). Changes inside \`ext/*\` of \`civicrm/civicrm-core\` are \`core-bugfix\`, \`core-feature\`, or \`core-ref-nfc\`.
   - 'core-bugfix' or 'core-feature': standard CiviCRM core fix or feature.
+- intent: what the change is for, independent of prKind. It decides what the PR's tests have to show.
+  - 'bugfix': the PR corrects wrong behaviour (a bug report, a regression, "fix" in title or body). Only here a test is expected to fail without the change.
+  - 'feature': the PR adds behaviour or an option that did not exist.
+  - 'refactor': the PR restructures code and means to keep behaviour (REF, NFC, cleanup, deprecation, performance without a behaviour change).
+  - 'tests-only': the PR changes nothing but tests and test fixtures.
+  - 'docs': the PR changes nothing but documentation and comments.
+  - A PR that does several of these takes the first that applies in the order bugfix, feature, refactor.
 - activeLenses: choose from ['correctness', 'security', 'tests', 'ui'].
   - Activate 'ui' whenever templates/Afform/SearchKit/frontend assets are touched.
   - Activate 'security' whenever inputs, permissions, routes, APIv4, SQL, templates, webhooks, or auth are touched.

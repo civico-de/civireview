@@ -107,13 +107,13 @@ export const AbComparisonItemSchema = z.object({
 });
 export type AbComparisonItem = z.infer<typeof AbComparisonItemSchema>;
 
-export const TautologicalTestSchema = z.object({
+export const BasePassingTestSchema = z.object({
   file: z.string(),
   method: z.string(),
   line: z.number().int().positive(),
   testCaseName: z.string(),
 });
-export type TautologicalTest = z.infer<typeof TautologicalTestSchema>;
+export type BasePassingTest = z.infer<typeof BasePassingTestSchema>;
 
 export const AbCheckResultSchema = z.object({
   name: z.string(),
@@ -130,7 +130,7 @@ export const AbCheckResultSchema = z.object({
   gone: z.array(z.string()),
   onlyOnB: z.array(z.string()).optional(),
   passedBoth: z.array(z.string()).default([]),
-  tautologicalTests: z.array(TautologicalTestSchema).default([]),
+  basePassingTests: z.array(BasePassingTestSchema).default([]),
   addedTestMethods: z
     .array(
       z.object({

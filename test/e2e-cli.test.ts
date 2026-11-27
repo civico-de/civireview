@@ -59,6 +59,7 @@ beforeEach(() => {
     join(dir, 'triage.json'),
     envelope({
       prKind: 'security-sensitive',
+      intent: 'bugfix',
       riskLevel: 'high',
       activeLenses: ['security'],
       summaryBullets: ['Builds the contact query in a variable'],

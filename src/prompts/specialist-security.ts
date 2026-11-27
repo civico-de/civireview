@@ -49,7 +49,7 @@ EVIDENCE INPUTS:
 - Inspect \`Surface Diff\` changes (menu routes, APIv4 actions, checkPermissions, hooks) and any \`cktaint\` / static delta leads in the Layer 1 evidence.
 - Use \`read_file\` and \`grep_repo\` to trace taint from entry point to sink, and use \`civicrm_search\` / \`civicrm_grep\` for CiviCRM security helpers (e.g., CRM_Utils_Type, CRM_Core_Permission, CRM_Core_Page_AJAX).`;
 
-  const userPrompt = `Perform the 'security' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, risk=${triage.riskLevel}).
+  const userPrompt = `Perform the 'security' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, intent=${triage.intent}, risk=${triage.riskLevel}).
 Return SpecialistOutput JSON with lens='security'.`;
 
   return { systemPrompt, userPrompt };

@@ -476,7 +476,7 @@ diff --git a/CRM/MyExt/Upgrader.php b/CRM/MyExt/Upgrader.php
     }
   });
 
-  test('passes --name and --filter on modified test file, detects tautologicalTests from passed_both, and formats shared evidence prefix', async () => {
+  test('passes --name and --filter on modified test file, detects basePassingTests from passed_both, and formats shared evidence prefix', async () => {
     const repoDir = makeTempDir();
     const repoInfo: RepoInfo = {
       kind: 'civicrm-core',
@@ -570,7 +570,7 @@ diff --git a/tests/phpunit/CRM/Contact/BAO/QueryTest.php b/tests/phpunit/CRM/Con
 
     const proofCheck = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
     expect(proofCheck).toBeDefined();
-    expect(proofCheck!.tautologicalTests).toEqual([
+    expect(proofCheck!.basePassingTests).toEqual([
       {
         file: 'tests/phpunit/CRM/Contact/BAO/QueryTest.php',
         method: 'testOrderByAlwaysIncludesContactId',
@@ -580,7 +580,7 @@ diff --git a/tests/phpunit/CRM/Contact/BAO/QueryTest.php b/tests/phpunit/CRM/Con
       },
     ]);
     expect(proofCheck!.summary).toBe(
-      '1 added test method(s) PASSED on unfixed base A (tautological: testOrderByAlwaysIncludesContactId)',
+      '1 added test method(s) pass on base A and on B (testOrderByAlwaysIncludesContactId)',
     );
 
     const bundle: EvidenceBundle = {
@@ -707,7 +707,7 @@ diff --git a/tests/phpunit/CRM/MyExt/FooTest.php b/tests/phpunit/CRM/MyExt/FooTe
 
     const proofCheck = outcome.abReport.checks.find((c) => c.name === 'proof-of-fix');
     expect(proofCheck?.fixed).toEqual(['FooTest::testNewCase']);
-    expect(proofCheck?.tautologicalTests).toEqual([]);
+    expect(proofCheck?.basePassingTests).toEqual([]);
   });
 
   test('test files beyond the proof-of-fix limit are named, five or fewer leave no note', () => {

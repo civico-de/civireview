@@ -29,6 +29,7 @@ async function runWithBudget(maxBudgetUsd: number | undefined, usdPerStage: numb
           ...base,
           output: req.schema.parse({
             prKind: 'core-bugfix',
+            intent: 'bugfix',
             riskLevel: 'medium',
             activeLenses: ['correctness', 'security'],
             summaryBullets: [],

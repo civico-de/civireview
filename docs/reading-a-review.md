@@ -52,9 +52,16 @@ changes only for a failed check or a confirmed critical or high finding.
 **Reaction.** The comment that asked for the review gets 👀 while the review runs, then
 👍 for *No issues found* and 😕 for every other verdict.
 
-**Profile and kind.** The PR, profile, kind and commits line opens *Verification*. The profile says where the change could be verified
+**Profile, kind and intent.** The PR, profile, kind, intent and commits line opens *Verification*. The profile says where the change could be verified
 ([profiles.md](profiles.md)); the kind is the triage model's classification of the
-change.
+change by place and area, the intent what the change is for (`bugfix`, `feature`,
+`refactor`, `tests-only`, `docs`).
+
+**Added tests that pass without the change.** Added tests never lower a review. Only
+a bugfix is expected to bring a test that fails without the fix. When none of its
+added tests does, *Proof of fix* shows ⚠️, the score is at most 4 (as without an added
+test) and *Questions* asks the author whether one of them should reproduce the bug. For
+every other intent tests that pass on both sides are a ✅.
 
 ## Score
 
@@ -65,7 +72,7 @@ up to three reasons, the deciding one first.
 | --- | --- |
 | 1 | a confirmed critical finding; two or more confirmed high findings |
 | 2 | one confirmed high finding; the change fails on a CMS other than Standalone; a critical question; CI failed; taint delta found new errors; browser A/B found regressions; the demo reported errors; proof of fix found regressions |
-| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; a new test passes on the unfixed base; base-test regression failed; the version matrix failed; not verified at runtime (the Not verified case above) |
+| 3 | a confirmed medium finding; a high question; proof of fix did not run cleanly; base-test regression failed; the version matrix failed; not verified at runtime (the Not verified case above) |
 | 4 | any other finding; code of a CMS integration that did not run on its CMS, or ran there only as a login and page loads; CI failure that looks like an unrelated flake; proof of fix without a fail-to-pass transition; warnings in base-test regression, surface diff or browser A/B; unanswered reviewer feedback; neither proof of fix nor base-test regression ran a test (except for docs-only and refactoring PRs) |
 
 A test that civireview leaves out without a check of its own (an extension's browser

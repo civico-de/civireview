@@ -112,6 +112,7 @@ const browser = (over: object) => {
 
 const triage = (over: Partial<TriageOutput>): TriageOutput => ({
   prKind: 'core-bugfix',
+  intent: 'bugfix',
   riskLevel: 'low',
   activeLenses: ['correctness'],
   summaryBullets: [],
@@ -166,13 +167,13 @@ describe('buildVerificationMatrix: A/B rows', () => {
     expect(rowOf(b, 'A/B Proof-of-Fix')?.status).toBe('NOT_VERIFIED');
   });
 
-  test('a tautological test stays an issue of a review that is otherwise ready', () => {
+  test('an added test that passes on base warns without touching the standards', () => {
     const b = bundleWithChecks([
       {
         name: 'proof-of-fix',
         status: 'PASS',
         fixed: [],
-        tautologicalTests: [
+        basePassingTests: [
           { method: 'testX', file: 'tests/XTest.php', line: 3, testCaseName: 'XTest::testX' },
         ],
       },
@@ -185,11 +186,16 @@ describe('buildVerificationMatrix: A/B rows', () => {
       verdict: 'NO_ISSUES_FOUND',
       survivingFindings: [],
       verificationMatrix: buildVerificationMatrix(b).verificationMatrix,
-      bundle: b,
     })!;
     expect(Object.fromEntries(standards.map((s) => [s.code, s.status]))).toEqual({
-      'r-maint': 'ISSUE',
+      'r-maint': 'PASS',
       'r-code': 'PASS',
+    });
+    expect(rowOf(b, 'A/B Proof-of-Fix')).toMatchObject({
+      status: 'WARN',
+      noFailToPass: true,
+      detail:
+        '1 added test method(s) pass on base and PR: testX (tests/XTest.php:3) (no fail-to-pass transition observed)',
     });
   });
 
@@ -381,27 +387,32 @@ describe('reconcileMatrixForTriage', () => {
     expect(row?.status).toBe('FAIL');
   });
 
-  test('on a refactor PR, tests passing on both sides prove preserved behaviour', () => {
-    const rows = [
-      entry(
+  test('only a bugfix has to show a test that fails without the change', () => {
+    const passedBoth: VerificationMatrixEntry = {
+      ...entry(
         'A/B Proof-of-Fix',
         'WARN',
         '3 tests passed on both (no fail-to-pass transition observed)',
       ),
-      entry('CiviKitchen A/B Proof-of-Fix', 'WARN', 'x passed on both, tautological'),
-    ];
-    const [plain, tautological] = reconcileMatrixForTriage(
-      rows,
-      triage({ prKind: 'core-ref-nfc' }),
-    );
-    expect(plain).toMatchObject({
-      status: 'PASS',
-      detail: '3 tests passed on both (NFC/refactor: behavior preserved)',
-    });
-    expect(tautological?.status).toBe('WARN');
+      noFailToPass: true,
+    };
+    const failOnBoth = entry('A/B Proof-of-Fix', 'WARN', '1 test(s) fail on both base and PR');
 
-    const [bugfix] = reconcileMatrixForTriage(rows.slice(0, 1), triage({ prKind: 'core-bugfix' }));
-    expect(bugfix?.status).toBe('WARN');
+    for (const intent of ['feature', 'refactor', 'tests-only', 'docs'] as const) {
+      // The kind names place and area, so an extension PR is judged by its intent too.
+      const [row, other] = reconcileMatrixForTriage(
+        [passedBoth, failOnBoth],
+        triage({ prKind: 'extension-pr', intent }),
+      );
+      expect(row).toMatchObject({ status: 'PASS', detail: '3 tests passed on both' });
+      expect(other?.status).toBe('WARN');
+    }
+
+    const [bugfix] = reconcileMatrixForTriage(
+      [passedBoth],
+      triage({ prKind: 'core-ref-nfc', intent: 'bugfix' }),
+    );
+    expect(bugfix).toEqual(passedBoth);
   });
 });
 
@@ -477,6 +488,26 @@ describe('computeConfidenceScore rationale', () => {
     };
     expect(computeConfidenceScore(noTests)).toEqual({ score: 4, rationale: 'No A/B test ran.' });
     expect(computeConfidenceScore({ ...noTests, prKind: 'docs-only' }).score).toBe(5);
+  });
+
+  test('an added test that proves nothing scores like no added test', () => {
+    const withTest = (proof: VerificationMatrixEntry) =>
+      computeConfidenceScore({
+        verdict: 'NO_ISSUES_FOUND',
+        findings: [],
+        verificationMatrix: [entry('CI / Jenkins', 'PASS'), proof],
+        prKind: 'core-bugfix',
+      });
+    // A bugfix whose added test passes on base: the row stays a warning.
+    expect(
+      withTest(entry('A/B Proof-of-Fix', 'WARN', '1 added test method(s) pass on base and PR')),
+    ).toEqual({
+      score: 4,
+      rationale: 'A/B Proof-of-Fix did not observe a fail-to-pass transition.',
+    });
+    expect(withTest(entry('A/B Proof-of-Fix', 'SKIPPED')).score).toBe(4);
+    // Any other intent: the row passes and nothing is taken off.
+    expect(withTest(entry('A/B Proof-of-Fix', 'PASS')).score).toBe(5);
   });
 });
 

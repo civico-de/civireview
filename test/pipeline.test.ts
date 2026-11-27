@@ -55,6 +55,7 @@ describe('review pipeline', () => {
           return {
             output: req.schema.parse({
               prKind: 'security-sensitive',
+              intent: 'bugfix',
               riskLevel: 'high',
               activeLenses: ['correctness', 'security', 'tests'],
               summaryBullets: ['Refactors SQL lookup in CRM_Contact_BAO_Contact::run'],
@@ -336,6 +337,7 @@ describe('review pipeline', () => {
         return {
           output: req.schema.parse({
             prKind: 'docs-only',
+            intent: 'docs',
             riskLevel: 'low',
             activeLenses: [],
             summaryBullets: ['Updates README documentation only.'],
@@ -472,6 +474,7 @@ describe('review pipeline', () => {
           return {
             output: req.schema.parse({
               prKind: 'ui-change',
+              intent: 'bugfix',
               riskLevel: 'medium',
               // Notice 'correctness' and 'security' are returned by triage,
               // but review.include=['browser','ui'] should filter them out and keep 'ui'!
@@ -592,6 +595,7 @@ describe('review pipeline', () => {
           return {
             output: req.schema.parse({
               prKind: 'core-bugfix',
+              intent: 'bugfix',
               riskLevel: 'medium',
               activeLenses: ['correctness', 'security', 'tests'],
               summaryBullets: ['NEEDS_QUESTION: Unverified triage note'],
@@ -712,6 +716,7 @@ describe('review pipeline', () => {
           return {
             output: req.schema.parse({
               prKind: 'core-bugfix',
+              intent: 'bugfix',
               riskLevel: 'medium',
               activeLenses: ['correctness'],
               summaryBullets: ['Changes entityInfo contract'],

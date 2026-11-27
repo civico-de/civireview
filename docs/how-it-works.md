@@ -90,7 +90,7 @@ Every check below runs the same command on A and on B and compares the outcome.
 
 | Check | What runs | Result |
 | --- | --- | --- |
-| Proof of fix | PHPUnit files the PR adds or changes (the first five; further ones are named under *Not verified*), limited to the changed test methods. In core, browser tests under `tests/phpunit/E2E/` run too, with a headless Chrome on each side. Files of a development-only extension, such as afform's mock forms, are test fixtures and come from the head on both sides, like the tests; when that is impossible, the proof of fix is not run | A test that fails on A and passes on B proves the fix. A new test that already passes on A proves nothing and is reported as tautological. |
+| Proof of fix | PHPUnit files the PR adds or changes (the first five; further ones are named under *Not verified*), limited to the changed test methods. In core, browser tests under `tests/phpunit/E2E/` run too, with a headless Chrome on each side. Files of a development-only extension, such as afform's mock forms, are test fixtures and come from the head on both sides, like the tests; when that is impossible, the proof of fix is not run | A test that fails on A and passes on B proves the fix. Added tests that pass on both sides guard existing behaviour. Only a PR whose intent is `bugfix` is expected to have a test that fails on A: without one the row warns and the tests lens asks the author one question. For every other intent the row passes. |
 | Base-test regression | Existing tests next to the changed code | A test that passes on A and fails on B is a regression. |
 | Live surface diff | APIv4 entities, actions and fields, APIv3, routes and Afforms as each instance reports them | What really changed at runtime, with risk flags for permission and route changes. |
 | Browser A/B | A headless browser loads routes on both sides | New console errors, page errors, failed requests, accessibility violations and render differences; before/after screenshots. |
@@ -152,7 +152,10 @@ read from it.
 
 One call classifies the PR (`core-bugfix`, `core-feature`, `core-ref-nfc`,
 `extension-pr`, `security-sensitive`, `ui-change`, `docs-only`), sets a risk level,
-picks the lenses worth running and writes the summary. The kind describes the change;
+picks the lenses worth running and writes the summary. It also names the intent
+(`bugfix`, `feature`, `refactor`, `tests-only`, `docs`): what the change is for, whatever
+its place or area. A bugfix in an extension is `extension-pr` with the intent `bugfix`.
+The kind describes the change, the intent decides what its tests have to show, and
 the profile describes where it could be verified. A PR in a bundled core extension has a
 `core-*` kind and the `core-extension` profile.
 

@@ -462,6 +462,7 @@ async function executeReviewPipeline(
       baseSha: bundle.pr.baseSha,
       headSha: bundle.pr.headSha,
       prKind: triage.prKind,
+      intent: triage.intent,
       verdict: skipVerdict,
       score: skipScore.score,
       scoreRationale: skipScore.rationale,
@@ -895,7 +896,6 @@ async function executeReviewPipeline(
     verdict: findingsVerdict(survivingFindings, verificationMatrix),
     survivingFindings,
     verificationMatrix,
-    bundle,
   });
 
   if (hasUsage) {
@@ -909,6 +909,7 @@ async function executeReviewPipeline(
     baseSha: bundle.pr.baseSha,
     headSha: bundle.pr.headSha,
     prKind: triage.prKind,
+    intent: triage.intent,
     verdict,
     score,
     scoreRationale,

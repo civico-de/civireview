@@ -19,10 +19,11 @@ ${EVIDENCE_DISCIPLINE_RULES}
 TEST QUALITY & A/B PROOF AUDIT:
 1. Red-on-A / Green-on-B Proof-of-Fix:
    - Inspect CiviKitchen A/B results in the Layer 1 evidence.
-   - A bugfix or behavioural PR whose new test passes on BOTH base (A) and head (B) proves nothing — flag tautological or non-reproducing tests!
-   - If \`tautologicalTests\` is non-empty on a bugfix or behavior-change PR, emit a concrete \`medium\` candidate finding anchored directly at the exact \`file:line\` (\`startLine: line, endLine: line, side: 'RIGHT'\`) of the tautological test method explaining that \`ck ab\` proved it already passed on unfixed base A (\`fixed: 0\` / did not reproduce the bug on A).
+   - Only a PR with intent 'bugfix' has to show a test that fails on base (A) and passes on head (B). For every other intent, added tests that pass on both sides are what the PR should show: never flag them for it.
+   - Added tests cost nothing. A test listed in \`basePassingTests\` guards existing behaviour; that is no defect of the test, on any PR.
+   - On a 'bugfix' PR with \`basePassingTests\` and no test red on A and green on B, emit exactly ONE \`low\` candidate, anchored at the \`file:line\` of the added test closest to the fixed behaviour (\`startLine: line, endLine: line, side: 'RIGHT'\`). Title and issue ask the author a question: no added test fails without the fix, should one of them reproduce the bug? Name the input or state that would make it fail on base if you can see it.
    - If no test was added for a non-trivial bugfix/feature, flag what specific scenario needs test coverage (unless clearly exempt).
-2. Tautological / Weak Assertions:
+2. Weak Assertions:
    - Flag tests that mock away the unit under test, assert only \`assertTrue(true)\` / non-empty without checking the actual mutated state/response, or silently swallow exceptions.
 3. Base-Test Regression, Runner Timeouts & CI Failures:
    - Inspect \`base-test-regression\` A/B results and Jenkins/Duderino CI failed tests. Explain whether CI failures are caused by this PR or pre-existing flakes (use \`civicrm_issues\` / \`civicrm_search\` if needed).
@@ -34,16 +35,17 @@ TEST QUALITY & A/B PROOF AUDIT:
      - Note clearly what could not be verified locally by mounts.`;
 
   const proofCheck = bundle.abReport.checks.find((c) => c.name === 'proof-of-fix');
-  const tautological = proofCheck?.tautologicalTests ?? [];
+  const basePassing = proofCheck?.basePassingTests ?? [];
   const fixedCount = proofCheck?.fixed.length ?? 0;
-  const tautNote =
-    tautological.length > 0
-      ? fixedCount === 0
-        ? `\nNOTE: Layer 1 \`ck ab\` detected tautological added test(s) that PASSED on unfixed base A with 0 red-on-A/green-on-B tests: ${tautological.map((t) => `${t.file}:${t.line} (${t.method})`).join(', ')}. Anchor a \`medium\` finding directly at \`file:line\` if this PR fixes a bug or changes behavior.`
-        : `\nNOTE: Layer 1 \`ck ab\` proved ${fixedCount} test(s) red-on-A -> green-on-B, while these additional added test(s) passed on BOTH A and B: ${tautological.map((t) => `${t.file}:${t.line} (${t.method})`).join(', ')}. Only flag them if they fail to exercise their intended regression guard (do not penalize genuine non-regression guards).`
-      : '';
+  const names = basePassing.map((t) => `${t.file}:${t.line} (${t.method})`).join(', ');
+  const basePassingNote =
+    basePassing.length === 0
+      ? ''
+      : fixedCount === 0 && triage.intent === 'bugfix'
+        ? `\nNOTE: Layer 1 \`ck ab\` ran the added test(s) on both sides and none failed on base A: ${names}. This is a bugfix, so ask the one question of rule 1.`
+        : `\nNOTE: Layer 1 \`ck ab\` found added test(s) that pass on BOTH A and B: ${names}. They guard existing behaviour; do not flag them for passing on base.`;
 
-  const userPrompt = `Perform the 'tests' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, risk=${triage.riskLevel}).${tautNote}
+  const userPrompt = `Perform the 'tests' specialist review for PR #${bundle.pr.prNumber} (triage kind=${triage.prKind}, intent=${triage.intent}, risk=${triage.riskLevel}).${basePassingNote}
 Return SpecialistOutput JSON with lens='tests'.`;
 
   return { systemPrompt, userPrompt };

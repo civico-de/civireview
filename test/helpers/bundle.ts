@@ -58,7 +58,7 @@ export function makeBundle(overrides: Partial<EvidenceBundle> = {}): EvidenceBun
           bothFail: [],
           gone: [],
           passedBoth: [],
-          tautologicalTests: [],
+          basePassingTests: [],
           addedTestMethods: [],
           summary: '1 test(s) red on A, green on B',
         },

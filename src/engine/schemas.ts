@@ -46,6 +46,10 @@ export const PrKindSchema = z.enum([
 ]);
 export type PrKind = z.infer<typeof PrKindSchema>;
 
+// What the change is for, whatever its place or area: it decides what the PR's tests have to show.
+export const ChangeIntentSchema = z.enum(['bugfix', 'feature', 'refactor', 'tests-only', 'docs']);
+export type ChangeIntent = z.infer<typeof ChangeIntentSchema>;
+
 export const RelatedItemSchema = z.object({
   kind: z.enum(['pr', 'gitlab-issue']),
   ref: z.string().min(1),
@@ -62,6 +66,7 @@ export type CiFailureAssessment = z.infer<typeof CiFailureAssessmentSchema>;
 
 export const TriageOutputSchema = z.object({
   prKind: PrKindSchema,
+  intent: ChangeIntentSchema,
   riskLevel: z.enum(['low', 'medium', 'high']),
   activeLenses: z.array(SpecialistLensSchema),
   shortSummary: z.string().min(1).max(400).optional(),
@@ -148,6 +153,8 @@ export const VerificationMatrixEntrySchema = z.object({
   coversWholeChange: z.boolean().optional(),
   // True when the PR changes code of a CMS integration, which a login and page loads only partly reach.
   cmsCodeChanged: z.boolean().optional(),
+  // True when the PR's tests ran on both sides and none failed without the change.
+  noFailToPass: z.boolean().optional(),
 });
 export type VerificationMatrixEntry = z.infer<typeof VerificationMatrixEntrySchema>;
 
@@ -206,6 +213,7 @@ export const FinalReviewSchema = z.object({
   baseSha: z.string().min(1),
   headSha: z.string().min(1),
   prKind: PrKindSchema,
+  intent: ChangeIntentSchema.optional(),
   verdict: FinalVerdictSchema,
   score: ConfidenceScoreSchema.optional(),
   scoreRationale: z.string().optional(),
