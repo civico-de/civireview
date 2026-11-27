@@ -319,11 +319,18 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
         detail: `${pairPrefix}The test run gave no usable result (not a PR failure): ${proofCheck.summary}`,
       });
     } else {
+      // Only tests seen passing on both sides can stand for a change that keeps behaviour.
+      const passedOnBoth =
+        proofCheck.status === 'PASS' &&
+        (proofCheck.passedBoth.length > 0 ||
+          (proofCheck.mode === 'exit-status' &&
+            proofCheck.exitCodeA === 0 &&
+            proofCheck.exitCodeB === 0));
       matrix.push({
         check: proofCheckLabel,
         status: proofCheck.status === 'PASS' ? 'WARN' : 'FAIL',
         detail: `${pairPrefix}${proofCheck.summary}${NO_FAIL_TO_PASS}`,
-        ...(proofCheck.status === 'PASS' ? { noFailToPass: true } : {}),
+        ...(passedOnBoth ? { noFailToPass: true } : {}),
       });
     }
   } else if (bundle.abReport.testsOff) {

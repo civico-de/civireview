@@ -228,6 +228,24 @@ describe('buildVerificationMatrix: A/B rows', () => {
     expect(broken?.status).toBe('NOT_VERIFIED');
   });
 
+  test('without a test seen passing on both sides a refactor keeps the warning', () => {
+    const refactor = triage({ intent: 'refactor' });
+    const rowAfterTriage = (check: Parameters<typeof bundleWithChecks>[0][number]) =>
+      reconcileMatrixForTriage(
+        buildVerificationMatrix(bundleWithChecks([check])).verificationMatrix,
+        refactor,
+      ).find((m) => m.check === 'A/B Proof-of-Fix');
+    const ran = { status: 'PASS' as const, fixed: [] };
+
+    expect(rowAfterTriage({ ...ran, passedBoth: ['XTest::testX'] })?.status).toBe('PASS');
+    expect(
+      rowAfterTriage({ ...ran, mode: 'exit-status', exitCodeA: 0, exitCodeB: 0 })?.status,
+    ).toBe('PASS');
+    // The tests ran on the PR's side only, or left the report: nothing was compared.
+    expect(rowAfterTriage({ ...ran, onlyOnB: ['XTest::testX'] })?.status).toBe('WARN');
+    expect(rowAfterTriage({ ...ran, gone: ['XTest::testX'] })?.status).toBe('WARN');
+  });
+
   test('tests failing on both sides only warn, an internal runner error is not verified', () => {
     const both = bundleWithChecks([{ status: 'PASS', fixed: [], bothFail: ['X::y'] }]);
     expect(rowOf(both, 'A/B Proof-of-Fix')?.status).toBe('WARN');
