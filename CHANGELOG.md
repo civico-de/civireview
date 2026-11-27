@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-27
+
 ### Changed
 
 - **Added tests never lower a review**: triage names the intent of a PR (`bugfix`, `feature`, `refactor`, `tests-only`, `docs`) beside its kind, and only a bugfix is expected to bring a test that fails without the change. A bugfix whose added tests all pass on the base gets a warning on *Proof of fix*, a score of at most 4 (was 3, lower than a PR without any test) and one question to the author under *Questions*; it used to get a confirmed medium finding and `r-maint` and `r-run` set to ISSUE. For every other intent such tests pass the check, which used to hold only for a core REF/NFC PR that added no test. Reviews no longer call these tests tautological. `tautologicalTests` in the evidence is now `basePassingTests`. Evidence collected by an earlier version is collected again before it is reviewed.
