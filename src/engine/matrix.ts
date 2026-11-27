@@ -274,7 +274,11 @@ export function buildVerificationMatrix(bundle: EvidenceBundle): {
           ? `${pairPrefix}${proofCheck.fixed.length} test(s) failed on base, passed on PR${guardSuffix}`
           : `${pairPrefix}${proofCheck.fixed.length} test(s) red on A, green on B${guardSuffix}`,
       });
-    } else if (basePassing.length > 0) {
+    } else if (
+      basePassing.length > 0 &&
+      proofCheck.status === 'PASS' &&
+      proofCheck.bothFail.length === 0
+    ) {
       const names = basePassing.map((t) => `${t.method} (${t.file}:${t.line})`).join(', ');
       matrix.push({
         check: proofCheckLabel,

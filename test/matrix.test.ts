@@ -199,6 +199,35 @@ describe('buildVerificationMatrix: A/B rows', () => {
     });
   });
 
+  test('a run that broke or left failures is never a clean pass for its added tests', () => {
+    const basePassingTests = [
+      { method: 'testX', file: 'tests/XTest.php', line: 3, testCaseName: 'XTest::testX' },
+    ];
+    const refactor = triage({ intent: 'refactor' });
+    const rowAfterTriage = (check: Parameters<typeof bundleWithChecks>[0][number]) =>
+      reconcileMatrixForTriage(
+        buildVerificationMatrix(bundleWithChecks([check])).verificationMatrix,
+        refactor,
+      ).find((m) => m.check === 'A/B Proof-of-Fix');
+
+    const clean = rowAfterTriage({ status: 'PASS', fixed: [], basePassingTests });
+    expect(clean?.status).toBe('PASS');
+
+    const failOnBoth = rowAfterTriage({
+      status: 'PASS',
+      fixed: [],
+      bothFail: ['XTest::testY'],
+      basePassingTests,
+    });
+    expect(failOnBoth).toMatchObject({
+      status: 'WARN',
+      detail: '1 test(s) fail on both base and PR',
+    });
+
+    const broken = rowAfterTriage({ status: 'ERROR', fixed: [], summary: 's', basePassingTests });
+    expect(broken?.status).toBe('NOT_VERIFIED');
+  });
+
   test('tests failing on both sides only warn, an internal runner error is not verified', () => {
     const both = bundleWithChecks([{ status: 'PASS', fixed: [], bothFail: ['X::y'] }]);
     expect(rowOf(both, 'A/B Proof-of-Fix')?.status).toBe('WARN');
